@@ -12,6 +12,8 @@ import subprocess
 import re
 import sys
 
+import karmabot_models as models
+
 
 USER_MESSAGE = re.compile(
     r'^<.?(?P<nick>[a-z0-9_\-\[\]\\^{}|`]*)> (?P<message>.*)$',
@@ -20,8 +22,8 @@ USER_MESSAGE = re.compile(
 
 def karma_parser():
     return subprocess.Popen(
-#        ['./karma-parser'],
-        ['runhaskell', 'karma-parser.hs'],
+        ['./karma-parser'],
+        #['runhaskell', 'karma-parser.hs'],
         bufsize=1, # Line buffered
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE
@@ -36,6 +38,10 @@ def communicate(process, json):
 
 def karma_loader():
     p = karma_parser()
+    session = None
+    if len(sys.argv) > 2:
+        _, Session = models.connect(sys.argv[2])
+        session = Session()
 
     for line in open(sys.argv[1]):
         message = USER_MESSAGE.match(line)
@@ -45,7 +51,15 @@ def karma_loader():
 
             # TODO: make this robust to the process crashing, restart it
             output = communicate(p, json)
+            if session is not None:
+                line_data = simplejson.loads(output)
+                if line_data['karma']:
+                    models.add_karma(session, line_data)
+                    session.flush()
             sys.stdout.write(output)
+
+    if session is not None:
+        session.commit()
 
 
 if __name__ == '__main__':
