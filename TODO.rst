@@ -45,18 +45,18 @@ Parsing
 
 9. Add support for blacklisting certain nick/hosts from interacting with the karmabot
 
-10. Disallow self upvote/downvote/sidevote
+10. Disallow self upvote/downvote/sidevote (SEMI-DONE)
 
 11. Identify if submitted by adium (ie adium does -- -> — just downvote adium as such (adium--)) (FEATURE REQUEST)
 
 12. Karma cap
-    a. Per channel
-    b. Per nick
-    c. Floating/self calculating based on historical data/volume
+	a. Per channel
+	b. Per nick
+	c. Floating/self calculating based on historical data/volume
 
 13. Karma events
-    a. Enough upvote -> \|/ Karma Fountain \|/
-    b. Enough downvote -> Karma Drain
+	a. Enough upvote -> \\|/ Karma Fountain \\|/
+	b. Enough downvote -> Karma Drain
 
 
 Karmator
