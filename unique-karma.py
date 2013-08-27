@@ -22,8 +22,7 @@ USER_MESSAGE = re.compile(
 
 def karma_parser():
     return subprocess.Popen(
-        ['./karma-parser'],
-        #['runhaskell', 'karma-parser.hs'],
+        ['runhaskell', 'KarmaParser/karma-parser.hs'],
         bufsize=1, # Line buffered
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE

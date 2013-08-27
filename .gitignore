@@ -1,2 +1,7 @@
 *.sqlite
 /karma-parser
+*.hi
+*.o
+*.pyc
+/env
+/TestData
