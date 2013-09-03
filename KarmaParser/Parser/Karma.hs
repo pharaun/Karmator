@@ -39,11 +39,20 @@ nickDeFuzzifier = do
         ]
     return $ T.pack nick
 
+-- TODO: Break this out to a nickname module
+--  - First search a strictMatchList for a matching nick to ignore
+--  - If all else fail, scan a list of prefixes to match to the nick (Simple fuzzy matching)
+filterBot :: Config -> T.Text -> Bool
+filterBot c nick = if (nick `elem` (strictMatchList c)) then True else (L.any (\a -> T.isPrefixOf a nick) (prefixMatchList c))
+
+
+
+
 
 -- Entry point of the old karma parser
-karmaParse :: ParsecT T.Text u Identity (Maybe [Karma])
-karmaParse = do
-    msg <- many1 (try (anyToken `manyTillIncludesEnd` karma))
+karmaParse :: Config -> ParsecT T.Text u Identity (Maybe [Karma])
+karmaParse _ = do
+    msg <- many1 (try (anyToken `manyTillIncludesEnd` legacyKarma))
 
     -- Identify each substring's karma type
     let karmaTag = map identifyKarma msg
@@ -61,57 +70,111 @@ manyTillIncludesEnd p end = scan
     where
         scan = (end >>= return) <|> do { x <- p; xs <- scan; return (x:xs) }
 
+legacyKarma :: ParsecT T.Text u Identity String
+legacyKarma = do
+    a <- many1 (choice $ (try . string) `fmap`
+        [ "++"
+        , "--"
+        , "+-"
+        , "-+"
+        , "±"
+        , "∓"
+        , "—" -- For those poor osx users
+        , "＋＋"
+        , "ーー"
+        , "＋ー"
+        , "ー＋"
+        , "⊕⊕"
+        , "⊖⊖"
+        , "⊕⊖"
+        , "⊖⊕"
+        , "⊞⊞"
+        , "⊟⊟"
+        , "⊞⊟"
+        , "⊟⊞"
+        , "ⴱⴱ"
+        , "ⴲⴲ"
+        , "ⴲⴱ"
+        , "ⴱⴲ"
+        ])
+    return $ concat a
+
+
+
+
+
+
 
 -- Protype of the new karma parser
+
+-- TODO: decide what brace we want to use
 leftBrace :: ParsecT T.Text u Identity Char
 leftBrace = (char '(')
 
+-- TODO: decide what brace we want to use
 rightBrace :: ParsecT T.Text u Identity Char
 rightBrace = (char ')')
+
+-- Karma candidates
+karmaCandidateParse :: Config -> [Char]
+karmaCandidateParse conf = map fst (partialKarma conf) ++ map fst (totalKarma conf)
+
+-- Karma
+-- TODO:
+--  - First attempt to eat up as much possible karma candidate
+--  - Then rightmost attempt to identify if there is a valid karma expression in the candidate (ie +-+ -> [+, -+])
+--      - If so, then this is a valid parse for a karma candidate, go ahead and yield this up
+--      - If not so, keep going till you either find a valid parse or exhaust the sequence, if so, fail, put data back
+karma :: Config -> ParsecT T.Text u Identity String
+karma conf = many1 $ oneOf $ karmaCandidateParse conf
 
 nonKarmaParse :: ParsecT T.Text u Identity KarmaCandidates
 nonKarmaParse = KarmaNonCandidate <$> many1 anyChar
 
-simpleKarmaParse :: ParsecT T.Text u Identity KarmaCandidates
-simpleKarmaParse = KarmaCandidate
-    <$> anyChar `manyTill` (lookAhead (karma >> notFollowedBy rightBrace))
-    <*> karma
+simpleKarmaParse :: Config -> ParsecT T.Text u Identity KarmaCandidates
+simpleKarmaParse conf = KarmaCandidate
+    <$> anyChar `manyTill` (lookAhead ((karma conf) >> notFollowedBy rightBrace))
+    <*> (karma conf)
 
-bracedKarmaParse :: ParsecT T.Text u Identity KarmaCandidates
-bracedKarmaParse = KarmaCandidate
-    <$> between (many1 leftBrace) (many1 rightBrace) (anyChar `manyTill` (lookAhead ((many1 rightBrace) >> karma)))
-    <*> karma
+bracedKarmaParse :: Config -> ParsecT T.Text u Identity KarmaCandidates
+bracedKarmaParse conf = KarmaCandidate
+    <$> between (many1 leftBrace) (many1 rightBrace) (anyChar `manyTill` (lookAhead ((many1 rightBrace) >> (karma conf))))
+    <*> (karma conf)
 
-nonBracedKarmaParse :: ParsecT T.Text u Identity KarmaCandidates
-nonBracedKarmaParse = KarmaNonCandidate <$> many1 (noneOf "+(")
+-- TODO: fix up this one to properly do karma subparser
+nonBracedKarmaParse :: Config -> ParsecT T.Text u Identity KarmaCandidates
+nonBracedKarmaParse conf = KarmaNonCandidate <$> many1 (noneOf "+(")
 
-nonKarmaPreBracedKarmaParse :: ParsecT T.Text u Identity [KarmaCandidates]
-nonKarmaPreBracedKarmaParse = sequenceA [nonBracedKarmaParse, bracedKarmaParse]
+nonKarmaPreBracedKarmaParse :: Config -> ParsecT T.Text u Identity [KarmaCandidates]
+nonKarmaPreBracedKarmaParse conf = sequenceA [nonBracedKarmaParse conf, bracedKarmaParse conf]
 
-eatKarmaInsideBracesParse :: ParsecT T.Text u Identity [KarmaCandidates]
-eatKarmaInsideBracesParse = do
+eatKarmaInsideBracesParse :: Config -> ParsecT T.Text u Identity [KarmaCandidates]
+eatKarmaInsideBracesParse conf = do
     before <- many1 leftBrace
-    expr <- anyChar `manyTill` (lookAhead ((many1 rightBrace) >> notFollowedBy karma))
+    expr <- anyChar `manyTill` (lookAhead ((many1 rightBrace) >> notFollowedBy (karma conf)))
     after <- many1 rightBrace
 
     return [KarmaNonCandidate (before ++ expr ++ after)]
 
-nestedKarmaParse :: ParsecT T.Text u Identity [KarmaCandidates]
-nestedKarmaParse = concat `fmap` many1 (choice
-        [ try nonKarmaPreBracedKarmaParse
-        , fmap pure $ try bracedKarmaParse
-        , fmap pure $ try simpleKarmaParse
-        , try eatKarmaInsideBracesParse
+nestedKarmaParse :: Config -> ParsecT T.Text u Identity [KarmaCandidates]
+nestedKarmaParse conf = concat `fmap` many1 (choice
+        [ try (nonKarmaPreBracedKarmaParse conf)
+        , fmap pure $ try (bracedKarmaParse conf)
+        , fmap pure $ try (simpleKarmaParse conf)
+        , try (eatKarmaInsideBracesParse conf)
         , fmap pure $ nonKarmaParse
         ])
 
+
+
+
+
+
+
+
+
 -- TODO: Finally take the KarmaCandidate list and process then to determite which ones are
 --  ACTUAL Karma results to be emitted to stdout
-
-
-
-
-
 
 identifyKarma :: String -> (String, Maybe KarmaType)
 identifyKarma msg =
@@ -159,38 +222,3 @@ singleKarmaType '±' = Just Sidevote
 singleKarmaType '∓' = Just Sidevote
 singleKarmaType '—' = Just Downvote
 singleKarmaType _   = Nothing
-
-karma :: ParsecT T.Text u Identity String
-karma = do
-    a <- many1 (choice $ (try . string) `fmap`
-        [ "++"
-        , "--"
-        , "+-"
-        , "-+"
-        , "±"
-        , "∓"
-        , "—" -- For those poor osx users
-        , "＋＋"
-        , "ーー"
-        , "＋ー"
-        , "ー＋"
-        , "⊕⊕"
-        , "⊖⊖"
-        , "⊕⊖"
-        , "⊖⊕"
-        , "⊞⊞"
-        , "⊟⊟"
-        , "⊞⊟"
-        , "⊟⊞"
-        , "ⴱⴱ"
-        , "ⴲⴲ"
-        , "ⴲⴱ"
-        , "ⴱⴲ"
-        ])
-    return $ concat a
-
--- TODO: Break this out to a nickname module
---  - First search a strictMatchList for a matching nick to ignore
---  - If all else fail, scan a list of prefixes to match to the nick (Simple fuzzy matching)
-filterBot :: Config -> T.Text -> Bool
-filterBot c nick = if (nick `elem` (strictMatchList c)) then True else (L.any (\a -> T.isPrefixOf a nick) (prefixMatchList c))

@@ -8,7 +8,7 @@ import Text.Parsec
 import Parser.Karma
 import Parser.Types
 
-karma n = either (\_ -> Nothing) (\a -> Just a) (parse karmaParse "(stdin)" $ T.pack n)
+karma n = either (\_ -> Nothing) (\a -> Just a) (parse (karmaParse $ Config [] [] [] []) "(stdin)" $ T.pack n)
 nick n = either (\_ -> Nothing) (\a -> Just a) (parse nickDeFuzzifier "(stdin)" $ T.pack n)
 
 main :: IO ()
@@ -69,7 +69,7 @@ nickData =
 --
 -- Identifying bots and filtering
 --
-makeConfig = Config ["karmator"] ["websphere"]
+makeConfig = Config ["karmator"] ["websphere"] [] []
 buildFilterTests = TestList . map (\bot  -> TestLabel bot (botFilterTest bot))
 botFilterTest bot = TestCase (assertEqual ("Filters out: " ++ bot) True (filterBot makeConfig $ T.pack bot))
 
@@ -90,8 +90,9 @@ botData =
 --
 -- NewKarmaType test cases
 --
+makeKarmaConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)]
 buildNewKarmaTests = TestList . map (\(str, karma) -> TestLabel "" (newKarmaTest str karma))
-newKarmaTest str karma = TestCase (assertEqual "" (Just karma) (either (\_ -> Nothing) (\a -> Just a) (parse nestedKarmaParse "(stdin)" $ T.pack str)))
+newKarmaTest str karma = TestCase (assertEqual "" (Just karma) (either (\_ -> Nothing) (\a -> Just a) (parse (nestedKarmaParse $ makeKarmaConfig) "(stdin)" $ T.pack str)))
 
 newKarmaData :: [(String, [KarmaCandidates])]
 newKarmaData =
@@ -133,6 +134,12 @@ newKarmaData =
     -- Additional wrinkles re we want to eat some of this but not others
     , ("(a++) b++", [KarmaNonCandidate "(a++)", KarmaCandidate " b" "++"])
     , ("((a++)) b++", [KarmaNonCandidate "((a++))", KarmaCandidate " b" "++"])
+
+    -- Partial karma (we want to be rightmost)
+    , ("a+++", [KarmaCandidate "a" "+++"])
+
+    -- TODO:
+    --  - Deal with partial vs total karma (IE +±+ -> (+, Sidevote), (+, Noncandiate))
 
     -- TODO:
     --  - Preincrement karma (deal with them in parsing)

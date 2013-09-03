@@ -3,6 +3,7 @@ module Parser.Types
     ( IrcMessage(..)
     , KarmaReply(..)
     , KarmaType(..)
+    , PartialKarmaType(..)
     , Karma(..)
     , KarmaCandidates(..)
     , Config(..)
@@ -45,7 +46,11 @@ instance ToJSON KarmaReply where
 
 
 data KarmaType = Upvote | Downvote | Sidevote
-    deriving (Show, Eq)
+    deriving (Show, Read, Eq)
+
+data PartialKarmaType = Up | Down | Side
+    deriving (Show, Read, Eq)
+
 
 -- Final karma results
 data Karma = Karma
@@ -80,4 +85,8 @@ data KarmaCandidates = KarmaCandidate
 data Config = Config
     { strictMatchList :: [T.Text]
     , prefixMatchList :: [T.Text]
+
+    , partialKarma :: [ (Char, PartialKarmaType) ]
+    , totalKarma :: [ (Char, KarmaType) ]
+
     } deriving (Show)

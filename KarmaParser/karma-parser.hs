@@ -29,7 +29,6 @@ main = do
     hSetBuffering stdin LineBuffering
     hSetBuffering stdout LineBuffering
 
---    config <- getConfig "parser.cfg"
     config <- getConfig "KarmaParser/parser.cfg"
     parsingLoop stdin stdout config
 
@@ -56,7 +55,7 @@ main = do
                                 (Right n) -> n
 
                         -- Parse the message
-                        let karma = parse karmaParse "(stdin)" $ ircMessage j
+                        let karma = parse (karmaParse config) "(stdin)" $ ircMessage j
 
                         case karma of
                             (Left _)  -> KarmaReply (Just nick) Nothing Nothing -- Failed to find a karma entry
@@ -83,7 +82,11 @@ getConfig conf = do
         strictMatch <- get c "nick_filtering" "strict_match"
         prefixMatch <- get c "nick_filtering" "prefix_match"
 
-        return $ Config strictMatch prefixMatch
+        -- Force the Parser to invoke Read on the Partial/KarmaTypes
+        partialKarma <- get c "karma_types" "partial" :: Either CPError [ (Char, PartialKarmaType) ]
+        totalKarma <- get c "karma_types" "total" :: Either CPError [ (Char, KarmaType) ]
+
+        return $ Config strictMatch prefixMatch partialKarma totalKarma
 
     case config of
         Left cperr   -> error $ show cperr
