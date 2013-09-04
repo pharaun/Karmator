@@ -117,10 +117,13 @@ newKarmaData =
     , ("a (b)++", [KarmaNonCandidate "a ", KarmaCandidate "b" "++"])
     , ("a (b++)++", [KarmaNonCandidate "a ", KarmaCandidate "b++" "++"])
 
-    -- TESTS: uncertain about behavors
+    -- TESTS: uncertain about behavors -- Probably better to only parse one set of braces
     , ("((a))++", [KarmaCandidate "a" "++"])
     , ("a (b++)++", [KarmaNonCandidate "a ", KarmaCandidate "b++" "++"])
     , ("a ((b++))++", [KarmaNonCandidate "a ", KarmaCandidate "b++" "++"])
+    , ("(a (b))++", [KarmaCandidate "a (b)" "++"])
+    , ("((a (b)))++", [KarmaCandidate "a (b)" "++"])
+    , ("((a) b))++", [KarmaCandidate "(a) b)" "++"])
 
     -- TESTS: Should extend the parser to care about karma inside braces only if there's no karma outside braces?
     -- Maybe a nice way to "escape" karma without karma'ing
@@ -137,14 +140,32 @@ newKarmaData =
 
     -- Partial karma (we want to be rightmost)
     , ("a+++", [KarmaCandidate "a" "+++"])
+    , ("a+±+", [KarmaCandidate "a" "+±+"])
+    , ("a+±", [KarmaCandidate "a" "+±"])
+    , ("a±", [KarmaCandidate "a" "±"])
+    , ("a+", [KarmaNonCandidate "a+"])
 
-    -- TODO:
-    --  - Deal with partial vs total karma (IE +±+ -> (+, Sidevote), (+, Noncandiate))
+    -- Concat/preinc karma
+    , ("++a", [KarmaCandidate "" "++", KarmaNonCandidate "a"])
+    , ("++a++", [KarmaCandidate "" "++", KarmaCandidate "a" "++"])
+    , ("(++a)++", [KarmaCandidate "++a" "++"])
 
-    -- TODO:
-    --  - Preincrement karma (deal with them in parsing)
-    --  - (++(a))++ -> ++(a) upvote
-    --  - test white space between () for karma upvotes such as ( (a) )++
+    -- Brace whitespaces
+    , ("( a)++", [KarmaCandidate " a" "++"])
+    , ("(a )++", [KarmaCandidate "a " "++"])
+    , ("( a )++", [KarmaCandidate " a " "++"])
+    , ("( (a) )++", [KarmaCandidate " (a) " "++"])
+    , ("((a) )++", [KarmaCandidate "(a) " "++"])
+    , ("( (a))++", [KarmaCandidate " (a)" "++"])
+
+    -- Complicated brace/karma nesting
+    , ("((a)++)++", [KarmaCandidate "(a)++" "++"])
+    , ("((a)++ )++", [KarmaCandidate "(a)++ " "++"])
+    , ("((a++)++ )++", [KarmaCandidate "(a++)++" "++"])
+
+    -- Misc
+    , ("./bin --gnu-lol", [KarmaCandidate "./bin " "--", KarmaNonCandidate "gnu-lol"])
+    , ("a--b", [KarmaCandidate "a" "--", KarmaNonCandidate "b"])
     ]
 
 
