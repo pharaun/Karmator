@@ -107,6 +107,17 @@ legacyKarma = do
 
 -- Protype of the new karma parser
 
+-- Brace choice Breakdown:
+--  - From a corpus of 25,000 irc messages
+--
+-- {} - 77   - 28941
+-- `` - 206  - 80813
+-- [] - 231  - 215417
+-- <> - 544  - 161483
+-- "" - 982  - 549037
+-- () - 1570 - 1013058
+-- '' - 1691 - 1602736
+
 -- TODO: decide what brace we want to use
 leftBrace :: ParsecT T.Text u Identity Char
 leftBrace = char '('
