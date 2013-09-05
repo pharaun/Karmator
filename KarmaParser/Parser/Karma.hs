@@ -109,24 +109,28 @@ legacyKarma = do
 
 -- TODO: decide what brace we want to use
 leftBrace :: ParsecT T.Text u Identity Char
-leftBrace = (char '(')
+leftBrace = char '('
 
 -- TODO: decide what brace we want to use
 rightBrace :: ParsecT T.Text u Identity Char
-rightBrace = (char ')')
-
--- Karma candidates
-karmaCandidateParse :: Config -> [Char]
-karmaCandidateParse conf = map fst (partialKarma conf) ++ map fst (totalKarma conf)
+rightBrace = char ')'
 
 -- Karma
--- TODO:
---  - First attempt to eat up as much possible karma candidate
---  - Then rightmost attempt to identify if there is a valid karma expression in the candidate (ie +-+ -> [+, -+])
---      - If so, then this is a valid parse for a karma candidate, go ahead and yield this up
---      - If not so, keep going till you either find a valid parse or exhaust the sequence, if so, fail, put data back
+-- Check for one total karma
+--  - If there is one, eat the rest and return the whole thing
+--  - If there isn't one, eat the rest and check that there is at least 2 and return the whole thing
 karma :: Config -> ParsecT T.Text u Identity String
-karma conf = many1 $ oneOf $ karmaCandidateParse conf
+karma conf = do
+    firstTotal <- optionMaybe $ oneOf $ karmaTotal conf
+
+    case firstTotal of
+        Just x -> restOfKarma conf >>= \y -> return $ x:y
+        Nothing -> concat `fmap` sequenceA [count 2 (oneOf $ karmaCandidate conf), restOfKarma conf]
+    where
+        karmaTotal = map fst . totalKarma
+        karmaCandidate conf = map fst (partialKarma conf) ++ map fst (totalKarma conf)
+        restOfKarma = many . oneOf . karmaCandidate
+
 
 nonKarmaParse :: ParsecT T.Text u Identity KarmaCandidates
 nonKarmaParse = KarmaNonCandidate <$> many1 anyChar
@@ -164,8 +168,6 @@ nestedKarmaParse conf = concat `fmap` many1 (choice
         , try (eatKarmaInsideBracesParse conf)
         , fmap pure $ nonKarmaParse
         ])
-
-
 
 
 
