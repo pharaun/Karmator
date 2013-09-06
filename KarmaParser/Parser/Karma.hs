@@ -165,7 +165,9 @@ bracedKarmaParse conf = do
 
 -- TODO: fix up this one to properly do karma subparser
 nonBracedKarmaParse :: Config -> ParsecT T.Text u Identity KarmaCandidates
-nonBracedKarmaParse conf = KarmaNonCandidate <$> many1 (noneOf "+(")
+nonBracedKarmaParse conf = KarmaNonCandidate <$> many1 (noneOf (openBrace conf : karmaCandidate conf))
+    where
+        karmaCandidate conf = map fst (partialKarma conf) ++ map fst (totalKarma conf)
 
 nonKarmaPreBracedKarmaParse :: Config -> ParsecT T.Text u Identity [KarmaCandidates]
 nonKarmaPreBracedKarmaParse conf = sequenceA [nonBracedKarmaParse conf, bracedKarmaParse conf]
