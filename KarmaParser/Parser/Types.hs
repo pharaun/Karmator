@@ -89,4 +89,7 @@ data Config = Config
     , partialKarma :: [ (Char, PartialKarmaType) ]
     , totalKarma :: [ (Char, KarmaType) ]
 
+    , openBrace :: Char
+    , closeBrace :: Char
+
     } deriving (Show)

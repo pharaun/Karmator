@@ -83,10 +83,14 @@ getConfig conf = do
         prefixMatch <- get c "nick_filtering" "prefix_match"
 
         -- Force the Parser to invoke Read on the Partial/KarmaTypes
-        partialKarma <- get c "karma_types" "partial" :: Either CPError [ (Char, PartialKarmaType) ]
-        totalKarma <- get c "karma_types" "total" :: Either CPError [ (Char, KarmaType) ]
+        partialKarma <- get c "karma_parsing" "partial" :: Either CPError [ (Char, PartialKarmaType) ]
+        totalKarma <- get c "karma_parsing" "total" :: Either CPError [ (Char, KarmaType) ]
 
-        return $ Config strictMatch prefixMatch partialKarma totalKarma
+        -- Braces
+        open <- get c "karma_parsing" "open_brace"
+        close <- get c "karma_parsing" "close_brace"
+
+        return $ Config strictMatch prefixMatch partialKarma totalKarma open close
 
     case config of
         Left cperr   -> error $ show cperr

@@ -119,12 +119,12 @@ legacyKarma = do
 -- '' - 1691 - 1602736
 
 -- TODO: decide what brace we want to use
-leftBrace :: ParsecT T.Text u Identity Char
-leftBrace = char '('
+leftBrace :: Config -> ParsecT T.Text u Identity Char
+leftBrace = char . openBrace
 
 -- TODO: decide what brace we want to use
-rightBrace :: ParsecT T.Text u Identity Char
-rightBrace = char ')'
+rightBrace :: Config -> ParsecT T.Text u Identity Char
+rightBrace = char . closeBrace
 
 -- Karma
 -- Check for one total karma
@@ -148,13 +148,20 @@ nonKarmaParse = KarmaNonCandidate <$> many1 anyChar
 
 simpleKarmaParse :: Config -> ParsecT T.Text u Identity KarmaCandidates
 simpleKarmaParse conf = KarmaCandidate
-    <$> anyChar `manyTill` (lookAhead ((karma conf) >> notFollowedBy rightBrace))
+    <$> anyChar `manyTill` (lookAhead ((karma conf) >> (notFollowedBy $ rightBrace conf)))
     <*> (karma conf)
 
 bracedKarmaParse :: Config -> ParsecT T.Text u Identity KarmaCandidates
-bracedKarmaParse conf = KarmaCandidate
-    <$> between (many1 leftBrace) (many1 rightBrace) (anyChar `manyTill` (lookAhead ((many1 rightBrace) >> (karma conf))))
-    <*> (karma conf)
+bracedKarmaParse conf = do
+    before <- (L.drop 1) `fmap` (many1 $ leftBrace conf)
+    expr <- anyChar `manyTill` (lookAhead ((many1 $ rightBrace conf) >> (karma conf)))
+
+    a <- many1 $ rightBrace conf
+    let after = L.take (L.length a - 1) a
+
+    karma <- karma conf
+
+    return $ KarmaCandidate (before ++ expr ++ after) karma
 
 -- TODO: fix up this one to properly do karma subparser
 nonBracedKarmaParse :: Config -> ParsecT T.Text u Identity KarmaCandidates
@@ -165,9 +172,9 @@ nonKarmaPreBracedKarmaParse conf = sequenceA [nonBracedKarmaParse conf, bracedKa
 
 eatKarmaInsideBracesParse :: Config -> ParsecT T.Text u Identity [KarmaCandidates]
 eatKarmaInsideBracesParse conf = do
-    before <- many1 leftBrace
-    expr <- anyChar `manyTill` (lookAhead ((many1 rightBrace) >> notFollowedBy (karma conf)))
-    after <- many1 rightBrace
+    before <- many1 $ leftBrace conf
+    expr <- anyChar `manyTill` (lookAhead ((many1 $ rightBrace conf) >> notFollowedBy (karma conf)))
+    after <- many1 $ rightBrace conf
 
     return [KarmaNonCandidate (before ++ expr ++ after)]
 

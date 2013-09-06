@@ -8,7 +8,7 @@ import Text.Parsec
 import Parser.Karma
 import Parser.Types
 
-karma n = either (\_ -> Nothing) (\a -> Just a) (parse (karmaParse $ Config [] [] [] []) "(stdin)" $ T.pack n)
+karma n = either (\_ -> Nothing) (\a -> Just a) (parse (karmaParse $ Config [] [] [] [] '(' ')') "(stdin)" $ T.pack n)
 nick n = either (\_ -> Nothing) (\a -> Just a) (parse nickDeFuzzifier "(stdin)" $ T.pack n)
 
 main :: IO ()
@@ -69,7 +69,7 @@ nickData =
 --
 -- Identifying bots and filtering
 --
-makeConfig = Config ["karmator"] ["websphere"] [] []
+makeConfig = Config ["karmator"] ["websphere"] [] [] '(' ')'
 buildFilterTests = TestList . map (\bot  -> TestLabel bot (botFilterTest bot))
 botFilterTest bot = TestCase (assertEqual ("Filters out: " ++ bot) True (filterBot makeConfig $ T.pack bot))
 
@@ -90,7 +90,7 @@ botData =
 --
 -- NewKarmaType test cases
 --
-makeKarmaConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)]
+makeKarmaConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)] '(' ')'
 buildNewKarmaTests = TestList . map (\(str, karma) -> TestLabel "" (newKarmaTest str karma))
 newKarmaTest str karma = TestCase (assertEqual "" (Just karma) (either (\_ -> Nothing) (\a -> Just a) (parse (nestedKarmaParse $ makeKarmaConfig) "(stdin)" $ T.pack str)))
 
@@ -118,11 +118,11 @@ newKarmaData =
     , ("a (b++)++", [KarmaNonCandidate "a ", KarmaCandidate "b++" "++"])
 
     -- TESTS: uncertain about behavors -- Probably better to only parse one set of braces
-    , ("((a))++", [KarmaCandidate "a" "++"])
+    , ("((a))++", [KarmaCandidate "(a)" "++"])
     , ("a (b++)++", [KarmaNonCandidate "a ", KarmaCandidate "b++" "++"])
-    , ("a ((b++))++", [KarmaNonCandidate "a ", KarmaCandidate "b++" "++"])
+    , ("a ((b++))++", [KarmaNonCandidate "a ", KarmaCandidate "(b++)" "++"])
     , ("(a (b))++", [KarmaCandidate "a (b)" "++"])
-    , ("((a (b)))++", [KarmaCandidate "a (b)" "++"])
+    , ("((a (b)))++", [KarmaCandidate "(a (b))" "++"])
     , ("((a) b))++", [KarmaCandidate "(a) b)" "++"])
 
     -- TESTS: Should extend the parser to care about karma inside braces only if there's no karma outside braces?
@@ -161,7 +161,7 @@ newKarmaData =
     -- Complicated brace/karma nesting
     , ("((a)++)++", [KarmaCandidate "(a)++" "++"])
     , ("((a)++ )++", [KarmaCandidate "(a)++ " "++"])
-    , ("((a++)++ )++", [KarmaCandidate "(a++)++" "++"])
+    , ("((a++)++ )++", [KarmaCandidate "(a++)++ " "++"])
 
     -- Misc
     , ("./bin --gnu-lol", [KarmaCandidate "./bin " "--", KarmaNonCandidate "gnu-lol"])
