@@ -43,7 +43,7 @@ nickDeFuzzifier = do
 --  - First search a strictMatchList for a matching nick to ignore
 --  - If all else fail, scan a list of prefixes to match to the nick (Simple fuzzy matching)
 filterBot :: Config -> T.Text -> Bool
-filterBot c nick = if (nick `elem` (strictMatchList c)) then True else (L.any (\a -> T.isPrefixOf a nick) (prefixMatchList c))
+filterBot c nick = nick `elem` strictMatchList c || L.any (`T.isPrefixOf` nick) (prefixMatchList c)
 
 
 
@@ -56,19 +56,19 @@ karmaParse _ = do
 
     -- Identify each substring's karma type
     let karmaTag = map identifyKarma msg
-    let karma = mapMaybe (\a -> case (snd a) of
+    let karma = mapMaybe (\a -> case snd a of
                                     (Just k) -> Just $ Karma k (T.strip $ T.toLower $ T.pack $ fst a)
                                     Nothing  -> Nothing)
                     karmaTag
 
-    if null karma
-    then return Nothing
-    else return $ Just karma
+    return $ if null karma
+             then Nothing
+             else Just karma
 
 manyTillIncludesEnd :: (Stream s m t) => ParsecT s u m a -> ParsecT s u m [a] -> ParsecT s u m [a]
 manyTillIncludesEnd p end = scan
     where
-        scan = (end >>= return) <|> do { x <- p; xs <- scan; return (x:xs) }
+        scan = end <|> do { x <- p; xs <- scan; return (x:xs) }
 
 legacyKarma :: ParsecT T.Text u Identity String
 legacyKarma = do
@@ -148,13 +148,13 @@ nonKarmaParse = KarmaNonCandidate <$> many1 anyChar
 
 simpleKarmaParse :: Config -> ParsecT T.Text u Identity KarmaCandidates
 simpleKarmaParse conf = KarmaCandidate
-    <$> anyChar `manyTill` (lookAhead ((karma conf) >> (notFollowedBy $ rightBrace conf)))
-    <*> (karma conf)
+    <$> anyChar `manyTill` lookAhead (karma conf >> notFollowedBy (rightBrace conf))
+    <*> karma conf
 
 bracedKarmaParse :: Config -> ParsecT T.Text u Identity KarmaCandidates
 bracedKarmaParse conf = do
-    before <- (L.drop 1) `fmap` (many1 $ leftBrace conf)
-    expr <- anyChar `manyTill` (lookAhead ((many1 $ rightBrace conf) >> (karma conf)))
+    before <- L.drop 1 `fmap` many1 (leftBrace conf)
+    expr <- anyChar `manyTill` lookAhead (many1 (rightBrace conf) >> karma conf)
 
     a <- many1 $ rightBrace conf
     let after = L.take (L.length a - 1) a
@@ -175,7 +175,7 @@ nonKarmaPreBracedKarmaParse conf = sequenceA [nonBracedKarmaParse conf, bracedKa
 eatKarmaInsideBracesParse :: Config -> ParsecT T.Text u Identity [KarmaCandidates]
 eatKarmaInsideBracesParse conf = do
     before <- many1 $ leftBrace conf
-    expr <- anyChar `manyTill` (lookAhead ((many1 $ rightBrace conf) >> notFollowedBy (karma conf)))
+    expr <- anyChar `manyTill` lookAhead (many1 (rightBrace conf) >> notFollowedBy (karma conf))
     after <- many1 $ rightBrace conf
 
     return [KarmaNonCandidate (before ++ expr ++ after)]
@@ -186,7 +186,7 @@ nestedKarmaParse conf = concat `fmap` many1 (choice
         , fmap pure $ try (bracedKarmaParse conf)
         , fmap pure $ try (simpleKarmaParse conf)
         , try (eatKarmaInsideBracesParse conf)
-        , fmap pure $ nonKarmaParse
+        , fmap pure nonKarmaParse
         ])
 
 
@@ -206,7 +206,7 @@ identifyKarma msg =
         let (m1, k1) = (init msg, last msg) in
         if T.null $ T.strip $ T.pack m1
         then (m1, Nothing)
-        else case (singleKarmaType k1) of
+        else case singleKarmaType k1 of
             (Just k) -> (m1, Just k)
             Nothing  -> do
                 let (m2, k2) = L.splitAt (L.length msg - 2) msg

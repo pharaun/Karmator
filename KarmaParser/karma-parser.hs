@@ -62,11 +62,11 @@ main = do
             case parsed of
                 (Left e)  -> KarmaReply Nothing Nothing (Just e)
                 (Right j) ->
-                    if (filterBot config) $ ircNick j
+                    if filterBot config $ ircNick j
                     then KarmaReply (Just $ ircNick j) Nothing Nothing
                     else do
                         -- Clean up the nick
-                        let nick = case (parse nickDeFuzzifier "(stdin)" $ ircNick j) of
+                        let nick = case parse nickDeFuzzifier "(stdin)" $ ircNick j of
                                 (Left _)  -> ircNick j
                                 (Right n) -> n
 
@@ -85,7 +85,7 @@ sendReply :: Handle -> KarmaReply -> IO ()
 sendReply o r = B.hPut o $ B.concat $ (BL.toChunks $ encode r) ++ [fromString "\n"]
 
 filterKarma :: [T.Text] -> [Karma] -> [Karma]
-filterKarma n k = filter (\Karma{kMessage=msg} -> msg `DL.notElem` n) k
+filterKarma n = filter (\Karma{kMessage=msg} -> msg `DL.notElem` n)
 
 -- Load the config
 getConfig :: FilePath -> IO Config
