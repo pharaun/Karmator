@@ -168,7 +168,7 @@ def main(reactor, database_uri, irc_endpoint, web_endpoint, *args):
     karma_queue = defer.DeferredQueue()
     irc_fac = KarmabotFactory(Session, kwargs, karma_queue)
 
-    karma_parser_endpoint = endpoints.ProcessEndpoint(reactor, './karma-parser', ['./karma-parser'])
+    karma_parser_endpoint = endpoints.ProcessEndpoint(reactor, './karma-parser', ['./karma-parser'], env={'LANG': 'en_US.UTF-8'})
     karma_parser_fac = KarmaProcessorFactory(Session, karma_queue)
 
     def connect_func(endpoint, fac):
