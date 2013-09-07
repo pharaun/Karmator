@@ -1,15 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
-import System.IO (stdin, stdout, stderr, hSetBuffering, BufferMode(..), hPrint, hIsEOF, Handle)
+import System.IO (stdin, stdout, stderr, hSetBuffering, BufferMode(..), hPrint, hIsEOF, Handle, hSetEncoding, utf8)
 import Control.Monad (mzero, unless, liftM)
 
 -- Json parsing
 import Control.Applicative ((<$>), (<*>), pure)
 import Data.Aeson
 
--- TODO: Make it utf8 sensitive (aeson + UTF8.string, etc)
+import Data.ByteString.UTF8 (fromString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Char8 as C8
 import qualified Data.Text as T
 import qualified Data.List as DL
 
@@ -22,6 +21,9 @@ import Parser.Types
 
 -- Configuration
 import Data.ConfigFile
+import System.IO.UTF8 (readFile)
+import Prelude hiding (readFile)
+import System.Environment.UTF8 (getArgs)
 
 
 main :: IO ()
@@ -29,10 +31,24 @@ main = do
     hSetBuffering stdin LineBuffering
     hSetBuffering stdout LineBuffering
 
-    config <- getConfig "KarmaParser/parser.cfg"
-    parsingLoop stdin stdout config
+    -- Force the encoding to utf8, this is only communicating with a wrapping program which
+    -- emits and digests strings in utf8 format.
+    hSetEncoding stdin utf8
+    hSetEncoding stdout utf8
+
+    configFile <- parseArgs `fmap` getArgs
+
+    case configFile of
+        Just x  -> do
+            config <- getConfig x
+            parsingLoop stdin stdout config
+        Nothing -> putStrLn "Please provide one parser config file."
 
     where
+        parseArgs :: [String] -> Maybe String
+        parseArgs [x] = Just x
+        parseArgs _   = Nothing
+
         parsingLoop :: Handle -> Handle -> Config -> IO ()
         parsingLoop i o c = do
             done <- hIsEOF i
@@ -66,7 +82,7 @@ main = do
                                 KarmaReply (Just nick) filteredKarma Nothing
 
 sendReply :: Handle -> KarmaReply -> IO ()
-sendReply o = C8.hPutStrLn o . B.concat . BL.toChunks . encode
+sendReply o r = B.hPut o $ B.concat $ (BL.toChunks $ encode r) ++ [fromString "\n"]
 
 filterKarma :: [T.Text] -> [Karma] -> [Karma]
 filterKarma n k = filter (\Karma{kMessage=msg} -> msg `DL.notElem` n) k
