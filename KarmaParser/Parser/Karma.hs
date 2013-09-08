@@ -4,11 +4,11 @@ module Parser.Karma
     , Karma(..)
     , karmaParse
     , nestedKarmaParse
+    , trialKarmaParse
     , nickDeFuzzifier
     , filterBot
     ) where
 
--- TODO: Make it utf8 sensitive (aeson + UTF8.string, etc)
 import qualified Data.Text as T
 
 -- Parsec
@@ -22,9 +22,6 @@ import Data.Maybe
 import Control.Applicative hiding ((<|>), many, optional)
 
 import Data.Traversable (sequenceA)
-
--- TODO: testing only
-import Test.HUnit hiding (test)
 
 import Parser.Types
 
@@ -190,13 +187,62 @@ nestedKarmaParse conf = concat `fmap` many1 (choice
         ])
 
 
-
-
-
-
-
 -- TODO: Finally take the KarmaCandidate list and process then to determite which ones are
 --  ACTUAL Karma results to be emitted to stdout
+trialKarmaParse :: Config -> ParsecT T.Text u Identity (Maybe [Karma])
+trialKarmaParse conf = processCandidates conf `fmap` nestedKarmaParse conf
+    where
+        processCandidates :: Config -> [KarmaCandidates] -> Maybe [Karma]
+        processCandidates conf candidates
+            -- If no candidate just exit
+            | L.null candidates = Nothing
+
+            -- If only one possible candidate just process it and exit early
+            | L.length candidates == 1 = case head candidates of
+                KarmaNonCandidate{} -> Nothing
+                KarmaCandidate{kcMessage=msg, kcKarma=karma} ->
+                    case evalulateKarma conf karma of
+                        (e, Just k)  -> Just [Karma k (T.pack $ msg ++ e)]
+                        (_, Nothing) -> Nothing
+
+            -- Process the rest here
+            | otherwise = do
+                Nothing
+
+-- Evalulate in a rightmost manner, and return the remainder of the karma
+evalulateKarma :: Config -> String -> (String, Maybe KarmaType)
+evalulateKarma conf karma
+    | L.null karma        = ("", Nothing)
+    | L.length karma == 1 = lookupTotalKarma conf karma
+    | otherwise           = lookupPartialKarma conf karma
+
+    where
+        lookupTotalKarma conf karma =
+            let tk = L.lookup (L.head $ L.reverse karma) $ totalKarma conf
+            in case tk of
+                Just k  -> (L.take (L.length karma - 1) karma, Just k)
+                Nothing -> ("", Nothing)
+
+        lookupPartialKarma conf karma =
+            let pk  = L.lookup (L.head $ L.reverse karma) $ partialKarma conf
+                pk' = L.lookup (L.head $ L.tail $ L.reverse karma) $ partialKarma conf
+            in case (pk, pk') of
+                (Nothing, _) -> lookupTotalKarma conf karma
+                (Just _, Nothing) -> lookupTotalKarma conf (L.init karma)
+                (Just k, Just k') -> (L.take (L.length karma - 2) karma, Just $ partalToTotal k k')
+
+        partalToTotal Up Up = Upvote
+        partalToTotal Down Down = Downvote
+        partalToTotal _ _ = Sidevote
+
+
+-- Clean up and standardize the resulting karma string
+--  - Text.ICU.Normalize
+--  - Normalize it to NFKC
+--  - Casefold(?) or would just lowercase be acceptable
+
+
+
 
 identifyKarma :: String -> (String, Maybe KarmaType)
 identifyKarma msg =

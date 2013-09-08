@@ -3,12 +3,12 @@ import Test.HUnit
 import Test.QuickCheck
 
 import qualified Data.Text as T
+import qualified Data.List as L
 
 import Text.Parsec
 import Parser.Karma
 import Parser.Types
 
-karma n = either (\_ -> Nothing) (\a -> Just a) (parse (karmaParse $ Config [] [] [] [] '(' ')') "(stdin)" $ T.pack n)
 nick n = either (\_ -> Nothing) (\a -> Just a) (parse nickDeFuzzifier "(stdin)" $ T.pack n)
 
 main :: IO ()
@@ -23,17 +23,14 @@ main = do
     print =<< runTestTT filterTest
 
     putStrLn ""
-    putStrLn "Quickcheck Karma Type:"
+    putStrLn "Testing new karma edge cases"
+    let newKarmaTest = buildNewKarmaTests newKarmaData
+    print =<< runTestTT newKarmaTest
 
     putStrLn ""
     putStrLn "Karma Edge case tests:"
     let karmaTest = buildKarmaTests karmaData
     print =<< runTestTT karmaTest
-
-    putStrLn ""
-    putStrLn "Testing new karma edge cases"
-    let newKarmaTest = buildNewKarmaTests newKarmaData
-    print =<< runTestTT newKarmaTest
 
 --
 -- Nick name Defuzzifier tests
@@ -168,102 +165,165 @@ newKarmaData =
     , ("a--b", [KarmaCandidate "a" "--", KarmaNonCandidate "b"])
     ]
 
-
 --
 -- Karma Parsing tests
 --
-buildKarmaTests = TestList . map (\(src, dst) -> TestLabel (src ++ " -> " ++ (show dst)) (karmaTest src dst))
-karmaTest src dst = TestCase (assertEqual ("Karma Edgecases: " ++ src ++ " -> " ++ (show dst)) (prepareData dst) (karma src))
-prepareData xs
-    | null xs   = Just (Nothing)
-    | otherwise = Just (Just xs)
+makeKarmaParseConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)] '(' ')'
+buildKarmaTests = TestList . map (\(src, dst) -> TestLabel "" (karmaTest src dst))
+karmaTest str result = TestCase (assertEqual "" (if L.null result then Nothing else Just result) (either (\_ -> Nothing) (\a -> a) (parse (trialKarmaParse $ makeKarmaParseConfig) "(stdin)" $ T.pack str)))
+
 
 karmaData :: [(String, [Karma])]
 karmaData =
-    -- Trivial cases first
---    [ ("", [])
-    [ ("a++", [Karma Upvote "a"])
-    , ("a--", [Karma Downvote "a"])
-    , ("a+-", [Karma Sidevote "a"])
-    , ("a-+", [Karma Sidevote "a"])
+    [ ("", [])
+    , ("a", [])
+    , ("a+", [])
+    , ("a-", [])
 
-    -- Multi-karma cases
+    -- Parse trivial karma
     , ("a++", [Karma Upvote "a"])
-    , ("a+++", [Karma Upvote "a"])
-    , ("a++++", [Karma Upvote "a++"])
-    , ("a+++++", [Karma Upvote "a++"])
-    , ("++--", [Karma Downvote "++"])
-    , ("--++", [Karma Upvote "--"])
+    , ("a--" [Karma Downvote "a"])
+    , ("a+-" [Karma Sidevote "a"])
+    , ("a-+" [Karma Sidevote "a"])
+    , ("a±", [Karma Sidevote "a"])
 
-    -- Multi-karma in one expression
-    , ("a++ a++", [Karma Upvote "a", Karma Upvote "a"])
-    , ("a++ b++", [Karma Upvote "a", Karma Upvote "b"])
-    , ("ikea++ modular furniture++ meatballs++", [Karma Upvote "ikea", Karma Upvote "modular furniture", Karma Upvote "meatballs"])
-    , ("a: ++", [Karma Upvote "a"])
-    , ("btw, a++ and b++ for this", [Karma Upvote "a", Karma Upvote "b"])
-    , ("Solved. a++, b++", [Karma Upvote "a", Karma Upvote "b"])
+    -- Parse excess karma
+    ]
 
-    -- Karma within braces and quotations
-    , ("(a b)++", [Karma Upvote "a b"])
-    , ("{a b}++", [Karma Upvote "a b"])
-    , ("[a b]++", [Karma Upvote "a b"])
-    , ("<a b>++", [Karma Upvote "a b"])
-    , ("'a b'++", [Karma Upvote "a b"])
-    , ("`a b`++", [Karma Upvote "a b"])
-    , ("\"a b\"++", [Karma Upvote "a b"])
-    , ("(a--)++", [Karma Upvote "a--"])
-    , ("mac'n'cheese++", [Karma Upvote "mac'n'cheese"])
 
-    , ("(a b++", [Karma Upvote "(a b"])
-    , ("{a b++", [Karma Upvote "{a b"])
-    , ("[a b++", [Karma Upvote "[a b"])
-    , ("<a b++", [Karma Upvote "<a b"])
-    , ("'a b++", [Karma Upvote "'a b"])
-    , ("`a b++", [Karma Upvote "`a b"])
-    , ("\"a b++", [Karma Upvote "\"a b"])
+--    , ("a++++", [KarmaCandidate "a" "++++"])
+--    , ("a+++", [KarmaCandidate "a" "+++"])
+--    , ("a+±+", [KarmaCandidate "a" "+±+"])
+--    , ("a+±", [KarmaCandidate "a" "+±"])
+--    , ("a±", [KarmaCandidate "a" "±"])
 
-    , ("a b)++", [Karma Upvote "a b)"])
-    , ("a b}++", [Karma Upvote "a b}"])
-    , ("a b]++", [Karma Upvote "a b]"])
-    , ("a b>++", [Karma Upvote "a b>"])
-    , ("a b'++", [Karma Upvote "a b'"])
-    , ("a b`++", [Karma Upvote "a b`"])
-    , ("a b\"++", [Karma Upvote "a b\""])
+--    , ("a b++", [KarmaCandidate "a b" "++"])
+--    , ("(a)++", [KarmaCandidate "a" "++"])
+--    , ("(a++)++", [KarmaCandidate "a++" "++"])
+--    , ("(a++", [KarmaCandidate "(a" "++"])
+--    , ("a)++", [KarmaCandidate "a)" "++"])
+--    , ("((a))", [KarmaNonCandidate "((a))"])
+--    , ("(a) b++", [KarmaCandidate "(a) b" "++"])
+--    , ("((a)) b++", [KarmaCandidate "((a)) b" "++"])
+--
+--    -- TESTS: uncertain about behavors -- Probably better to only parse one set of braces
+--    , ("((a))++", [KarmaCandidate "(a)" "++"])
+--    , ("(a (b))++", [KarmaCandidate "a (b)" "++"])
+--    , ("((a (b)))++", [KarmaCandidate "(a (b))" "++"])
+--    , ("((a) b))++", [KarmaCandidate "(a) b)" "++"])
+--
+--    -- TESTS: Should extend the parser to care about karma inside braces only if there's no karma outside braces?
+--    -- Maybe a nice way to "escape" karma without karma'ing
+--    , ("(a++)", [KarmaNonCandidate "(a++)"])
+--    , ("((a++))", [KarmaNonCandidate "((a++))"])
+--    , ("a (b++)", [KarmaNonCandidate "a (b++)"])
+--    , ("a ((b++))", [KarmaNonCandidate "a ((b++))"])
+--
+--    -- Concat/preinc karma
+--    , ("(++a)++", [KarmaCandidate "++a" "++"])
+--
+--    -- Brace whitespaces
+--    , ("( a)++", [KarmaCandidate " a" "++"])
+--    , ("(a )++", [KarmaCandidate "a " "++"])
+--    , ("( a )++", [KarmaCandidate " a " "++"])
+--    , ("( (a) )++", [KarmaCandidate " (a) " "++"])
+--    , ("((a) )++", [KarmaCandidate "(a) " "++"])
+--    , ("( (a))++", [KarmaCandidate " (a)" "++"])
+--
+--    -- Complicated brace/karma nesting
+--    , ("((a)++)++", [KarmaCandidate "(a)++" "++"])
+--    , ("((a)++ )++", [KarmaCandidate "(a)++ " "++"])
+--    , ("((a++)++ )++", [KarmaCandidate "(a++)++ " "++"])
 
-    -- Unicode
-    , ( "私を++", [Karma Upvote "私を"])
-    , ( "♥++", [Karma Upvote "♥"])
-    , ("とある.NET++", [Karma Upvote "とある.NET"])
 
-    -- Unusual
-    , ( "++", [])
-    , ("/\\.?code/i—", [Karma Downvote "/\\.?code/i—"])
 
-    -- "Clearly" Invalid karma which should result in nothing
-    , (":,::--_._,:---.", [])
-    , (" c      - +i-- ", [])
-    , ("--i22:----.vSe.", [])
-    , ("XZQ[==|++===+==+`", [])
-    , ("#Z#(|i>|+=+|++=|](<>):(j[[", [])
-    , ("nickname, yeah--i was going to do this", [])
-    , ("improvement and ++karma", [])
-    , ("twistd web --root=docs/build/html but whatev", [])
-    , ("how about xn--asdfasdf.co.jp", [])
-    , ("suppose -+ and +- should", [])
-    , ("basename: invalid option -- 'h'", [])
-    , ("\"hah something --- without whatever\"", [])
-    , ("++anonymous whoever", [])
-    , ("dont ++ me", [])
-    , ("-------------", [])
-    , ("+----+----+", [])
-    , (":--(", [])
-    , ("++ stuff", [])
-    , ("something: ( <-- womp ) something else", [])
-    , ("https://maps.google.com/maps?q=26.383258,+-79.978409", [])
-    , ("Warning, sphere corruption at twenty-- rats cannot throw up.", [])
-    , ("-rw-r--r-- 1 user users 215k 2012-08-14 12:13 something/path", [])
-    , ("Fri: -15f--4F | sat: -31F--34F", [])
-    , ("http://www.something/Salad-Fingers-Episode-5--Salad-Fingers--Picnic.jpg", [])
+
+
+
+
+--    [ ("", [])
+--    [ ("a++", [Karma Upvote "a"])
+--    , ("a--", [Karma Downvote "a"])
+--    , ("a+-", [Karma Sidevote "a"])
+--    , ("a-+", [Karma Sidevote "a"])
+--
+--    -- Multi-karma cases
+--    , ("a++", [Karma Upvote "a"])
+--    , ("a+++", [Karma Upvote "a"])
+--    , ("a++++", [Karma Upvote "a++"])
+--    , ("a+++++", [Karma Upvote "a++"])
+--    , ("++--", [Karma Downvote "++"])
+--    , ("--++", [Karma Upvote "--"])
+--
+--    -- Multi-karma in one expression
+--    , ("a++ a++", [Karma Upvote "a", Karma Upvote "a"])
+--    , ("a++ b++", [Karma Upvote "a", Karma Upvote "b"])
+--    , ("ikea++ modular furniture++ meatballs++", [Karma Upvote "ikea", Karma Upvote "modular furniture", Karma Upvote "meatballs"])
+--    , ("a: ++", [Karma Upvote "a"])
+--    , ("btw, a++ and b++ for this", [Karma Upvote "a", Karma Upvote "b"])
+--    , ("Solved. a++, b++", [Karma Upvote "a", Karma Upvote "b"])
+--
+--    -- Karma within braces and quotations
+--    , ("(a b)++", [Karma Upvote "a b"])
+--    , ("{a b}++", [Karma Upvote "a b"])
+--    , ("[a b]++", [Karma Upvote "a b"])
+--    , ("<a b>++", [Karma Upvote "a b"])
+--    , ("'a b'++", [Karma Upvote "a b"])
+--    , ("`a b`++", [Karma Upvote "a b"])
+--    , ("\"a b\"++", [Karma Upvote "a b"])
+--    , ("(a--)++", [Karma Upvote "a--"])
+--    , ("mac'n'cheese++", [Karma Upvote "mac'n'cheese"])
+--
+--    , ("(a b++", [Karma Upvote "(a b"])
+--    , ("{a b++", [Karma Upvote "{a b"])
+--    , ("[a b++", [Karma Upvote "[a b"])
+--    , ("<a b++", [Karma Upvote "<a b"])
+--    , ("'a b++", [Karma Upvote "'a b"])
+--    , ("`a b++", [Karma Upvote "`a b"])
+--    , ("\"a b++", [Karma Upvote "\"a b"])
+--
+--    , ("a b)++", [Karma Upvote "a b)"])
+--    , ("a b}++", [Karma Upvote "a b}"])
+--    , ("a b]++", [Karma Upvote "a b]"])
+--    , ("a b>++", [Karma Upvote "a b>"])
+--    , ("a b'++", [Karma Upvote "a b'"])
+--    , ("a b`++", [Karma Upvote "a b`"])
+--    , ("a b\"++", [Karma Upvote "a b\""])
+--
+--    -- Unicode
+--    , ( "私を++", [Karma Upvote "私を"])
+--    , ( "♥++", [Karma Upvote "♥"])
+--    , ("とある.NET++", [Karma Upvote "とある.NET"])
+--
+--    -- Unusual
+--    , ( "++", [])
+--    , ("/\\.?code/i—", [Karma Downvote "/\\.?code/i—"])
+--
+--    -- "Clearly" Invalid karma which should result in nothing
+--    , (":,::--_._,:---.", [])
+--    , (" c      - +i-- ", [])
+--    , ("--i22:----.vSe.", [])
+--    , ("XZQ[==|++===+==+`", [])
+--    , ("#Z#(|i>|+=+|++=|](<>):(j[[", [])
+--    , ("nickname, yeah--i was going to do this", [])
+--    , ("improvement and ++karma", [])
+--    , ("twistd web --root=docs/build/html but whatev", [])
+--    , ("how about xn--asdfasdf.co.jp", [])
+--    , ("suppose -+ and +- should", [])
+--    , ("basename: invalid option -- 'h'", [])
+--    , ("\"hah something --- without whatever\"", [])
+--    , ("++anonymous whoever", [])
+--    , ("dont ++ me", [])
+--    , ("-------------", [])
+--    , ("+----+----+", [])
+--    , (":--(", [])
+--    , ("++ stuff", [])
+--    , ("something: ( <-- womp ) something else", [])
+--    , ("https://maps.google.com/maps?q=26.383258,+-79.978409", [])
+--    , ("Warning, sphere corruption at twenty-- rats cannot throw up.", [])
+--    , ("-rw-r--r-- 1 user users 215k 2012-08-14 12:13 something/path", [])
+--    , ("Fri: -15f--4F | sat: -31F--34F", [])
+--    , ("http://www.something/Salad-Fingers-Episode-5--Salad-Fingers--Picnic.jpg", [])
 -- that definitely doesn't merit a --
 -- >8-D-|--<
 -- that sounds like it should prevent ++a++ too
@@ -294,4 +354,4 @@ karmaData =
     -- (not using --no-notification)--
 
     -- Warning: Sorry, can not save your changes. This ticket has been modified by someone else since you started--
-    ]
+--    ]
