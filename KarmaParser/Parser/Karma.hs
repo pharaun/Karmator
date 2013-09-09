@@ -51,48 +51,40 @@ karmaParse :: Config -> ParsecT T.Text u Identity (Maybe [Karma])
 karmaParse conf = processCandidates conf `fmap` nestedKarmaParse conf
     where
         processCandidates :: Config -> [KarmaCandidates] -> Maybe [Karma]
-        processCandidates conf candidates
-            -- If no candidate just exit
-            | L.null candidates = Nothing
-
-            -- If only one possible candidate just process it and exit early
-            | L.length candidates == 1 = case head candidates of
-                KarmaNonCandidate{} -> Nothing
-                KarmaCandidate{kcMessage=msg, kcKarma=karma} ->
-                    case evalulateKarma conf karma of
-                        (e, Just k)  -> Just [Karma k (T.toLower $ T.pack $ msg ++ e)] -- TODO: add T.strip maybe
-                        (_, Nothing) -> Nothing
-
-            -- TODO: Process the rest here
-            | otherwise = do
-                Nothing
+        processCandidates _ [] = Nothing
+        processCandidates _ [KarmaNonCandidate{}] = Nothing
+        processCandidates c [KarmaCandidate{kcMessage=msg, kcKarma=karma}] =
+            case evalulateKarma c karma of
+                (e, Just k)  -> Just [Karma k (T.toLower $ T.pack $ msg ++ e)] -- TODO: add T.strip maybe
+                (_, Nothing) -> Nothing
+        processCandidates c ks = Nothing
 
 
 -- Evalulate in a rightmost manner, and return the remainder of the karma
 evalulateKarma :: Config -> String -> (String, Maybe KarmaType)
-evalulateKarma conf karma
-    | L.null karma        = ("", Nothing)
-    | L.length karma == 1 = lookupTotalKarma conf karma
-    | otherwise           = lookupPartialKarma conf karma
-
+evalulateKarma conf karma = evalKarma conf $ L.reverse karma
     where
-        lookupTotalKarma conf karma =
-            let tk = L.lookup (L.head $ L.reverse karma) $ totalKarma conf
-            in case tk of
-                Just k  -> (L.take (L.length karma - 1) karma, Just k)
-                Nothing -> ("", Nothing)
-
-        lookupPartialKarma conf karma =
-            let pk  = L.lookup (L.head $ L.reverse karma) $ partialKarma conf
-                pk' = L.lookup (L.head $ L.tail $ L.reverse karma) $ partialKarma conf
+        evalKarma :: Config -> String -> (String, Maybe KarmaType)
+        evalKarma _ []        = ("", Nothing)
+        evalKarma c [k]       = lookupTotalKarma c [k]
+        evalKarma c (k:k':ks) =
+            let pk  = L.lookup k $ partialKarma c
+                pk' = L.lookup k' $ partialKarma c
             in case (pk, pk') of
-                (Nothing, _) -> lookupTotalKarma conf karma
-                (Just _, Nothing) -> lookupTotalKarma conf (L.init karma)
-                (Just k, Just k') -> (L.take (L.length karma - 2) karma, Just $ partalToTotal k k')
+                (Nothing, _)       -> lookupTotalKarma c (k:k':ks)
+                (Just _, Nothing)  -> lookupTotalKarma c (k':ks)
+                (Just k1, Just k2) -> (L.reverse ks, Just $ partialToTotal k1 k2)
 
-        partalToTotal Up Up = Upvote
-        partalToTotal Down Down = Downvote
-        partalToTotal _ _ = Sidevote
+        lookupTotalKarma :: Config -> String -> (String, Maybe KarmaType)
+        lookupTotalKarma c []     = ("", Nothing)
+        lookupTotalKarma c (k:ks) = case L.lookup k $ totalKarma c of
+            Just k' -> (L.reverse ks, Just k')
+            Nothing -> ("", Nothing)
+
+        partialToTotal :: PartialKarmaType -> PartialKarmaType -> KarmaType
+        partialToTotal Up Up = Upvote
+        partialToTotal Down Down = Downvote
+        partialToTotal _ _ = Sidevote
 
 
 -- Brace choice Breakdown:
