@@ -249,21 +249,29 @@ karmaData =
     -- Unusual
     , ("/\\.?code/i--", [Karma Downvote "/\\.?code/i"])
 
+    -- Basic multi-karma
+    , ("a++ b++", [Karma Upvote "a", Karma Upvote "b"])
+    , ("ikea++ modular furniture++ meatballs++", [Karma Upvote "ikea", Karma Upvote "modular furniture", Karma Upvote "meatballs"])
+
+    -- Gnu args and preinc karma
+    , ("++anonymous whoever", [])
+    , ("improvement and ++karma", [])
+    , ("twistd web --root=docs/build/html but whatev", [])
+
+    -- Inline karma should not karma
+    , ("how about xn--asdfasdf.co.jp", [])
+    , ("nickname, yeah--i was going to do this", [])
+    , ("Fri: -15f--4F | sat: -31F--34F", [])
+    , (">8-D-|--<", [])
+
     -- TODO: Decide how to deal with karma trimming such as
     -- "a ++" -> "a"++ for example.
     ]
 
 
-
-
-
-
 --    , ("a: ++", [Karma Upvote "a"])
 --
 --    -- Multi-karma in one expression
---    , ("a++ a++", [Karma Upvote "a", Karma Upvote "a"])
---    , ("a++ b++", [Karma Upvote "a", Karma Upvote "b"])
---    , ("ikea++ modular furniture++ meatballs++", [Karma Upvote "ikea", Karma Upvote "modular furniture", Karma Upvote "meatballs"])
 --    , ("btw, a++ and b++ for this", [Karma Upvote "a", Karma Upvote "b"])
 --    , ("Solved. a++, b++", [Karma Upvote "a", Karma Upvote "b"])
 --
@@ -274,28 +282,19 @@ karmaData =
 --    , ("--i22:----.vSe.", [])
 --    , ("XZQ[==|++===+==+`", [])
 --    , ("#Z#(|i>|+=+|++=|](<>):(j[[", [])
---    , ("nickname, yeah--i was going to do this", [])
---    , ("improvement and ++karma", [])
---    , ("twistd web --root=docs/build/html but whatev", [])
---    , ("how about xn--asdfasdf.co.jp", [])
 --    , ("suppose -+ and +- should", [])
 --    , ("basename: invalid option -- 'h'", [])
 --    , ("\"hah something --- without whatever\"", [])
---    , ("++anonymous whoever", [])
 --    , ("dont ++ me", [])
 --    , ("-------------", [])
 --    , ("+----+----+", [])
 --    , (":--(", [])
 --    , ("++ stuff", [])
 --    , ("something: ( <-- womp ) something else", [])
---    , ("https://maps.google.com/maps?q=26.383258,+-79.978409", [])
 --    , ("Warning, sphere corruption at twenty-- rats cannot throw up.", [])
 --    , ("-rw-r--r-- 1 user users 215k 2012-08-14 12:13 something/path", [])
---    , ("Fri: -15f--4F | sat: -31F--34F", [])
---    , ("http://www.something/Salad-Fingers-Episode-5--Salad-Fingers--Picnic.jpg", [])
 
 -- that definitely doesn't merit a --
--- >8-D-|--<
 -- that sounds like it should prevent ++a++ too
 
 -- Nickname upvotes in various form
