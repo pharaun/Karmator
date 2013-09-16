@@ -47,8 +47,8 @@ filterBot c nick = nick `elem` strictMatchList c || L.any (`T.isPrefixOf` nick) 
 --  - Text.ICU.Normalize
 --  - Normalize it to NFKC
 --  - Casefold(?) or would just lowercase be acceptable
-karmaParse :: Config -> ParsecT T.Text u Identity [Maybe Karma]
-karmaParse conf = processCandidates conf `fmap` nestedKarmaParse conf
+karmaParse :: Config -> ParsecT T.Text u Identity [Karma]
+karmaParse conf = catMaybes `fmap` processCandidates conf `fmap` nestedKarmaParse conf
     where
         processCandidates :: Config -> [KarmaCandidates] -> [Maybe Karma]
         processCandidates _ [] = []
@@ -59,38 +59,53 @@ karmaParse conf = processCandidates conf `fmap` nestedKarmaParse conf
         --  - For now just look ahead one, probably want to deal with looking ahead N times
         --  - Decide on if/how we want to deal with trimming?
         --  - Decide how to identify/deal with braced karma vs regular, may be worth uniquelly identifying these
-        --
-        -- Cases:
+        processCandidates c (k@KarmaCandidate{kcMessage=msg}:k'@KarmaCandidate{kcMessage=msg'}:ks)
+        --  - (a++)++ -> (a++)++
+            | L.drop (L.length msg - 1) msg /= " " && L.take 1 msg' == (closeBrace c : []) = (evalKarma c $ mergeKarma k k') : processCandidates c ks
+
         --  - a++ b++ -> a++,b++
         --  - a ++ b++ -> a ++,b++
-        --
-        --  - a++b ->
-        --  - a++b++ -> (a++b)++
-        --
-        --  - arg --gnulol ->
-        --
-        --  - (a++) b ->
-        --  - ++a ->
-        --
-        --  - ++a++ -> (++a)++
-        --
-        processCandidates c (k@KarmaCandidate{kcMessage=msg}:k'@KarmaCandidate{kcMessage=msg'}:ks) = []
+            | L.take 1 msg' == " "  = (evalKarma c k) : processCandidates c (k':ks)
 
+        --  - arg --gnulol foo++ -> ??
+--            | L.drop (L.length msg - 1) msg == " " && L.take 1 msg' /= " " = processCandidates c (k':ks)
+
+        --  - ++a++ -> (++a)++
+            | msg == "" && L.take 1 msg' /= " " = (evalKarma c $ mergeKarma k k') : processCandidates c ks
+
+        --  - a++b++ -> (a++b)++
+            | L.drop (L.length msg - 1) msg /= " " && L.take 1 msg' /= " " && L.null ks = [evalKarma c $ mergeKarma k k']
+
+        -- Everything else
+            | otherwise = []
 
         processCandidates c (k@KarmaCandidate{kcMessage=msg}:k'@KarmaNonCandidate{kncMessage=msg'}:ks)
         --  - a++ b -> a++
         --  - a ++ b -> a ++
-            | L.take 1 msg' == " "  = [evalKarma c k]
+            | L.take 1 msg' == " "  = (evalKarma c k) : processCandidates c (k':ks)
 
-            -- TODO
+        --  - arg --gnulol ->
+            | L.drop (L.length msg - 1) msg == " " && L.take 1 msg' /= " " = processCandidates c (k':ks)
+
+        --  - a++b ->
+        --  - ++a ->
             | otherwise = []
+
 
         evalKarma :: Config -> KarmaCandidates -> Maybe Karma
         evalKarma _ KarmaNonCandidate{} = Nothing
         evalKarma c KarmaCandidate{kcMessage=msg, kcKarma=karma} =
             case evalulateKarma c karma of
-                (e, Just k)  -> Just (Karma k (T.toLower $ T.pack $ msg ++ e)) -- TODO: add T.strip maybe
+                (e, Just k)  ->
+                    let msg' = (T.strip $ T.toLower $ T.pack $ msg) `T.append` (T.pack e)
+                    in if T.null msg' then Nothing else Just (Karma k msg')
                 (_, Nothing) -> Nothing
+
+        -- TODO: this is an incomplete function, it only deals with a few cases
+        mergeKarma :: KarmaCandidates -> KarmaCandidates -> KarmaCandidates
+        mergeKarma KarmaNonCandidate{kncMessage=msg} KarmaCandidate{kcMessage=msg', kcKarma=karma} = KarmaCandidate (msg ++ msg') karma
+        mergeKarma KarmaCandidate{kcMessage=msg, kcKarma=karma} KarmaCandidate{kcMessage=msg', kcKarma=karma'} = KarmaCandidate (msg ++ karma ++ msg') karma'
+
 
 
 -- Evalulate in a rightmost manner, and return the remainder of the karma

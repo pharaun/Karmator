@@ -174,7 +174,7 @@ newKarmaData =
 --
 makeKarmaParseConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)] '(' ')'
 buildKarmaTests = TestList . map (\(src, dst) -> TestLabel "" (karmaTest src dst))
-karmaTest str result = TestCase (assertEqual "" (map Just result) (either (\_ -> []) (\a -> a) (parse (karmaParse $ makeKarmaParseConfig) "(stdin)" $ T.pack str)))
+karmaTest str result = TestCase (assertEqual "" result (either (\_ -> []) (\a -> a) (parse (karmaParse $ makeKarmaParseConfig) "(stdin)" $ T.pack str)))
 
 
 karmaData :: [(String, [Karma])]
@@ -185,10 +185,10 @@ karmaData =
     , ("a-", [])
 
     -- TODO: do we want to disallow this case
-    , ("++", [])
+    , ("++", []) -- ACK - #4
     , ("+++", [Karma Upvote "+"])
     , ("++++", [Karma Upvote "++"])
-    , (" ++", [])
+    , (" ++", []) -- ACK - #7
 
     -- Parse trivial karma
     , ("a++", [Karma Upvote "a"])
@@ -213,8 +213,8 @@ karmaData =
 
     -- Whitespace karma
     , ("a b++", [Karma Upvote "a b"])
-    , ("a+ b++", [Karma Upvote "a+ b"])
-    , ("a++b++", [Karma Upvote "a++b"])
+    , ("a+ b++", [Karma Upvote "a+ b"]) -- ACK - #23
+    , ("a++b++", [Karma Upvote "a++b"]) -- ACK - #24
     , ("a++b", [])
 
     -- Braced karma
@@ -233,17 +233,17 @@ karmaData =
     , ("(a (b))++", [Karma Upvote "a (b)"])
     , ("(++a)++", [Karma Upvote "++a"])
     , ("a(b)c++", [Karma Upvote "a(b)c"])
-    , ("((a)++)++", [Karma Upvote "(a)++"])
+    , ("((a)++)++", [Karma Upvote "(a)++"]) -- ACK - #39
 
     -- White space in braces
-    , ("( a)++", [Karma Upvote " a"])
-    , ("(a )++", [Karma Upvote "a "])
-    , ("( a )++", [Karma Upvote " a "])
-    , ("((a) )++", [Karma Upvote "(a) "])
-    , ("( (a))++", [Karma Upvote " (a)"])
-    , ("( (a) )++", [Karma Upvote " (a) "])
-    , ("((a)++ )++", [Karma Upvote "(a)++ "])
-    , ("((a++)++ )++", [Karma Upvote "(a++)++ "])
+    , ("( a)++", [Karma Upvote "a"])
+    , ("(a )++", [Karma Upvote "a"])
+    , ("( a )++", [Karma Upvote "a"])
+    , ("((a) )++", [Karma Upvote "(a)"]) -- ACK - #43
+    , ("( (a))++", [Karma Upvote "(a)"])
+    , ("( (a) )++", [Karma Upvote "(a)"]) -- ACK - #45
+    , ("((a)++ )++", [Karma Upvote "(a)++"]) -- ACK - #46
+    , ("((a++)++ )++", [Karma Upvote "(a++)++"]) -- ACK - #47
 
     -- Braced non-candidates
     , ("(a)", [])
@@ -271,6 +271,7 @@ karmaData =
     , ("++anonymous whoever", [])
     , ("improvement and ++karma", [])
     , ("twistd web --root=docs/build/html but whatev", [])
+    , ("++a++", [Karma Upvote "++a"])
 
     -- Inline karma should not karma
     , ("how about xn--asdfasdf.co.jp", [])
@@ -278,11 +279,13 @@ karmaData =
     , ("Fri: -15f--4F | sat: -31F--34F", [])
     , (">8-D-|--<", [])
 
+    -- Deal with gnu params
+    , ("web --root", [])
+    , ("web --root --or --bar", [])
+
     -- Odd ones
     , ("(web --root=docs --or --foobar)++", [Karma Upvote "web --root=docs --or --foobar"])
-    , ("web --root=docs --or --foobar++", [Karma Upvote "web --root=docs --or --foobar"])
-    -- TODO: Decide how to deal with karma trimming such as
-    -- "a ++" -> "a"++ for example.
+    , ("web --root=docs --or --foobar++", [Karma Upvote "web --root=docs --or --foobar"]) -- ACK - #72
     ]
 
 
