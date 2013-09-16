@@ -61,20 +61,20 @@ karmaParse conf = catMaybes `fmap` processCandidates conf `fmap` nestedKarmaPars
         --  - Decide how to identify/deal with braced karma vs regular, may be worth uniquelly identifying these
         processCandidates c (k@KarmaCandidate{kcMessage=msg}:k'@KarmaCandidate{kcMessage=msg'}:ks)
         --  - (a++)++ -> (a++)++
-            | L.drop (L.length msg - 1) msg /= " " && L.take 1 msg' == (closeBrace c : []) = (evalKarma c $ mergeKarma k k') : processCandidates c ks
+            | safeLast msg /= " " && safeHead msg' == [closeBrace c] = evalKarma c ( mergeKarma k k') : processCandidates c ks
 
         --  - a++ b++ -> a++,b++
         --  - a ++ b++ -> a ++,b++
-            | L.take 1 msg' == " "  = (evalKarma c k) : processCandidates c (k':ks)
+            | safeHead msg' == " "  = evalKarma c k : processCandidates c (k':ks)
 
         --  - arg --gnulol foo++ -> ??
---            | L.drop (L.length msg - 1) msg == " " && L.take 1 msg' /= " " = processCandidates c (k':ks)
+--            | safeLast msg == " " && safeHead msg' /= " " = processCandidates c (k':ks)
 
         --  - ++a++ -> (++a)++
-            | msg == "" && L.take 1 msg' /= " " = (evalKarma c $ mergeKarma k k') : processCandidates c ks
+            | msg == "" && safeHead msg' /= " " = evalKarma c (mergeKarma k k') : processCandidates c ks
 
         --  - a++b++ -> (a++b)++
-            | L.drop (L.length msg - 1) msg /= " " && L.take 1 msg' /= " " && L.null ks = [evalKarma c $ mergeKarma k k']
+            | safeLast msg /= " " && safeHead msg' /= " " && L.null ks = [evalKarma c $ mergeKarma k k']
 
         -- Everything else
             | otherwise = []
@@ -82,22 +82,28 @@ karmaParse conf = catMaybes `fmap` processCandidates conf `fmap` nestedKarmaPars
         processCandidates c (k@KarmaCandidate{kcMessage=msg}:k'@KarmaNonCandidate{kncMessage=msg'}:ks)
         --  - a++ b -> a++
         --  - a ++ b -> a ++
-            | L.take 1 msg' == " "  = (evalKarma c k) : processCandidates c (k':ks)
+            | safeHead msg' == " "  = evalKarma c k : processCandidates c (k':ks)
 
         --  - arg --gnulol ->
-            | L.drop (L.length msg - 1) msg == " " && L.take 1 msg' /= " " = processCandidates c (k':ks)
+            | safeLast msg == " " && safeHead msg' /= " " = processCandidates c (k':ks)
 
         --  - a++b ->
         --  - ++a ->
             | otherwise = []
 
+        -- These are specced mostly for strings
+        safeHead :: [a] -> [a]
+        safeHead = L.take 1
+
+        safeLast :: [a] -> [a]
+        safeLast xs = L.drop (L.length xs - 1) xs
 
         evalKarma :: Config -> KarmaCandidates -> Maybe Karma
         evalKarma _ KarmaNonCandidate{} = Nothing
         evalKarma c KarmaCandidate{kcMessage=msg, kcKarma=karma} =
             case evalulateKarma c karma of
                 (e, Just k)  ->
-                    let msg' = (T.strip $ T.toLower $ T.pack $ msg) `T.append` (T.pack e)
+                    let msg' = (T.strip $ T.toLower $ T.pack msg) `T.append` T.pack e
                     in if T.null msg' then Nothing else Just (Karma k msg')
                 (_, Nothing) -> Nothing
 
@@ -124,7 +130,7 @@ evalulateKarma conf karma = evalKarma conf $ L.reverse karma
                 (Just k1, Just k2) -> (L.reverse ks, Just $ partialToTotal k1 k2)
 
         lookupTotalKarma :: Config -> String -> (String, Maybe KarmaType)
-        lookupTotalKarma c []     = ("", Nothing)
+        lookupTotalKarma _ []     = ("", Nothing)
         lookupTotalKarma c (k:ks) = case L.lookup k $ totalKarma c of
             Just k' -> (L.reverse ks, Just k')
             Nothing -> ("", Nothing)

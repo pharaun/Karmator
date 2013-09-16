@@ -36,7 +36,7 @@ main = do
 -- Nick name Defuzzifier tests
 --
 buildNickTests = TestList . map (\(src, dst) -> TestLabel (src ++ " -> " ++ dst) (nickTest src dst))
-nickTest src dst = TestCase (assertEqual "" (Just $ T.pack dst) (either (\_ -> Nothing) (\a -> Just a) (parse nickDeFuzzifier "(stdin)" $ T.pack src)))
+nickTest src dst = TestCase (assertEqual "" (Just $ T.pack dst) (either (const Nothing) Just (parse nickDeFuzzifier "(stdin)" $ T.pack src)))
 
 nickData :: [(String, String)]
 nickData =
@@ -84,7 +84,7 @@ botData =
 --
 makeKarmaConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)] '(' ')'
 buildNewKarmaTests = TestList . map (\(str, karma) -> TestLabel "" (newKarmaTest str karma))
-newKarmaTest str karma = TestCase (assertEqual "" (Just karma) (either (\_ -> Nothing) (\a -> Just a) (parse (nestedKarmaParse $ makeKarmaConfig) "(stdin)" $ T.pack str)))
+newKarmaTest str karma = TestCase (assertEqual "" (Just karma) (either (const Nothing) Just (parse (nestedKarmaParse makeKarmaConfig) "(stdin)" $ T.pack str)))
 
 newKarmaData :: [(String, [KarmaCandidates])]
 newKarmaData =
@@ -174,7 +174,7 @@ newKarmaData =
 --
 makeKarmaParseConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)] '(' ')'
 buildKarmaTests = TestList . map (\(src, dst) -> TestLabel "" (karmaTest src dst))
-karmaTest str result = TestCase (assertEqual "" result (either (\_ -> []) (\a -> a) (parse (karmaParse $ makeKarmaParseConfig) "(stdin)" $ T.pack str)))
+karmaTest str result = TestCase (assertEqual "" result (either (const []) id (parse (karmaParse makeKarmaParseConfig) "(stdin)" $ T.pack str)))
 
 
 karmaData :: [(String, [Karma])]
