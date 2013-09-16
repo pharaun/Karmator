@@ -11,6 +11,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.List as DL
+import Data.Maybe (catMaybes)
 
 -- Parsec
 import Text.Parsec
@@ -77,9 +78,9 @@ main = do
                             (Left _)  -> KarmaReply (Just nick) Nothing Nothing -- Failed to find a karma entry
                             (Right k) -> do
                                 -- Scan the extracted karma expression for the nick
-                                let filteredKarma = liftM (filterKarma [nick, ircNick j]) k
+                                let filteredKarma = filterKarma [nick, ircNick j] $ catMaybes k
 
-                                KarmaReply (Just nick) filteredKarma Nothing
+                                KarmaReply (Just nick) (Just filteredKarma) Nothing
 
 sendReply :: Handle -> KarmaReply -> IO ()
 sendReply o r = B.hPut o $ B.concat $ (BL.toChunks $ encode r) ++ [fromString "\n"]

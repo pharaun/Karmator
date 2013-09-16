@@ -5,6 +5,8 @@ import Test.QuickCheck
 import qualified Data.Text as T
 import qualified Data.List as L
 
+import Data.Maybe (catMaybes)
+
 import Text.Parsec
 import Parser.Karma
 import Parser.Types
@@ -142,6 +144,12 @@ newKarmaData =
     , ("++a++", [KarmaCandidate "" "++", KarmaCandidate "a" "++"])
     , ("(++a)++", [KarmaCandidate "++a" "++"])
 
+    -- Weird karma
+    , ("++", [KarmaCandidate "" "++"])
+    , ("+++", [KarmaCandidate "" "+++"])
+    , ("++++", [KarmaCandidate "" "++++"])
+    , (" ++", [KarmaCandidate " " "++"])
+
     -- Brace whitespaces
     , ("( a)++", [KarmaCandidate " a" "++"])
     , ("(a )++", [KarmaCandidate "a " "++"])
@@ -158,6 +166,7 @@ newKarmaData =
     -- Misc
     , ("./bin --gnu-lol", [KarmaCandidate "./bin " "--", KarmaNonCandidate "gnu-lol"])
     , ("a--b", [KarmaCandidate "a" "--", KarmaNonCandidate "b"])
+    , ("a--b++", [KarmaCandidate "a" "--", KarmaCandidate "b" "++"])
     ]
 
 --
@@ -165,7 +174,7 @@ newKarmaData =
 --
 makeKarmaParseConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)] '(' ')'
 buildKarmaTests = TestList . map (\(src, dst) -> TestLabel "" (karmaTest src dst))
-karmaTest str result = TestCase (assertEqual "" (if L.null result then Nothing else Just result) (either (\_ -> Nothing) (\a -> a) (parse (karmaParse $ makeKarmaParseConfig) "(stdin)" $ T.pack str)))
+karmaTest str result = TestCase (assertEqual "" (map Just result) (either (\_ -> []) (\a -> a) (parse (karmaParse $ makeKarmaParseConfig) "(stdin)" $ T.pack str)))
 
 
 karmaData :: [(String, [Karma])]
@@ -177,6 +186,9 @@ karmaData =
 
     -- TODO: do we want to disallow this case
     , ("++", [])
+    , ("+++", [Karma Upvote "+"])
+    , ("++++", [Karma Upvote "++"])
+    , (" ++", [])
 
     -- Parse trivial karma
     , ("a++", [Karma Upvote "a"])
@@ -202,6 +214,8 @@ karmaData =
     -- Whitespace karma
     , ("a b++", [Karma Upvote "a b"])
     , ("a+ b++", [Karma Upvote "a+ b"])
+    , ("a++b++", [Karma Upvote "a++b"])
+    , ("a++b", [])
 
     -- Braced karma
     , ("(a)++", [Karma Upvote "a"])
@@ -264,6 +278,9 @@ karmaData =
     , ("Fri: -15f--4F | sat: -31F--34F", [])
     , (">8-D-|--<", [])
 
+    -- Odd ones
+    , ("(web --root=docs --or --foobar)++", [Karma Upvote "web --root=docs --or --foobar"])
+    , ("web --root=docs --or --foobar++", [Karma Upvote "web --root=docs --or --foobar"])
     -- TODO: Decide how to deal with karma trimming such as
     -- "a ++" -> "a"++ for example.
     ]
