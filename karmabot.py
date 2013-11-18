@@ -139,6 +139,12 @@ class Karmabot(IRCClient):
         d.addCallback(self.format_sidevote_stats, nick)
         d.addCallback(self.message_channels, [channel])
 
+    def command_karmatorjoin(self, nick, channel, channel_to_join):
+        self.join(channel_to_join)
+
+    def command_karmatorleave(self, nick, channel):
+        self.part(channel)
+
     def irc_INVITE(self, prefix, params):
         self.join(params[1])
 
