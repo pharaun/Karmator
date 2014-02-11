@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, Rank2Types #-}
 import Data.List
 import Network
 import System.IO
@@ -15,21 +15,28 @@ import Network.BSD (HostName)
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as NSB
 
-import qualified Data.ByteString as B
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.Text as T
 
 
+import qualified Network.Simple.TCP as NST
+import qualified Pipes.Network.TCP as PNT
+import qualified Pipes.ByteString as PBS
+import qualified Pipes.Attoparsec as PA
+import Pipes
+
+
 -- Per server config for the bot
 data ServerConfig = ServerConfig
-    { server :: String -- TODO: consider ByteString?
+    { server :: String
     , port :: Int
-    , nicks :: [B.ByteString] -- First one then alternatives in descending order
+    , nicks :: [BS.ByteString] -- First one then alternatives in descending order
     , reconnect :: Bool
 
     -- Function for default encoding and decoding
---    , defaultEncoding :: B.ByteString -> T.Text
---    , defaultDecoding :: T.Text -> B.ByteString
+--    , defaultEncoding :: BS.ByteString -> T.Text
+--    , defaultDecoding :: T.Text -> BS.ByteString
 
     -- Rates:
     --  messages_per_seconds, server_queue_size
@@ -65,7 +72,7 @@ data ServerConfig = ServerConfig
 
 -- Persistent State:
 data ServerPersistentState = ServerPersistentState
-    { channels :: [B.ByteString]
+    { channels :: [BS.ByteString]
     }
 
 -- Ephemeral State:
@@ -80,6 +87,89 @@ data ServerState = ServerState
     , starttime :: ClockTime
     , logFile :: Handle
     }
+
+
+data ServerStatePipes = ServerStatePipes
+    { sessionP :: ServerPersistentState
+    , configP :: ServerConfig
+
+    -- Debugging/initial test impl
+    , starttimeP :: ClockTime
+    }
+
+--
+-- Establish an irc session with this server
+-- TODO: provide the listeners/stuff needed to run the inner irc controller
+--
+establish :: ServerConfig -> ServerPersistentState -> IO ()
+establish sc sps = NST.withSocketsDo $
+    -- Establish the logfile
+    withFile "test.log" AppendMode (\l ->
+        -- TODO: do some form of dns lookup and prefer either v6 or v4
+        -- Establish stocket
+        NST.connect (server sc) (show $ port sc) (\(sock, _) -> do
+            -- Session start time
+            t <- getClockTime
+
+            -- Set log to be unbuffered for testing
+            hSetBuffering l NoBuffering
+
+
+            runEffect $ connect sc sps l sock >-> eat
+        )
+    )
+
+eat :: MonadIO m => Consumer BS.ByteString m ()
+eat = forever $ await
+
+connect :: MonadIO m => ServerConfig -> ServerPersistentState -> Handle -> Socket -> Producer BS.ByteString m ()
+connect sc sps l socket = runEffect (PNT.fromSocket socket 4096 >-> log l >-> handshake sc sps >-> log l >-> PNT.toSocket socket)
+
+--
+-- Handshake for the initial connection to the network
+--
+handshake :: MonadIO m => ServerConfig -> ServerPersistentState -> Pipe BS.ByteString BS.ByteString (Producer BS.ByteString m) r
+handshake sc sps = do
+    let nick = head $ nicks sc -- TODO: unsafe head
+    let chan = head $ channels sps -- TODO: unsafe head
+
+    -- We skip reading in anything and start dumping back out.
+    yield $ BS.concat ["NICK", " ", nick, "\r\n"]
+    yield $ BS.concat ["USER", " ", (nick `BS.append` " 0 * :ghost bot"), "\r\n"]
+    yield $ BS.concat ["JOIN", " ", chan, "\r\n"]
+
+    -- We are now done handshaking, forever forward bytes
+    for cat (lift . yield) -- forever (await >>= lift . yield)
+
+--
+-- Log anything that passes through this stream to a logfile
+--
+log :: MonadIO m => Handle -> Pipe BS.ByteString BS.ByteString m r
+log h = forever $ do
+    x <- await
+    liftIO $ BS.hPutStr h x
+    yield x
+
+
+
+testConfig :: ServerConfig
+--testConfig = ServerConfig "irc.freenode.net" 6667 ["levchius"] True
+testConfig = ServerConfig "86.65.39.15" 6667 ["levchius"] True
+
+testPersistent :: ServerPersistentState
+testPersistent = ServerPersistentState ["#levchins_minecraft"]
+
+main :: IO ()
+main = establish testConfig testPersistent
+
+
+
+
+
+
+
+
+
 
 
 --
@@ -132,43 +222,28 @@ runServerLoop = do
     l <- asks logFile
 
     write "NICK" nick
-    write "USER" (nick `B.append` " 0 * :ghost bot")
+    write "USER" (nick `BS.append` " 0 * :ghost bot")
     write "JOIN" chan
 
     -- Go on to the loop
     asks socket >>= listen
 
 
-testConfig :: ServerConfig
-testConfig = ServerConfig "irc.freenode.net" 6667 ["levchius"] True
-
-testPersistent :: ServerPersistentState
-testPersistent = ServerPersistentState ["#levchins_minecraft"]
-
-
-main :: IO ()
-main = bracket (connectToServer testConfig testPersistent) disconnect loop
-  where
-    disconnect b = (hClose $ socket b) >> (hClose $ logFile b)
-    loop st      = runReaderT runServerLoop st
-
-
-
 --
 -- Send a message out to the server we're currently connected to
 --
-write :: B.ByteString -> B.ByteString -> Net ()
+write :: BS.ByteString -> BS.ByteString -> Net ()
 write s t = do
     h <- asks socket
     l <- asks logFile
 
     -- TODO: fix this to pull the encoding from the channel/server
     -- Send to network and logfile
-    io $ C8.hPut h $ B.concat [s, " ", t, "\r\n"]
-    io $ C8.hPut l $ B.concat [s, " ", t, "\r\n"]
+    io $ C8.hPut h $ BS.concat [s, " ", t, "\r\n"]
+    io $ C8.hPut l $ BS.concat [s, " ", t, "\r\n"]
 
     -- Console output
-    io $ C8.putStr $ B.concat [s, " ", t, "\n"]
+    io $ C8.putStr $ BS.concat [s, " ", t, "\n"]
 
 --
 -- Process each line from the server
@@ -208,7 +283,7 @@ privmsg s = do
     state <- asks session
     let chan = head $ channels state -- TODO: unsafe head
 
-    write "PRIVMSG" $ B.concat [chan, " :", C8.pack s]
+    write "PRIVMSG" $ BS.concat [chan, " :", C8.pack s]
 
 
 --
