@@ -11,9 +11,6 @@ import Prelude hiding (catch, log)
 
 import Data.Functor ((<$>))
 import Data.List (head)
-import Network.BSD (HostName)
-import qualified Network.Socket as NS
-import qualified Network.Socket.ByteString as NSB
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
@@ -114,13 +111,56 @@ establish sc sps = NST.withSocketsDo $
             -- Set log to be unbuffered for testing
             hSetBuffering l NoBuffering
 
-
-            runEffect $ connect sc sps l sock >-> eat
+            runEffect $ connect sc sps l sock >-> ping sock l >-> eat
         )
     )
 
 eat :: MonadIO m => Consumer BS.ByteString m ()
 eat = forever $ await
+
+ping :: MonadIO m => Socket -> Handle -> Pipe BS.ByteString BS.ByteString m ()
+ping s l = forever $ do
+    msg <- await
+
+    if "PING :" `BS.isPrefixOf` msg
+    then liftIO $ runEffect $ dump (BS.concat ["PONG", " ", ":", BS.drop 6 msg, "\r\n"]) >-> log l >-> PNT.toSocket s
+    else yield msg
+
+dump :: Monad m => BS.ByteString -> Producer BS.ByteString m ()
+dump i = yield i
+
+
+command :: MonadIO m => Socket -> Handle -> Pipe BS.ByteString BS.ByteString m ()
+command = undefined
+
+
+--eval :: String -> Net ()
+--eval     "!uptime"             = uptime >>= privmsg
+--eval     "!quit"               = write "QUIT" ":Exiting" >> io (exitWith ExitSuccess)
+--eval x | "!id " `isPrefixOf` x = privmsg (drop 4 x)
+
+--    write "PRIVMSG" $ BS.concat [chan, " :", C8.pack s]
+
+--uptime :: Net String
+--uptime = do
+--    now  <- io getClockTime
+--    zero <- asks starttime
+--    return . pretty $ diffClockTimes now zero
+--
+-- Pretty print the date in '1d 9h 9m 17s' format
+--
+pretty :: TimeDiff -> String
+pretty td = join . intersperse " " . filter (not . null) . map f $
+    [(years          ,"y") ,(months `mod` 12,"m")
+    ,(days   `mod` 28,"d") ,(hours  `mod` 24,"h")
+    ,(mins   `mod` 60,"m") ,(secs   `mod` 60,"s")]
+  where
+    secs    = abs $ tdSec td  ; mins   = secs   `div` 60
+    hours   = mins   `div` 60 ; days   = hours  `div` 24
+    months  = days   `div` 28 ; years  = months `div` 12
+    f (i,s) | i == 0    = []
+            | otherwise = show i ++ s
+
 
 connect :: MonadIO m => ServerConfig -> ServerPersistentState -> Handle -> Socket -> Producer BS.ByteString m ()
 connect sc sps l socket = runEffect (PNT.fromSocket socket 4096 >-> log l >-> handshake sc sps >-> log l >-> PNT.toSocket socket)
@@ -163,155 +203,29 @@ main :: IO ()
 main = establish testConfig testPersistent
 
 
-
-
-
-
-
-
-
-
-
 --
--- Connect to the server and return the initial bot state
+-- Right now looks like there's a couple of approaches to the issue of
+-- output and passing things on.
 --
-connectToServer :: ServerConfig -> ServerPersistentState -> IO ServerState
-connectToServer sc sps = do
-    t <- getClockTime
-
-    -- Set up the hints to prefer ipv4 udp datagrams
-    let myAddr = NS.defaultHints {
-        NS.addrFamily = NS.AF_INET
-        , NS.addrSocketType = NS.Stream
-        }
-
-    -- Looks up hostname and port then grab the first
-    addrInfo <- head <$> NS.getAddrInfo (Just myAddr) (Just $ server sc) (Just $ show $ port sc)
-
-    -- Establish a socket for communication
-    sock <- NS.socket (NS.addrFamily addrInfo) NS.Stream NS.defaultProtocol
-
-    -- Connect
-    NS.connect sock (NS.addrAddress addrInfo)
-
-    -- Convert to a handle
-    h <- NS.socketToHandle sock ReadWriteMode
-    hSetBuffering h NoBuffering
-
-    -- Logfile, write only/append only
-    l <- openFile "test.log" AppendMode
-    hSetBuffering l NoBuffering
-
-    return $ ServerState h sps sc t l
-
-
-type Net = ReaderT ServerState IO
-
+-- 1. Abstract the "await" interface into an interface that supports
+--      automatical forwarding of "replied" data, such as "data message = Reply a | Message b"
+--      in which the irc parser stuff the server message into "Message b"
+--      and when a module wants to reply it just "yield Reply a" otherwise
+--      it forwards the message. Then on the "await" part it will
+--      automatically filter out the replies so it only returns an
+--      unprocessed Message. Would need a final stage that filters out all
+--      unprocessed messages.
 --
--- We're in the Net monad now, so we've connected successfully
--- Join a channel, and start processing commands
+-- 2. Some form of external queue for early-exit, basically when a module
+--      wants to send a message it sticks it into another concurrent queue
+--      which takes care of this, and it can just omit forwarding the
+--      message. The advantage of this is is it doesn't need to keep
+--      forwarding the message down the chain. Disadvantage is that it
+--      includes concurrency so its no longer as easy to reason about as
+--      the single threaded code above.
 --
-runServerLoop :: Net ()
-runServerLoop = do
-    config <- asks config
-    state <- asks session
-
-    let nick = head $ nicks config -- TODO: unsafe head
-    let chan = head $ channels state -- TODO: unsafe head
-
-    l <- asks logFile
-
-    write "NICK" nick
-    write "USER" (nick `BS.append` " 0 * :ghost bot")
-    write "JOIN" chan
-
-    -- Go on to the loop
-    asks socket >>= listen
-
-
---
--- Send a message out to the server we're currently connected to
---
-write :: BS.ByteString -> BS.ByteString -> Net ()
-write s t = do
-    h <- asks socket
-    l <- asks logFile
-
-    -- TODO: fix this to pull the encoding from the channel/server
-    -- Send to network and logfile
-    io $ C8.hPut h $ BS.concat [s, " ", t, "\r\n"]
-    io $ C8.hPut l $ BS.concat [s, " ", t, "\r\n"]
-
-    -- Console output
-    io $ C8.putStr $ BS.concat [s, " ", t, "\n"]
-
---
--- Process each line from the server
---
-listen :: Handle -> Net ()
-listen h = forever $ do
-    s <- init `fmap` io (hGetLine h)
-    l <- asks logFile
-
-    -- Dump to logfile and then console
-    io $ hPrintf l "%s\r\n" s
-    io (putStrLn s)
-
-
-    if ping s then pong s else eval (clean s)
-  where
-    forever a = a >> forever a
-    clean     = drop 1 . dropWhile (/= ':') . drop 1
-    ping x    = "PING :" `isPrefixOf` x
-    pong x    = write "PONG" $ C8.pack (':' : drop 6 x)
-
---
--- Dispatch a command
---
-eval :: String -> Net ()
-eval     "!uptime"             = uptime >>= privmsg
-eval     "!quit"               = write "QUIT" ":Exiting" >> io (exitWith ExitSuccess)
-eval x | "!id " `isPrefixOf` x = privmsg (drop 4 x)
-eval     _                     = return () -- ignore everything else
-
---
--- Send a privmsg to the current chan + server
---
-privmsg :: String -> Net ()
-privmsg s = do
-    -- TODO: This is doing it wrong
-    state <- asks session
-    let chan = head $ channels state -- TODO: unsafe head
-
-    write "PRIVMSG" $ BS.concat [chan, " :", C8.pack s]
-
-
---
--- Calculate and pretty print the uptime
---
-uptime :: Net String
-uptime = do
-    now  <- io getClockTime
-    zero <- asks starttime
-    return . pretty $ diffClockTimes now zero
-
---
--- Pretty print the date in '1d 9h 9m 17s' format
---
-pretty :: TimeDiff -> String
-pretty td = join . intersperse " " . filter (not . null) . map f $
-    [(years          ,"y") ,(months `mod` 12,"m")
-    ,(days   `mod` 28,"d") ,(hours  `mod` 24,"h")
-    ,(mins   `mod` 60,"m") ,(secs   `mod` 60,"s")]
-  where
-    secs    = abs $ tdSec td  ; mins   = secs   `div` 60
-    hours   = mins   `div` 60 ; days   = hours  `div` 24
-    months  = days   `div` 28 ; years  = months `div` 12
-    f (i,s) | i == 0    = []
-            | otherwise = show i ++ s
-
---
--- Convenience.
---
-io :: IO a -> Net a
-io = liftIO
+-- 3. Some form of graph, in which you can emit the reply down one side,
+--      and the message can be kept on passed down the other side, and this
+--      could allow for more sophsicated error recovery via taking
+--      different routes and being able to plug in code for dealing with
+--      this.
