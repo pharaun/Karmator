@@ -8,6 +8,7 @@ import Control.Monad.Reader
 import Control.Exception
 import Text.Printf
 import Prelude hiding (catch, log)
+import Data.Maybe
 
 import Data.Functor ((<$>))
 import Data.List (head)
@@ -111,41 +112,47 @@ establish sc sps = NST.withSocketsDo $
             -- Set log to be unbuffered for testing
             hSetBuffering l NoBuffering
 
-            runEffect $ connect sc sps l sock >-> ping sock l >-> eat
+            runEffect $ connect sc sps l sock >-> command t >-> log l >-> PNT.toSocket sock
         )
     )
 
-eat :: MonadIO m => Consumer BS.ByteString m ()
-eat = forever $ await
-
-ping :: MonadIO m => Socket -> Handle -> Pipe BS.ByteString BS.ByteString m ()
-ping s l = forever $ do
+--
+-- take the inbound message, loop it through a list of
+-- functions/pipe/whatever
+--
+-- Then for early exit take the first one that response and send it on
+-- downstream via yield
+--
+command :: (Monad m, MonadIO m) => ClockTime -> Pipe BS.ByteString BS.ByteString m ()
+command t = forever $ do
     msg <- await
 
-    if "PING :" `BS.isPrefixOf` msg
-    then liftIO $ runEffect $ dump (BS.concat ["PONG", " ", ":", BS.drop 6 msg, "\r\n"]) >-> log l >-> PNT.toSocket s
-    else yield msg
+    result <- catMaybes <$> forM
+        [ return . ping
+        , uptime t
+--        , quit
+        ]
+        (\a -> a msg)
 
-dump :: Monad m => BS.ByteString -> Producer BS.ByteString m ()
-dump i = yield i
+    unless (null result) (yield $ head result)
 
+ping :: BS.ByteString -> Maybe BS.ByteString
+ping msg = if "PING :" `BS.isPrefixOf` msg
+           then Just $ BS.concat ["PONG", " ", ":", BS.drop 6 msg, "\r\n"]
+           else Nothing
 
-command :: MonadIO m => Socket -> Handle -> Pipe BS.ByteString BS.ByteString m ()
-command = undefined
+quit :: MonadIO m => BS.ByteString -> m (Maybe BS.ByteString)
+quit = undefined
 
+uptime :: MonadIO m => ClockTime -> BS.ByteString -> m (Maybe BS.ByteString)
+uptime t msg = do
+    let msg' = C8.drop 1 $ C8.dropWhile (/= ':') $ C8.drop 1 msg
+    now <- liftIO getClockTime
 
---eval :: String -> Net ()
---eval     "!uptime"             = uptime >>= privmsg
---eval     "!quit"               = write "QUIT" ":Exiting" >> io (exitWith ExitSuccess)
---eval x | "!id " `isPrefixOf` x = privmsg (drop 4 x)
+    return $ if "!uptime" `BS.isPrefixOf` msg'
+             then Just $ BS.concat ["PRIVMSG", " ", "#levchins_minecraft", " ", ":", (C8.pack $ pretty $ diffClockTimes now t), "\r\n"]
+             else Nothing
 
---    write "PRIVMSG" $ BS.concat [chan, " :", C8.pack s]
-
---uptime :: Net String
---uptime = do
---    now  <- io getClockTime
---    zero <- asks starttime
---    return . pretty $ diffClockTimes now zero
 --
 -- Pretty print the date in '1d 9h 9m 17s' format
 --
@@ -229,3 +236,13 @@ main = establish testConfig testPersistent
 --      could allow for more sophsicated error recovery via taking
 --      different routes and being able to plug in code for dealing with
 --      this.
+--
+-- 4. Do a dumb loop, basically since you can have nested pipes should be
+--      able to do an `await` to get a message, in then you loop through
+--      a list of pipes and feed the message into each, and if one yields
+--      up a result, this means we should abort early and proceed to send
+--      the result down the pipeline to the "sending" side.  Later on can
+--      probably improve things by using actual queues, as in just queue up
+--      a copy of the message into each queue and spawn off a thread for
+--      each queue for processing, and then have a listener that will read
+--      off the reply queue and send it.
