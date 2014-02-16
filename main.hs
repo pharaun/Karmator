@@ -5,6 +5,7 @@ import System.IO
 import System.Time
 import System.Exit
 import Control.Monad.Reader
+import Control.Monad.Trans.State.Strict
 import Control.Exception
 import Text.Printf
 import Prelude hiding (catch, log)
@@ -17,12 +18,14 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.Text as T
 
-
-import qualified Network.Simple.TCP as NST
 import qualified Pipes.Network.TCP as PNT
-import qualified Pipes.ByteString as PBS
 import qualified Pipes.Attoparsec as PA
 import Pipes
+import qualified Pipes.Lift as Lift
+
+-- IRC Parser
+import qualified Network.IRC as IRC
+
 
 
 -- Per server config for the bot
@@ -75,24 +78,11 @@ data ServerPersistentState = ServerPersistentState
 
 -- Ephemeral State:
 data ServerState = ServerState
-    { socket :: Handle
-
-    -- Other stuff
-    , session :: ServerPersistentState
+    { session :: ServerPersistentState
     , config :: ServerConfig
 
     -- Debugging/initial test impl
     , starttime :: ClockTime
-    , logFile :: Handle
-    }
-
-
-data ServerStatePipes = ServerStatePipes
-    { sessionP :: ServerPersistentState
-    , configP :: ServerConfig
-
-    -- Debugging/initial test impl
-    , starttimeP :: ClockTime
     }
 
 --
@@ -100,21 +90,25 @@ data ServerStatePipes = ServerStatePipes
 -- TODO: provide the listeners/stuff needed to run the inner irc controller
 --
 establish :: ServerConfig -> ServerPersistentState -> IO ()
-establish sc sps = NST.withSocketsDo $
+establish sc sps = PNT.withSocketsDo $
     -- Establish the logfile
     withFile "test.log" AppendMode (\l ->
         -- TODO: do some form of dns lookup and prefer either v6 or v4
         -- Establish stocket
-        NST.connect (server sc) (show $ port sc) (\(sock, _) -> do
+        PNT.connect (server sc) (show $ port sc) (\(sock, _) -> do
             -- Session start time
             t <- getClockTime
 
             -- Set log to be unbuffered for testing
             hSetBuffering l NoBuffering
 
-            runEffect $ connect sc sps l sock >-> command t >-> log l >-> PNT.toSocket sock
+--            runEffect $ connect sc sps l sock >-> parseMessage l >-> eat -- command t >-> log l >-> PNT.toSocket sock
+            runEffect $ connect sc sps l sock >-> eat
         )
     )
+
+eat :: Monad m => Consumer t m ()
+eat = forever $ await
 
 --
 -- take the inbound message, loop it through a list of
@@ -127,6 +121,9 @@ command :: (Monad m, MonadIO m) => ClockTime -> Pipe BS.ByteString BS.ByteString
 command t = forever $ do
     msg <- await
 
+    -- TODO: look into seeing if there's a way to setup some form of
+    -- generic filtering rules such as "if chan = y send to x", etc..
+    -- Perhaps Pipe.Prelude.Filter
     result <- catMaybes <$> forM
         [ return . ping
         , uptime t
@@ -167,6 +164,34 @@ pretty td = join . intersperse " " . filter (not . null) . map f $
     months  = days   `div` 28 ; years  = months `div` 12
     f (i,s) | i == 0    = []
             | otherwise = show i ++ s
+
+--
+-- Parse inbound IRC messages
+--
+--parseMessage :: Monad m => Handle -> Pipe BS.ByteString IRC.Message m ()
+--parseMessage :: Monad m => Handle -> Pipe BS.ByteString (Either PA.ParsingError IRC.Message) m ()
+--parseMessage :: MonadIO m => Handle -> Producer C8.ByteString m () -> Producer IRC.Message m (Either (PA.ParsingError, Producer C8.ByteString m ()) ())
+parseMessage h i = PA.parsed IRC.message i
+
+
+-- errorP $ parseMessage undefined (connect undefined undefined undefined undefined)
+--   :: MonadIO m =>
+--      Proxy
+--        X
+--        ()
+--        ()
+--        IRC.Message
+--        (Control.Monad.Trans.Error.ErrorT
+--           (PA.ParsingError, Producer C8.ByteString m ()) m)
+--        ()
+
+
+
+--
+-- Format outbound IRC messages
+--
+showMessage :: Monad m => Pipe IRC.Message BS.ByteString m ()
+showMessage = undefined -- IRC.showMessage
 
 
 connect :: MonadIO m => ServerConfig -> ServerPersistentState -> Handle -> Socket -> Producer BS.ByteString m ()
