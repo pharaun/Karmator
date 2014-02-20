@@ -102,12 +102,15 @@ establish sc sps = PNT.withSocketsDo $
             -- Set log to be unbuffered for testing
             hSetBuffering l NoBuffering
 
---            runEffect $ connect sc sps l sock >-> parseMessage l >-> eat -- command t >-> log l >-> PNT.toSocket sock
-            runEffect $ connect sc sps l sock >-> eat
+            -- TODO: interpret the `Either (PA.ParsingError, Producer C8.ByteString IO ()) ()`
+            -- TODO: decide how we want to deal with errorP or the `either xyz`
+            runEffect $ Lift.runErrorP $ (Lift.errorP $ PA.parsed IRC.message $ connect sc sps l sock) >-> command t >-> log l >-> PNT.toSocket sock
+
+            return ()
         )
     )
 
-eat :: Monad m => Consumer t m ()
+eat :: Monad m => Consumer IRC.Message m ()
 eat = forever $ await
 
 --
@@ -117,7 +120,7 @@ eat = forever $ await
 -- Then for early exit take the first one that response and send it on
 -- downstream via yield
 --
-command :: (Monad m, MonadIO m) => ClockTime -> Pipe BS.ByteString BS.ByteString m ()
+command :: (Monad m, MonadIO m) => ClockTime -> Pipe IRC.Message BS.ByteString m ()
 command t = forever $ do
     msg <- await
 
@@ -133,20 +136,19 @@ command t = forever $ do
 
     unless (null result) (yield $ head result)
 
-ping :: BS.ByteString -> Maybe BS.ByteString
-ping msg = if "PING :" `BS.isPrefixOf` msg
-           then Just $ BS.concat ["PONG", " ", ":", BS.drop 6 msg, "\r\n"]
+ping :: IRC.Message -> Maybe BS.ByteString
+ping msg = if "PING" == IRC.msg_command msg
+           then Just $ BS.concat ["PONG", " ", ":", head $ IRC.msg_params msg, "\r\n"] -- TODO: Unsafe head
            else Nothing
 
-quit :: MonadIO m => BS.ByteString -> m (Maybe BS.ByteString)
+quit :: MonadIO m => IRC.Message -> m (Maybe BS.ByteString)
 quit = undefined
 
-uptime :: MonadIO m => ClockTime -> BS.ByteString -> m (Maybe BS.ByteString)
+uptime :: MonadIO m => ClockTime -> IRC.Message -> m (Maybe BS.ByteString)
 uptime t msg = do
-    let msg' = C8.drop 1 $ C8.dropWhile (/= ':') $ C8.drop 1 msg
     now <- liftIO getClockTime
 
-    return $ if "!uptime" `BS.isPrefixOf` msg'
+    return $ if "!uptime" `BS.isPrefixOf` (head $ tail $ IRC.msg_params msg) -- TODO: unsafe head/tail
              then Just $ BS.concat ["PRIVMSG", " ", "#levchins_minecraft", " ", ":", (C8.pack $ pretty $ diffClockTimes now t), "\r\n"]
              else Nothing
 
@@ -164,28 +166,6 @@ pretty td = join . intersperse " " . filter (not . null) . map f $
     months  = days   `div` 28 ; years  = months `div` 12
     f (i,s) | i == 0    = []
             | otherwise = show i ++ s
-
---
--- Parse inbound IRC messages
---
---parseMessage :: Monad m => Handle -> Pipe BS.ByteString IRC.Message m ()
---parseMessage :: Monad m => Handle -> Pipe BS.ByteString (Either PA.ParsingError IRC.Message) m ()
---parseMessage :: MonadIO m => Handle -> Producer C8.ByteString m () -> Producer IRC.Message m (Either (PA.ParsingError, Producer C8.ByteString m ()) ())
-parseMessage h i = PA.parsed IRC.message i
-
-
--- errorP $ parseMessage undefined (connect undefined undefined undefined undefined)
---   :: MonadIO m =>
---      Proxy
---        X
---        ()
---        ()
---        IRC.Message
---        (Control.Monad.Trans.Error.ErrorT
---           (PA.ParsingError, Producer C8.ByteString m ()) m)
---        ()
-
-
 
 --
 -- Format outbound IRC messages
