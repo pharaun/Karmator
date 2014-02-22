@@ -18,15 +18,17 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.Text as T
 
+import qualified Pipes.ByteString as PBS
 import qualified Pipes.Network.TCP as PNT
 import qualified Pipes.Attoparsec as PA
-import Pipes
 import qualified Pipes.Lift as Lift
+import Pipes
 
 -- IRC Parser
 import qualified Network.IRC as IRC
 
-
+-- test
+import Control.Monad.Trans.Error
 
 -- Per server config for the bot
 data ServerConfig = ServerConfig
@@ -102,16 +104,55 @@ establish sc sps = PNT.withSocketsDo $
             -- Set log to be unbuffered for testing
             hSetBuffering l NoBuffering
 
-            -- TODO: interpret the `Either (PA.ParsingError, Producer C8.ByteString IO ()) ()`
-            -- TODO: decide how we want to deal with errorP or the `either xyz`
-            runEffect $ Lift.runErrorP $ (Lift.errorP $ PA.parsed IRC.message $ connect sc sps l sock) >-> command t >-> log l >-> PNT.toSocket sock
+            -- Initial connection
+            runEffect $ connect sc sps l sock
+
+            -- Rest of the program
+            runEffect $ Lift.runErrorP $ errorLog (PNT.fromSocket sock 8192 >-> log l) >-> command t >-> log l >-> PNT.toSocket sock
 
             return ()
         )
     )
 
-eat :: Monad m => Consumer IRC.Message m ()
-eat = forever $ await
+-- TODO: Getting what seems to be spurrious ParsingError "endOfInput"
+-- This is failing to pass the parse on...
+errorLog :: MonadIO m => Producer BS.ByteString m () -> Producer IRC.Message (ErrorT (PA.ParsingError, Producer C8.ByteString m ()) m) ()
+errorLog producer = do
+--    (result, leftover) <- runStateT (PA.parse IRC.message) producer
+    
+    (Lift.errorP $ PA.parsed IRC.message $ producer) `Lift.catchError` \(err, str) -> do
+        liftIO (putStrLn "===========")
+        liftIO (putStrLn $ show err)
+        liftIO (putStrLn "===========")
+        errorLog producer
+
+-- Initial connect attempt
+connect :: MonadIO m => ServerConfig -> ServerPersistentState -> Handle -> Socket -> Effect m ()
+connect sc sps l socket = handshake sc sps >-> log l >-> PNT.toSocket socket
+
+--
+-- Handshake for the initial connection to the network
+--
+handshake :: Monad m => ServerConfig -> ServerPersistentState -> Producer BS.ByteString m ()
+handshake sc sps = do
+    let nick = head $ nicks sc -- TODO: unsafe head
+    let chan = head $ channels sps -- TODO: unsafe head
+
+    -- We skip reading in anything and start dumping back out.
+    yield $ BS.concat ["NICK", " ", nick, "\r\n"]
+    yield $ BS.concat ["USER", " ", (nick `BS.append` " 0 * :ghost bot"), "\r\n"]
+    yield $ BS.concat ["JOIN", " ", chan, "\r\n"]
+
+    return ()
+
+--
+-- Log anything that passes through this stream to a logfile
+--
+log :: MonadIO m => Handle -> Pipe BS.ByteString BS.ByteString m r
+log h = forever $ do
+    x <- await
+    liftIO $ BS.hPutStr h x
+    yield x
 
 --
 -- take the inbound message, loop it through a list of
@@ -123,6 +164,12 @@ eat = forever $ await
 command :: (Monad m, MonadIO m) => ClockTime -> Pipe IRC.Message BS.ByteString m ()
 command t = forever $ do
     msg <- await
+
+
+    liftIO (putStrLn "===========")
+    liftIO (putStrLn $ show msg)
+    liftIO (putStrLn "===========")
+
 
     -- TODO: look into seeing if there's a way to setup some form of
     -- generic filtering rules such as "if chan = y send to x", etc..
@@ -174,39 +221,11 @@ showMessage :: Monad m => Pipe IRC.Message BS.ByteString m ()
 showMessage = undefined -- IRC.showMessage
 
 
-connect :: MonadIO m => ServerConfig -> ServerPersistentState -> Handle -> Socket -> Producer BS.ByteString m ()
-connect sc sps l socket = runEffect (PNT.fromSocket socket 4096 >-> log l >-> handshake sc sps >-> log l >-> PNT.toSocket socket)
-
---
--- Handshake for the initial connection to the network
---
-handshake :: MonadIO m => ServerConfig -> ServerPersistentState -> Pipe BS.ByteString BS.ByteString (Producer BS.ByteString m) r
-handshake sc sps = do
-    let nick = head $ nicks sc -- TODO: unsafe head
-    let chan = head $ channels sps -- TODO: unsafe head
-
-    -- We skip reading in anything and start dumping back out.
-    yield $ BS.concat ["NICK", " ", nick, "\r\n"]
-    yield $ BS.concat ["USER", " ", (nick `BS.append` " 0 * :ghost bot"), "\r\n"]
-    yield $ BS.concat ["JOIN", " ", chan, "\r\n"]
-
-    -- We are now done handshaking, forever forward bytes
-    for cat (lift . yield) -- forever (await >>= lift . yield)
-
---
--- Log anything that passes through this stream to a logfile
---
-log :: MonadIO m => Handle -> Pipe BS.ByteString BS.ByteString m r
-log h = forever $ do
-    x <- await
-    liftIO $ BS.hPutStr h x
-    yield x
-
-
 
 testConfig :: ServerConfig
 --testConfig = ServerConfig "irc.freenode.net" 6667 ["levchius"] True
-testConfig = ServerConfig "86.65.39.15" 6667 ["levchius"] True
+--testConfig = ServerConfig "86.65.39.15" 6667 ["levchius"] True
+testConfig = ServerConfig "127.0.0.1" 9999 ["levchius"] True
 
 testPersistent :: ServerPersistentState
 testPersistent = ServerPersistentState ["#levchins_minecraft"]
