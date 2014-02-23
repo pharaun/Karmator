@@ -21,7 +21,7 @@ import qualified Data.Text as T
 import qualified Pipes.ByteString as PBS
 import qualified Pipes.Network.TCP as PNT
 import qualified Pipes.Attoparsec as PA
-import qualified Pipes.Lift as Lift
+import qualified Pipes.Prelude as PP
 import Pipes
 
 -- IRC Parser
@@ -102,10 +102,10 @@ establish sc sps = PNT.withSocketsDo $
             hSetBuffering l NoBuffering
 
             -- Initial connection
-            runEffect $ handshake sc sps >-> log l >-> PNT.toSocket sock
+            runEffect $ handshake sc sps >-> showMessage >-> log l >-> PNT.toSocket sock
 
             -- Regular irc streaming
-            runEffect $ ircParserErrorLogging l (PNT.fromSocket sock 8192 >-> log l) >-> command t >-> log l >-> PNT.toSocket sock
+            runEffect $ ircParserErrorLogging l (PNT.fromSocket sock 8192 >-> log l) >-> command t >-> showMessage >-> log l >-> PNT.toSocket sock
 
             return ()
         )
@@ -133,21 +133,23 @@ ircParserErrorLogging l producer = do
 -- Format outbound IRC messages
 --
 showMessage :: Monad m => Pipe IRC.Message BS.ByteString m ()
-showMessage = undefined -- IRC.showMessage
+showMessage = PP.map encode
+    where
+        encode = (`BS.append` "\r\n") . IRC.encode
 
 --
 -- Handshake for the initial connection to the network
 --
-handshake :: Monad m => ServerConfig -> ServerPersistentState -> Producer BS.ByteString m ()
+handshake :: Monad m => ServerConfig -> ServerPersistentState -> Producer IRC.Message m ()
 handshake sc sps = do
     let nick = head $ nicks sc -- TODO: unsafe head
     let chan = head $ channels sps -- TODO: unsafe head
     let user = userName sc
 
     -- We skip reading in anything and start dumping back out.
-    yield $ BS.concat ["NICK", " ", nick, "\r\n"]
-    yield $ BS.concat ["USER", " ", nick, " 0 * :", user, "\r\n"]
-    yield $ BS.concat ["JOIN", " ", chan, "\r\n"]
+    yield $ IRC.nick nick
+    yield $ IRC.user nick "0" "*" user
+    yield $ IRC.joinChan chan
 
     return ()
 
@@ -170,7 +172,7 @@ log h = forever $ do
 -- TODO: implement a form or precidate logic such as "and [privmsg, or [ user "xyz", server "xy" ] ] -> command
 -- TODO: implement some form of infrastructure for state tracking for stateful stuff like "invite to new channel, want to stay there, leave, etc...
 --
-command :: (Monad m, MonadIO m) => ClockTime -> Pipe IRC.Message BS.ByteString m ()
+command :: (Monad m, MonadIO m) => ClockTime -> Pipe IRC.Message IRC.Message m ()
 command t = forever $ do
     msg <- await
 
@@ -188,19 +190,20 @@ command t = forever $ do
     unless (null result) (yield $ head result)
 
 -- TODO: with the precidate logic this would just parse the host out and reply with a pong
-ping :: IRC.Message -> Maybe BS.ByteString
+ping :: IRC.Message -> Maybe IRC.Message
 ping msg = if "PING" == IRC.msg_command msg
-           then Just $ BS.concat ["PONG", " ", ":", head $ IRC.msg_params msg, "\r\n"] -- TODO: Unsafe head
+           then Just $ IRC.pong (head $ IRC.msg_params msg) -- TODO: Unsafe head
            else Nothing
 
-uptime :: MonadIO m => ClockTime -> IRC.Message -> m (Maybe BS.ByteString)
+-- TODO: extend the IRC.privmsg to support sending to multiple people/channels
+uptime :: MonadIO m => ClockTime -> IRC.Message -> m (Maybe IRC.Message)
 uptime t msg = do
     now <- liftIO $ getClockTime
 
     return $ if "PRIVMSG" /= IRC.msg_command msg
     then Nothing
     else if "!uptime" `BS.isPrefixOf` (head $ tail $ IRC.msg_params msg) -- TODO: unsafe head/tail
-         then Just $ BS.concat ["PRIVMSG", " ", "#levchins_minecraft", " ", ":", (C8.pack $ pretty $ diffClockTimes now t), "\r\n"]
+         then Just $ IRC.privmsg "#levchins_minecraft" (C8.pack $ pretty $ diffClockTimes now t)
          else Nothing
 
 --
