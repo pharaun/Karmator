@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, Rank2Types #-}
+{-# LANGUAGE OverloadedStrings #-}
 import Data.List
 import Network
 import System.IO
@@ -29,15 +29,15 @@ import qualified Network.IRC as IRC
 import Control.Applicative
 import Data.Attoparsec.ByteString
 
--- test
-import Control.Monad.Trans.Error
-
 -- Per server config for the bot
 data ServerConfig = ServerConfig
     { server :: String
     , port :: Int
     , nicks :: [BS.ByteString] -- First one then alternatives in descending order
+    , userName :: BS.ByteString
     , reconnect :: Bool
+
+    , logfile :: String -- logfile
 
     -- Function for default encoding and decoding
 --    , defaultEncoding :: BS.ByteString -> T.Text
@@ -68,16 +68,11 @@ data ServerConfig = ServerConfig
     --
     }
 
--- State TODO:
---  initial channel to join
---  honor invitation/request to join other channels or not/leaves, etc
---
---  channels:
---   channels, encoding
 
 -- Persistent State:
 data ServerPersistentState = ServerPersistentState
     { channels :: [BS.ByteString]
+--   channels, encoding
     }
 
 -- Ephemeral State:
@@ -91,13 +86,13 @@ data ServerState = ServerState
 
 --
 -- Establish an irc session with this server
--- TODO: provide the listeners/stuff needed to run the inner irc controller
 --
 establish :: ServerConfig -> ServerPersistentState -> IO ()
 establish sc sps = PNT.withSocketsDo $
     -- Establish the logfile
-    withFile "test.log" AppendMode (\l ->
+    withFile (logfile sc) AppendMode (\l ->
         -- TODO: do some form of dns lookup and prefer either v6 or v4
+
         -- Establish stocket
         PNT.connect (server sc) (show $ port sc) (\(sock, _) -> do
             -- Session start time
@@ -107,54 +102,38 @@ establish sc sps = PNT.withSocketsDo $
             hSetBuffering l NoBuffering
 
             -- Initial connection
-            runEffect $ connect sc sps l sock
+            runEffect $ handshake sc sps >-> log l >-> PNT.toSocket sock
 
-            -- Rest of the program
-            runEffect $ errorLog (PNT.fromSocket sock 8192 >-> log l) >-> command t >-> log l >-> PNT.toSocket sock
+            -- Regular irc streaming
+            runEffect $ ircParserErrorLogging l (PNT.fromSocket sock 8192 >-> log l) >-> command t >-> log l >-> PNT.toSocket sock
 
             return ()
         )
     )
 
--- UPSTREAM this to Network.IRC.Parser
--------------------- ------------------ ------------------ ------------------
--- | optionMaybe p tries to apply parser p. If p fails without consuming input,
--- | it return Nothing, otherwise it returns Just the value returned by p.
-optionMaybe :: Parser a -> Parser (Maybe a)
-optionMaybe p = option Nothing (Just <$> p)
-
--- | Convert a parser that consumes all space after it
-tokenize  :: Parser a -> Parser a
-tokenize p = p >>= \x -> IRC.spaces >> return x
-
-
--- Streaming version of the IRC message parser
-message :: Parser IRC.Message
-message  = do
-    p <- optionMaybe $ tokenize IRC.prefix
-    c <- IRC.command
-    ps <- many (IRC.spaces >> IRC.parameter)
-    _ <- IRC.crlf
-    return $ IRC.Message p c ps
--------------------- ------------------ ------------------ ------------------
-
-
-
-errorLog :: MonadIO m => Producer BS.ByteString (Proxy X () () IRC.Message m) () -> Producer IRC.Message m ()
-errorLog producer = do
---    result <- evalStateT (PA.parse message) producer
+--
+-- Parses incoming irc messages and emits any errors to a log and keep going
+--
+ircParserErrorLogging :: MonadIO m => Handle -> Producer BS.ByteString (Proxy X () () IRC.Message m) () -> Producer IRC.Message m ()
+ircParserErrorLogging l producer = do
     (result, rest) <- runStateT (PA.parse message) producer
 
     case result of
-        Left x  -> liftIO (putStrLn "===========") >> liftIO (putStrLn $ show x) >> liftIO (putStrLn "===========")
         Right x -> yield x
+        Left x  -> liftIO $ BS.hPutStr l $ BS.concat
+            [ "===========\n"
+            , "\n"
+            , C8.pack $ show x -- TODO: Ascii packing
+            , "\n"
+            , "===========\n"
+            ]
+    ircParserErrorLogging l rest
 
-    errorLog rest
-
-
--- Initial connect attempt
-connect :: MonadIO m => ServerConfig -> ServerPersistentState -> Handle -> Socket -> Effect m ()
-connect sc sps l socket = handshake sc sps >-> log l >-> PNT.toSocket socket
+--
+-- Format outbound IRC messages
+--
+showMessage :: Monad m => Pipe IRC.Message BS.ByteString m ()
+showMessage = undefined -- IRC.showMessage
 
 --
 -- Handshake for the initial connection to the network
@@ -163,10 +142,11 @@ handshake :: Monad m => ServerConfig -> ServerPersistentState -> Producer BS.Byt
 handshake sc sps = do
     let nick = head $ nicks sc -- TODO: unsafe head
     let chan = head $ channels sps -- TODO: unsafe head
+    let user = userName sc
 
     -- We skip reading in anything and start dumping back out.
     yield $ BS.concat ["NICK", " ", nick, "\r\n"]
-    yield $ BS.concat ["USER", " ", (nick `BS.append` " 0 * :ghost bot"), "\r\n"]
+    yield $ BS.concat ["USER", " ", nick, " 0 * :", user, "\r\n"]
     yield $ BS.concat ["JOIN", " ", chan, "\r\n"]
 
     return ()
@@ -187,15 +167,12 @@ log h = forever $ do
 -- Then for early exit take the first one that response and send it on
 -- downstream via yield
 --
+-- TODO: implement a form or precidate logic such as "and [privmsg, or [ user "xyz", server "xy" ] ] -> command
+-- TODO: implement some form of infrastructure for state tracking for stateful stuff like "invite to new channel, want to stay there, leave, etc...
+--
 command :: (Monad m, MonadIO m) => ClockTime -> Pipe IRC.Message BS.ByteString m ()
 command t = forever $ do
     msg <- await
-
-
-    liftIO (putStrLn "===========")
-    liftIO (putStrLn $ show msg)
-    liftIO (putStrLn "===========")
-
 
     -- TODO: look into seeing if there's a way to setup some form of
     -- generic filtering rules such as "if chan = y send to x", etc..
@@ -203,20 +180,18 @@ command t = forever $ do
     result <- catMaybes <$> forM
         [ return . ping
         , uptime t
---        , quit
+--        , quit -- TODO: need to implement a way to exit/die so that we gracefully exit from the server
         ]
         (\a -> a msg)
 
     -- TODO: Unsafe head
     unless (null result) (yield $ head result)
 
+-- TODO: with the precidate logic this would just parse the host out and reply with a pong
 ping :: IRC.Message -> Maybe BS.ByteString
 ping msg = if "PING" == IRC.msg_command msg
            then Just $ BS.concat ["PONG", " ", ":", head $ IRC.msg_params msg, "\r\n"] -- TODO: Unsafe head
            else Nothing
-
-quit :: MonadIO m => IRC.Message -> m (Maybe BS.ByteString)
-quit = undefined
 
 uptime :: MonadIO m => ClockTime -> IRC.Message -> m (Maybe BS.ByteString)
 uptime t msg = do
@@ -243,18 +218,13 @@ pretty td = join . intersperse " " . filter (not . null) . map f $
     f (i,s) | i == 0    = []
             | otherwise = show i ++ s
 
---
--- Format outbound IRC messages
---
-showMessage :: Monad m => Pipe IRC.Message BS.ByteString m ()
-showMessage = undefined -- IRC.showMessage
+
 
 
 
 testConfig :: ServerConfig
---testConfig = ServerConfig "irc.freenode.net" 6667 ["levchius"] True
---testConfig = ServerConfig "86.65.39.15" 6667 ["levchius"] True
-testConfig = ServerConfig "127.0.0.1" 9999 ["levchius"] True
+--testConfig = ServerConfig "86.65.39.15" 6667 ["levchius"] "Ghost Bot" True "test.log"
+testConfig = ServerConfig "127.0.0.1" 9999 ["levchius"] "Ghost Bot" True "test.log"
 
 testPersistent :: ServerPersistentState
 testPersistent = ServerPersistentState ["#levchins_minecraft"]
@@ -262,34 +232,6 @@ testPersistent = ServerPersistentState ["#levchins_minecraft"]
 main :: IO ()
 main = establish testConfig testPersistent
 
-
---
--- Right now looks like there's a couple of approaches to the issue of
--- output and passing things on.
---
--- 1. Abstract the "await" interface into an interface that supports
---      automatical forwarding of "replied" data, such as "data message = Reply a | Message b"
---      in which the irc parser stuff the server message into "Message b"
---      and when a module wants to reply it just "yield Reply a" otherwise
---      it forwards the message. Then on the "await" part it will
---      automatically filter out the replies so it only returns an
---      unprocessed Message. Would need a final stage that filters out all
---      unprocessed messages.
---
--- 2. Some form of external queue for early-exit, basically when a module
---      wants to send a message it sticks it into another concurrent queue
---      which takes care of this, and it can just omit forwarding the
---      message. The advantage of this is is it doesn't need to keep
---      forwarding the message down the chain. Disadvantage is that it
---      includes concurrency so its no longer as easy to reason about as
---      the single threaded code above.
---
--- 3. Some form of graph, in which you can emit the reply down one side,
---      and the message can be kept on passed down the other side, and this
---      could allow for more sophsicated error recovery via taking
---      different routes and being able to plug in code for dealing with
---      this.
---
 -- 4. Do a dumb loop, basically since you can have nested pipes should be
 --      able to do an `await` to get a message, in then you loop through
 --      a list of pipes and feed the message into each, and if one yields
@@ -299,3 +241,24 @@ main = establish testConfig testPersistent
 --      a copy of the message into each queue and spawn off a thread for
 --      each queue for processing, and then have a listener that will read
 --      off the reply queue and send it.
+
+
+
+
+-- UPSTREAM this to Network.IRC.Parser
+--------------------------------------------------------------------------
+optionMaybe :: Parser a -> Parser (Maybe a)
+optionMaybe p = option Nothing (Just <$> p)
+
+tokenize  :: Parser a -> Parser a
+tokenize p = p >>= \x -> IRC.spaces >> return x
+
+-- Streaming version of the IRC message parser
+message :: Parser IRC.Message
+message  = do
+    p <- optionMaybe $ tokenize IRC.prefix
+    c <- IRC.command
+    ps <- many (IRC.spaces >> IRC.parameter)
+    _ <- IRC.crlf
+    return $ IRC.Message p c ps
+--------------------------------------------------------------------------
