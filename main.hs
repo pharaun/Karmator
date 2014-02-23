@@ -26,6 +26,8 @@ import Pipes
 
 -- IRC Parser
 import qualified Network.IRC as IRC
+import Control.Applicative
+import Data.Attoparsec.ByteString
 
 -- test
 import Control.Monad.Trans.Error
@@ -108,23 +110,47 @@ establish sc sps = PNT.withSocketsDo $
             runEffect $ connect sc sps l sock
 
             -- Rest of the program
-            runEffect $ Lift.runErrorP $ errorLog (PNT.fromSocket sock 8192 >-> log l) >-> command t >-> log l >-> PNT.toSocket sock
+            runEffect $ errorLog (PNT.fromSocket sock 8192 >-> log l) >-> command t >-> log l >-> PNT.toSocket sock
 
             return ()
         )
     )
 
--- TODO: Getting what seems to be spurrious ParsingError "endOfInput"
--- This is failing to pass the parse on...
-errorLog :: MonadIO m => Producer BS.ByteString m () -> Producer IRC.Message (ErrorT (PA.ParsingError, Producer C8.ByteString m ()) m) ()
+-- UPSTREAM this to Network.IRC.Parser
+-------------------- ------------------ ------------------ ------------------
+-- | optionMaybe p tries to apply parser p. If p fails without consuming input,
+-- | it return Nothing, otherwise it returns Just the value returned by p.
+optionMaybe :: Parser a -> Parser (Maybe a)
+optionMaybe p = option Nothing (Just <$> p)
+
+-- | Convert a parser that consumes all space after it
+tokenize  :: Parser a -> Parser a
+tokenize p = p >>= \x -> IRC.spaces >> return x
+
+
+-- Streaming version of the IRC message parser
+message :: Parser IRC.Message
+message  = do
+    p <- optionMaybe $ tokenize IRC.prefix
+    c <- IRC.command
+    ps <- many (IRC.spaces >> IRC.parameter)
+    _ <- IRC.crlf
+    return $ IRC.Message p c ps
+-------------------- ------------------ ------------------ ------------------
+
+
+
+errorLog :: MonadIO m => Producer BS.ByteString (Proxy X () () IRC.Message m) () -> Producer IRC.Message m ()
 errorLog producer = do
---    (result, leftover) <- runStateT (PA.parse IRC.message) producer
-    
-    (Lift.errorP $ PA.parsed IRC.message $ producer) `Lift.catchError` \(err, str) -> do
-        liftIO (putStrLn "===========")
-        liftIO (putStrLn $ show err)
-        liftIO (putStrLn "===========")
-        errorLog producer
+--    result <- evalStateT (PA.parse message) producer
+    (result, rest) <- runStateT (PA.parse message) producer
+
+    case result of
+        Left x  -> liftIO (putStrLn "===========") >> liftIO (putStrLn $ show x) >> liftIO (putStrLn "===========")
+        Right x -> yield x
+
+    errorLog rest
+
 
 -- Initial connect attempt
 connect :: MonadIO m => ServerConfig -> ServerPersistentState -> Handle -> Socket -> Effect m ()
@@ -181,6 +207,7 @@ command t = forever $ do
         ]
         (\a -> a msg)
 
+    -- TODO: Unsafe head
     unless (null result) (yield $ head result)
 
 ping :: IRC.Message -> Maybe BS.ByteString
@@ -193,11 +220,13 @@ quit = undefined
 
 uptime :: MonadIO m => ClockTime -> IRC.Message -> m (Maybe BS.ByteString)
 uptime t msg = do
-    now <- liftIO getClockTime
+    now <- liftIO $ getClockTime
 
-    return $ if "!uptime" `BS.isPrefixOf` (head $ tail $ IRC.msg_params msg) -- TODO: unsafe head/tail
-             then Just $ BS.concat ["PRIVMSG", " ", "#levchins_minecraft", " ", ":", (C8.pack $ pretty $ diffClockTimes now t), "\r\n"]
-             else Nothing
+    return $ if "PRIVMSG" /= IRC.msg_command msg
+    then Nothing
+    else if "!uptime" `BS.isPrefixOf` (head $ tail $ IRC.msg_params msg) -- TODO: unsafe head/tail
+         then Just $ BS.concat ["PRIVMSG", " ", "#levchins_minecraft", " ", ":", (C8.pack $ pretty $ diffClockTimes now t), "\r\n"]
+         else Nothing
 
 --
 -- Pretty print the date in '1d 9h 9m 17s' format
