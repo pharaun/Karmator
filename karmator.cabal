@@ -26,8 +26,11 @@ executable karmator
                      -- Pipes
                      , pipes
                      , pipes-attoparsec >= 0.4.0
+                     , attoparsec
                      , pipes-bytestring
                      , pipes-network
+                     , pipes-network-tls
+                     , network-simple-tls
                      -- TODO: clean this up
                      , old-time
 

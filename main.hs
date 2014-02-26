@@ -29,12 +29,18 @@ import qualified Network.IRC as IRC
 import Control.Applicative
 import Data.Attoparsec.ByteString
 
+-- Network
+import qualified Network.Simple.TCP.TLS as TLS
+import qualified Pipes.Network.TCP.TLS  as TLS
+
+
 -- Per server config for the bot
 data ServerConfig = ServerConfig
     { server :: String
     , port :: Int
     , nicks :: [BS.ByteString] -- First one then alternatives in descending order
     , userName :: BS.ByteString
+    , serverPassword :: Maybe BS.ByteString
     , reconnect :: Bool
 
     , logfile :: String -- logfile
@@ -83,6 +89,34 @@ data ServerState = ServerState
     -- Debugging/initial test impl
     , starttime :: ClockTime
     }
+
+--
+-- Establish TLS connection
+--
+establishTLS :: ServerConfig -> ServerPersistentState -> IO ()
+establishTLS sc sps = TLS.withSocketsDo $
+    -- Establish the logfile
+    withFile (logfile sc) AppendMode (\l -> do
+        -- TODO: do some form of dns lookup and prefer either v6 or v4
+
+        -- Establish tls context
+        TLS.getDefaultClientSettings >>= \def -> TLS.connect def (server sc) (show $ port sc) (\(context, _) -> do
+                -- Session start time
+                t <- getClockTime
+
+                -- Set log to be unbuffered for testing
+                hSetBuffering l NoBuffering
+
+                -- Initial connection
+                runEffect $ handshake sc sps >-> showMessage >-> log l >-> TLS.toContext context
+
+                -- Regular irc streaming
+                runEffect $ ircParserErrorLogging l (TLS.fromContext context >-> log l) >-> command t >-> showMessage >-> log l >-> TLS.toContext context
+
+                return ()
+            )
+        )
+
 
 --
 -- Establish an irc session with this server
@@ -226,8 +260,9 @@ pretty td = join . intersperse " " . filter (not . null) . map f $
 
 
 testConfig :: ServerConfig
---testConfig = ServerConfig "86.65.39.15" 6667 ["levchius"] "Ghost Bot" True "test.log"
-testConfig = ServerConfig "127.0.0.1" 9999 ["levchius"] "Ghost Bot" True "test.log"
+--testConfig = ServerConfig "86.65.39.15" 6697 ["levchius"] "Ghost Bot" Nothing True "test.log"
+--testConfig = ServerConfig "86.65.39.15" 6667 ["levchius"] "Ghost Bot" Nothing True "test.log"
+testConfig = ServerConfig "127.0.0.1" 9999 ["levchius"] "Ghost Bot" Nothing True "test.log"
 
 testPersistent :: ServerPersistentState
 testPersistent = ServerPersistentState ["#levchins_minecraft"]
