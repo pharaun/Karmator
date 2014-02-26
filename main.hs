@@ -32,6 +32,7 @@ import Data.Attoparsec.ByteString
 -- Network
 import qualified Network.Simple.TCP.TLS as TLS
 import qualified Pipes.Network.TCP.TLS  as TLS
+import qualified Network.TLS as NTLS
 
 
 -- Per server config for the bot
@@ -91,6 +92,17 @@ data ServerState = ServerState
     }
 
 --
+-- TLS logging
+--
+customLogging :: NTLS.Logging
+customLogging = NTLS.Logging
+    { NTLS.loggingPacketSent = (\_ -> return ())
+    , NTLS.loggingPacketRecv = (\_ -> return ())
+    , NTLS.loggingIOSent     = (\_ -> return ())
+    , NTLS.loggingIORecv     = (\_ _ -> return ())
+    }
+
+--
 -- Establish TLS connection
 --
 establishTLS :: ServerConfig -> ServerPersistentState -> IO ()
@@ -100,7 +112,12 @@ establishTLS sc sps = TLS.withSocketsDo $
         -- TODO: do some form of dns lookup and prefer either v6 or v4
 
         -- Establish tls context
-        TLS.getDefaultClientSettings >>= \def -> TLS.connect def (server sc) (show $ port sc) (\(context, _) -> do
+        def <- TLS.getDefaultClientSettings
+
+        -- Improve logging
+        let def' = TLS.updateClientParams (\p -> p { NTLS.pLogging = customLogging }) def
+
+        TLS.connect def' (server sc) (show $ port sc) (\(context, _) -> do
                 -- Session start time
                 t <- getClockTime
 
