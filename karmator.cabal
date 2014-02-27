@@ -29,6 +29,7 @@ executable karmator
                      , attoparsec
                      , pipes-bytestring
                      , pipes-network
+                     , tls
                      , pipes-network-tls
                      , network-simple-tls
                      -- TODO: clean this up

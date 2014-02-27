@@ -15,6 +15,7 @@ import Data.Functor ((<$>))
 import Data.List (head)
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.Text as T
 
@@ -33,6 +34,7 @@ import Data.Attoparsec.ByteString
 import qualified Network.Simple.TCP.TLS as TLS
 import qualified Pipes.Network.TCP.TLS  as TLS
 import qualified Network.TLS as NTLS
+import qualified Network.TLS.Extra as NTLS
 
 
 -- Per server config for the bot
@@ -94,10 +96,10 @@ data ServerState = ServerState
 --
 -- TLS logging
 --
-customLogging :: NTLS.Logging
-customLogging = NTLS.Logging
-    { NTLS.loggingPacketSent = (\_ -> return ())
-    , NTLS.loggingPacketRecv = (\_ -> return ())
+customLogging :: Handle -> NTLS.Logging
+customLogging l = NTLS.Logging
+    { NTLS.loggingPacketSent = \m -> BS.hPutStr l $ BS.concat ["debug: >> ", C8.pack m, "\n"]
+    , NTLS.loggingPacketRecv = \m -> BS.hPutStr l $ BS.concat ["debug: << ", C8.pack m, "\n"]
     , NTLS.loggingIOSent     = (\_ -> return ())
     , NTLS.loggingIORecv     = (\_ _ -> return ())
     }
@@ -111,18 +113,28 @@ establishTLS sc sps = TLS.withSocketsDo $
     withFile (logfile sc) AppendMode (\l -> do
         -- TODO: do some form of dns lookup and prefer either v6 or v4
 
+        -- Set log to be unbuffered for testing
+        hSetBuffering l NoBuffering
+
         -- Establish tls context
         def <- TLS.getDefaultClientSettings
 
+        -- Load the certificate
+        -- TODO: Seems like we can't ignore the FQDN yet on this so figure out how
+        cert <- NTLS.fileReadCertificate "./server-cert.pem"
+        key <- NTLS.fileReadPrivateKey "./server-key-decrypted.pem" -- TODO: this requires decrypted key
+
         -- Improve logging
-        let def' = TLS.updateClientParams (\p -> p { NTLS.pLogging = customLogging }) def
+        let def' = TLS.updateClientParams (\p -> p
+                { NTLS.pLogging = customLogging l
+                , NTLS.pAllowedVersions = [NTLS.SSL3, NTLS.TLS10, NTLS.TLS11, NTLS.TLS12]
+                , NTLS.onCertificatesRecv = \_ -> return NTLS.CertificateUsageAccept -- TODO: not doing proper cert mgm
+--                , NTLS.pCertificates = [(cert, Just key)]
+                }) def
 
         TLS.connect def' (server sc) (show $ port sc) (\(context, _) -> do
                 -- Session start time
                 t <- getClockTime
-
-                -- Set log to be unbuffered for testing
-                hSetBuffering l NoBuffering
 
                 -- Initial connection
                 runEffect $ handshake sc sps >-> showMessage >-> log l >-> TLS.toContext context
@@ -276,10 +288,14 @@ pretty td = join . intersperse " " . filter (not . null) . map f $
 
 
 
+ftestConfig :: ServerConfig
+ftestConfig = ServerConfig "64.32.24.176" 6697 ["levchius"] "Ghost Bot" Nothing True "test.log"
+
+otestConfig :: ServerConfig
+otestConfig = ServerConfig "206.12.19.242" 6697 ["levchius"] "Ghost Bot" Nothing True "test.log"
+
 testConfig :: ServerConfig
---testConfig = ServerConfig "86.65.39.15" 6697 ["levchius"] "Ghost Bot" Nothing True "test.log"
---testConfig = ServerConfig "86.65.39.15" 6667 ["levchius"] "Ghost Bot" Nothing True "test.log"
-testConfig = ServerConfig "127.0.0.1" 9999 ["levchius"] "Ghost Bot" Nothing True "test.log"
+testConfig = ServerConfig "127.0.0.1" 9998 ["levchius"] "Ghost Bot" Nothing True "test.log"
 
 testPersistent :: ServerPersistentState
 testPersistent = ServerPersistentState ["#levchins_minecraft"]
