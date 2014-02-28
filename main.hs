@@ -35,6 +35,7 @@ import qualified Network.Simple.TCP.TLS as TLS
 import qualified Pipes.Network.TCP.TLS  as TLS
 import qualified Network.TLS as NTLS
 import qualified Network.TLS.Extra as NTLS
+import qualified System.Certificate.X509 as NTLS
 
 
 -- Per server config for the bot
@@ -116,20 +117,24 @@ establishTLS sc sps = TLS.withSocketsDo $
         -- Set log to be unbuffered for testing
         hSetBuffering l NoBuffering
 
-        -- Establish tls context
-        def <- TLS.getDefaultClientSettings
-
         -- Load the certificate
         -- TODO: Seems like we can't ignore the FQDN yet on this so figure out how
-        cert <- NTLS.fileReadCertificate "./server-cert.pem"
-        key <- NTLS.fileReadPrivateKey "./server-key-decrypted.pem" -- TODO: this requires decrypted key
+--        cert <- NTLS.fileReadCertificate "./server-cert.pem"
+--        key <- NTLS.fileReadPrivateKey "./server-cert.pem" -- TODO: this requires decrypted key
+
+        -- Establish tls context
+        def <- TLS.makeClientSettings [] Nothing `fmap` NTLS.getSystemCertificateStore
 
         -- Improve logging
         let def' = TLS.updateClientParams (\p -> p
                 { NTLS.pLogging = customLogging l
                 , NTLS.pAllowedVersions = [NTLS.SSL3, NTLS.TLS10, NTLS.TLS11, NTLS.TLS12]
-                , NTLS.onCertificatesRecv = \_ -> return NTLS.CertificateUsageAccept -- TODO: not doing proper cert mgm
---                , NTLS.pCertificates = [(cert, Just key)]
+--                , NTLS.onCertificatesRecv = \_ -> return NTLS.CertificateUsageAccept -- TODO: not doing proper cert mgm
+--                , NTLS.roleParams = case (NTLS.roleParams p) of
+--                    NTLS.Server x -> NTLS.Server x
+--                    NTLS.Client x -> NTLS.Client $ x {
+--                        NTLS.onCertificateRequest = \_ -> return [(cert, Nothing)]
+--                        }
                 }) def
 
         TLS.connect def' (server sc) (show $ port sc) (\(context, _) -> do
