@@ -5,3 +5,9 @@
 *.pyc
 /env
 /TestData
+.cabal-sandbox/
+*.pem
+*.db
+*.log
+dist/
+cabal.sandbox.config

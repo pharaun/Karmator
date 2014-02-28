@@ -129,7 +129,7 @@ establishTLS sc sps = TLS.withSocketsDo $
         let def' = TLS.updateClientParams (\p -> p
                 { NTLS.pLogging = customLogging l
                 , NTLS.pAllowedVersions = [NTLS.SSL3, NTLS.TLS10, NTLS.TLS11, NTLS.TLS12]
---                , NTLS.onCertificatesRecv = \_ -> return NTLS.CertificateUsageAccept -- TODO: not doing proper cert mgm
+                , NTLS.onCertificatesRecv = \_ -> return NTLS.CertificateUsageAccept -- TODO: not doing proper cert mgm
 --                , NTLS.roleParams = case (NTLS.roleParams p) of
 --                    NTLS.Server x -> NTLS.Server x
 --                    NTLS.Client x -> NTLS.Client $ x {
