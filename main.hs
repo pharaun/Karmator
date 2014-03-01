@@ -34,7 +34,7 @@ import Data.Attoparsec.ByteString
 -- TLS
 import qualified Network.TLS as TLS
 import qualified Network.TLS.Extra as TLS
-import qualified System.Certificate.X509 as TLS
+import qualified System.X509.Unix as TLS
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as NSB
 import qualified Crypto.Random.AESCtr as RNG
@@ -239,7 +239,7 @@ pretty td = join . intersperse " " . filter (not . null) . map f $
 
 
 ftestConfig :: ServerConfig
-ftestConfig = ServerConfig "64.32.24.176" 6697 ["levchius"] "Ghost Bot" Nothing True "test.log"
+ftestConfig = ServerConfig "chat.freenode.net" 6697 ["levchius"] "Ghost Bot" Nothing True "test.log"
 
 otestConfig :: ServerConfig
 otestConfig = ServerConfig "206.12.19.242" 6697 ["levchius"] "Ghost Bot" Nothing True "test.log"
@@ -306,7 +306,7 @@ establishTLS sc sps = PNT.withSocketsDo $
         hSetBuffering l NoBuffering
 
         -- Establish the client configuration
-        let params = createClientParams (server sc) (port sc)
+        params <- createClientParams (server sc) (port sc)
 
         -- Establish a socket
         socket <- connect (server sc) (port sc)
@@ -343,12 +343,15 @@ establishTLS sc sps = PNT.withSocketsDo $
 --
 -- Client Configuration
 --
-createClientParams :: HostName -> NS.PortNumber -> TLS.ClientParams
-createClientParams host port = (TLS.defaultParamsClient host (C8.pack $ show port))
+createClientParams :: HostName -> NS.PortNumber -> IO TLS.ClientParams
+createClientParams host port = (\store -> return $ (TLS.defaultParamsClient host (C8.pack $ show port))
     { TLS.clientSupported = def
         { TLS.supportedCiphers = ciphers_AES_CBC
         }
-    }
+    , TLS.clientShared = def
+        { TLS.sharedCAStore = store
+        }
+    }) =<< TLS.getSystemCertificateStore -- TODO: inclusion of this seems to freeze the network code
     where
         ciphers_AES_CBC :: [TLS.Cipher]
         ciphers_AES_CBC =
