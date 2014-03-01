@@ -30,13 +30,9 @@ executable karmator
                      , attoparsec
                      , pipes-bytestring
                      , pipes-network
-                     , tls
-                     , tls-extra
-                     , pipes-network-tls
-                     , network-simple-tls
+                     , tls >= 1.2.2
                      -- TODO: clean this up
                      , old-time
-                     , certificate
 
 
   -- other-modules:

@@ -10,6 +10,7 @@ import Control.Exception
 import Text.Printf
 import Prelude hiding (catch, log)
 import Data.Maybe
+import Data.Default.Class
 
 import Data.Functor ((<$>))
 import Data.List (head)
@@ -30,18 +31,19 @@ import qualified Network.IRC as IRC
 import Control.Applicative
 import Data.Attoparsec.ByteString
 
--- Network
-import qualified Network.Simple.TCP.TLS as TLS
-import qualified Pipes.Network.TCP.TLS  as TLS
-import qualified Network.TLS as NTLS
-import qualified Network.TLS.Extra as NTLS
-import qualified System.Certificate.X509 as NTLS
+-- TLS
+import qualified Network.TLS as TLS
+import qualified Network.TLS.Extra as TLS
+import qualified System.Certificate.X509 as TLS
+import qualified Network.Socket as NS
+import qualified Network.Socket.ByteString as NSB
+import qualified Crypto.Random.AESCtr as RNG
 
 
 -- Per server config for the bot
 data ServerConfig = ServerConfig
     { server :: String
-    , port :: Int
+    , port :: NS.PortNumber
     , nicks :: [BS.ByteString] -- First one then alternatives in descending order
     , userName :: BS.ByteString
     , serverPassword :: Maybe BS.ByteString
@@ -93,63 +95,6 @@ data ServerState = ServerState
     -- Debugging/initial test impl
     , starttime :: ClockTime
     }
-
---
--- TLS logging
---
-customLogging :: Handle -> NTLS.Logging
-customLogging l = NTLS.Logging
-    { NTLS.loggingPacketSent = \m -> BS.hPutStr l $ BS.concat ["debug: >> ", C8.pack m, "\n"]
-    , NTLS.loggingPacketRecv = \m -> BS.hPutStr l $ BS.concat ["debug: << ", C8.pack m, "\n"]
-    , NTLS.loggingIOSent     = (\_ -> return ())
-    , NTLS.loggingIORecv     = (\_ _ -> return ())
-    }
-
---
--- Establish TLS connection
---
-establishTLS :: ServerConfig -> ServerPersistentState -> IO ()
-establishTLS sc sps = TLS.withSocketsDo $
-    -- Establish the logfile
-    withFile (logfile sc) AppendMode (\l -> do
-        -- TODO: do some form of dns lookup and prefer either v6 or v4
-
-        -- Set log to be unbuffered for testing
-        hSetBuffering l NoBuffering
-
-        -- Load the certificate
-        -- TODO: Seems like we can't ignore the FQDN yet on this so figure out how
---        cert <- NTLS.fileReadCertificate "./server-cert.pem"
---        key <- NTLS.fileReadPrivateKey "./server-cert.pem" -- TODO: this requires decrypted key
-
-        -- Establish tls context
-        def <- TLS.makeClientSettings [] Nothing `fmap` NTLS.getSystemCertificateStore
-
-        -- Improve logging
-        let def' = TLS.updateClientParams (\p -> p
-                { NTLS.pLogging = customLogging l
-                , NTLS.pAllowedVersions = [NTLS.SSL3, NTLS.TLS10, NTLS.TLS11, NTLS.TLS12]
-                , NTLS.onCertificatesRecv = \_ -> return NTLS.CertificateUsageAccept -- TODO: not doing proper cert mgm
---                , NTLS.roleParams = case (NTLS.roleParams p) of
---                    NTLS.Server x -> NTLS.Server x
---                    NTLS.Client x -> NTLS.Client $ x {
---                        NTLS.onCertificateRequest = \_ -> return [(cert, Nothing)]
---                        }
-                }) def
-
-        TLS.connect def' (server sc) (show $ port sc) (\(context, _) -> do
-                -- Session start time
-                t <- getClockTime
-
-                -- Initial connection
-                runEffect $ handshake sc sps >-> showMessage >-> log l >-> TLS.toContext context
-
-                -- Regular irc streaming
-                runEffect $ ircParserErrorLogging l (TLS.fromContext context >-> log l) >-> command t >-> showMessage >-> log l >-> TLS.toContext context
-
-                return ()
-            )
-        )
 
 
 --
@@ -338,3 +283,112 @@ message  = do
     _ <- IRC.crlf
     return $ IRC.Message p c ps
 --------------------------------------------------------------------------
+
+
+-- Break this out into its own file and revert/use the
+-- Pipes.Network.TCP.TLS package when its working again
+--------------------------------------------------------------------------
+
+
+
+
+
+
+
+--
+-- Establish TLS connection
+--
+establishTLS :: ServerConfig -> ServerPersistentState -> IO ()
+establishTLS sc sps = PNT.withSocketsDo $
+    -- Establish the logfile
+    withFile (logfile sc) AppendMode (\l -> do
+        -- Set log to be unbuffered for testing
+        hSetBuffering l NoBuffering
+
+        -- Establish the client configuration
+        let params = createClientParams (server sc) (port sc)
+
+        -- Establish a socket
+        socket <- connect (server sc) (port sc)
+
+        -- Generate ctx
+        rng <- RNG.makeSystem
+        ctx <- TLS.contextNew socket params rng
+
+        -- Hook into the ctx for logging
+        TLS.contextHookSetLogging ctx $ customLogging l
+
+        -- TLS handshake
+        TLS.handshake ctx
+
+        -- Network stuff
+
+        TLS.bye ctx
+
+
+--        TLS.connect def' (server sc) (show $ port sc) (\(context, _) -> do
+--                -- Session start time
+--                t <- getClockTime
+--
+--                -- Initial connection
+--                runEffect $ handshake sc sps >-> showMessage >-> log l >-> TLS.toContext context
+--
+--                -- Regular irc streaming
+--                runEffect $ ircParserErrorLogging l (TLS.fromContext context >-> log l) >-> command t >-> showMessage >-> log l >-> TLS.toContext context
+--
+--                return ()
+--            )
+        )
+
+--
+-- Client Configuration
+--
+createClientParams :: HostName -> NS.PortNumber -> TLS.ClientParams
+createClientParams host port = (TLS.defaultParamsClient host (C8.pack $ show port))
+    { TLS.clientSupported = def
+        { TLS.supportedCiphers = ciphers_AES_CBC
+        }
+    }
+    where
+        ciphers_AES_CBC :: [TLS.Cipher]
+        ciphers_AES_CBC =
+            [ TLS.cipher_AES256_SHA256
+            , TLS.cipher_AES256_SHA1
+            , TLS.cipher_AES128_SHA256
+            , TLS.cipher_AES128_SHA1
+            ]
+
+--
+-- Socket connection
+-- TODO: error handling
+--
+connect :: HostName -> NS.PortNumber -> IO NS.Socket
+connect hostname dstPort = do
+    -- Set up the hints to prefer ipv4 udp datagrams
+    let myAddr = NS.defaultHints
+            { NS.addrFamily = NS.AF_INET
+            , NS.addrSocketType = NS.Stream
+            }
+
+    -- Looks up hostname and port then grab the first
+    addrInfo <- head <$> NS.getAddrInfo (Just myAddr) (Just hostname) (Just $ show dstPort)
+
+    -- Establish a socket for communication
+    sock <- NS.socket (NS.addrFamily addrInfo) NS.Stream NS.defaultProtocol
+
+    -- Connect
+    NS.connect sock (NS.addrAddress addrInfo)
+
+    -- Save off the socket, program name, and server address in a handle
+    return sock
+
+--
+-- TLS logging
+--
+customLogging :: Handle -> TLS.Logging
+customLogging l = TLS.Logging
+    { TLS.loggingPacketSent = \m -> BS.hPutStr l $ BS.concat ["debug: >> ", C8.pack m, "\n"]
+    , TLS.loggingPacketRecv = \m -> BS.hPutStr l $ BS.concat ["debug: << ", C8.pack m, "\n"]
+    , TLS.loggingIOSent     = (\_ -> return ())
+    , TLS.loggingIORecv     = (\_ _ -> return ())
+    }
