@@ -30,6 +30,8 @@ executable karmator
                      , attoparsec
                      , pipes-bytestring
                      , pipes-network
+                     , pipes-network-tls >= 0.3
+                     , network-simple-tls >= 0.3
                      , tls >= 1.2.2
                      , x509-system
                      -- TODO: clean this up
