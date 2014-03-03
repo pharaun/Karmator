@@ -36,6 +36,8 @@ data ServerConfig = ServerConfig
     , nicks :: [BS.ByteString] -- First one then alternatives in descending order
     , userName :: BS.ByteString
     , serverPassword :: Maybe BS.ByteString
+
+    -- TODO
     , reconnect :: Bool
 
     , logfile :: String -- logfile
@@ -80,9 +82,10 @@ data ServerPersistentState = ServerPersistentState
 data ServerState = ServerState
     { session :: ServerPersistentState
     , config :: ServerConfig
+    , logStream :: Handle
 
     -- Debugging/initial test impl
-    , starttime :: ClockTime
+    , startTime :: ClockTime
     }
 
 
@@ -94,14 +97,10 @@ establishTLS sc sps = PNT.withSocketsDo $
     -- Establish the logfile
     withFile (logfile sc) AppendMode (\l -> do
 
-        -- Set log to be unbuffered for testing
-        hSetBuffering l NoBuffering
-
         -- Establish the client configuration
         params <- TLS.makeClientSettings Nothing (server sc) (show $ port sc) True <$> TLS.getSystemCertificateStore
 
-        -- Workaround with a bug about connecting to sockets with domain
-        -- name with ipv6 bridge up
+        -- Workaround with a bug about connecting to sockets with domain name with ipv6 bridge up
         let params' = params
                 { TLS.clientServerIdentification = ("chat.freenode.net", C8.pack $ show $ port sc)
                 , TLS.clientHooks = (TLS.clientHooks params)
@@ -111,14 +110,14 @@ establishTLS sc sps = PNT.withSocketsDo $
 
         -- Stablish connection
         TLS.connect params' (server sc) (show $ port sc) (\(context, _) -> do
+
+            -- Set log to be unbuffered for testing
+            hSetBuffering l NoBuffering
+
             -- Session start time
             t <- getClockTime
 
-            -- Initial connection
-            runEffect $ handshake sc sps >-> showMessage >-> log l >-> TLS.toContext context
-
-            -- Regular irc streaming
-            runEffect $ ircParserErrorLogging l (TLS.fromContext context >-> log l) >-> command t >-> showMessage >-> log l >-> TLS.toContext context
+            handleIRC (TLS.fromContext context >-> log l) (TLS.toContext context) (ServerState sps sc l t)
 
             return ()
             )
@@ -136,28 +135,39 @@ establish sc sps = PNT.withSocketsDo $
 
         -- Establish stocket
         PNT.connect (server sc) (show $ port sc) (\(sock, _) -> do
-            -- Session start time
-            t <- getClockTime
 
             -- Set log to be unbuffered for testing
             hSetBuffering l NoBuffering
 
-            -- Initial connection
-            runEffect $ handshake sc sps >-> showMessage >-> log l >-> PNT.toSocket sock
+            -- Session start time
+            t <- getClockTime
 
-            -- Regular irc streaming
-            runEffect $ ircParserErrorLogging l (PNT.fromSocket sock 8192 >-> log l) >-> command t >-> showMessage >-> log l >-> PNT.toSocket sock
+            handleIRC (PNT.fromSocket sock 8192 >-> log l) (log l >-> PNT.toSocket sock) (ServerState sps sc l t)
 
             return ()
         )
     )
 
 --
+-- The IRC handler and protocol
+--
+handleIRC :: (Monad m, MonadIO m) => Producer BS.ByteString m () -> Consumer BS.ByteString m () -> ServerState -> m ()
+handleIRC recv send ss = do
+    -- Initial connection
+    -- TODO: Improve error handling if auth has failed
+    runEffect $ handshake ss >-> showMessage >-> send
+
+    -- Regular irc streaming
+    runEffect $ (ircParserErrorLogging (logStream ss) recv) >-> command (startTime ss) >-> showMessage >-> send
+
+    return ()
+
+--
 -- Parses incoming irc messages and emits any errors to a log and keep going
 --
-ircParserErrorLogging :: MonadIO m => Handle -> Producer BS.ByteString (Proxy X () () IRC.Message m) () -> Producer IRC.Message m ()
+ircParserErrorLogging :: MonadIO m => Handle -> Producer BS.ByteString m () -> Producer IRC.Message m ()
 ircParserErrorLogging l producer = do
-    (result, rest) <- runStateT (PA.parse message) producer
+    (result, rest) <- lift $ runStateT (PA.parse message) producer
 
     case result of
         Right x -> yield x
@@ -181,15 +191,26 @@ showMessage = PP.map encode
 --
 -- Handshake for the initial connection to the network
 --
-handshake :: Monad m => ServerConfig -> ServerPersistentState -> Producer IRC.Message m ()
-handshake sc sps = do
+handshake :: Monad m => ServerState -> Producer IRC.Message m ()
+handshake ss = do
+    let sc  = config ss
+    let sps = session ss
+
     let nick = head $ nicks sc -- TODO: unsafe head
     let chan = head $ channels sps -- TODO: unsafe head
     let user = userName sc
+    let pasw = serverPassword sc
 
-    -- We skip reading in anything and start dumping back out.
+    -- Required for establishing a connection to irc
+    case pasw of
+        Just x  -> yield $ pass x
+        Nothing -> return ()
     yield $ IRC.nick nick
     yield $ IRC.user nick "0" "*" user
+
+    -- TODO: add support for "auth ping/pong" before registering/joining channels
+
+    -- Setup the channels
     yield $ IRC.joinChan chan
 
     return ()
@@ -270,13 +291,13 @@ ftestConfig :: ServerConfig
 ftestConfig = ServerConfig "208.80.155.68" 6697 ["levchius"] "Ghost Bot" Nothing True "test.log"
 
 testConfig :: ServerConfig
-testConfig = ServerConfig "127.0.0.1" 9999 ["levchius"] "Ghost Bot" Nothing True "test.log"
+testConfig = ServerConfig "127.0.0.1" 9999 ["levchius"] "Ghost Bot" (Just "karma") True "test.log"
 
 testPersistent :: ServerPersistentState
 testPersistent = ServerPersistentState ["#levchins_minecraft"]
 
 main :: IO ()
-main = establish testConfig testPersistent
+main = establishTLS ftestConfig testPersistent
 
 -- 4. Do a dumb loop, basically since you can have nested pipes should be
 --      able to do an `await` to get a message, in then you loop through
@@ -307,4 +328,11 @@ message  = do
     ps <- many (IRC.spaces >> IRC.parameter)
     _ <- IRC.crlf
     return $ IRC.Message p c ps
+
+
+mkMessage           :: BS.ByteString -> [IRC.Parameter] -> IRC.Message
+mkMessage cmd params = IRC.Message Nothing cmd params
+
+pass  :: IRC.Password -> IRC.Message
+pass u = mkMessage "PASS" [u]
 --------------------------------------------------------------------------
