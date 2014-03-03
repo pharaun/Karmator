@@ -100,11 +100,17 @@ establishTLS sc sps = PNT.withSocketsDo $
         -- Establish the client configuration
         params <- TLS.makeClientSettings Nothing (server sc) (show $ port sc) True <$> TLS.getSystemCertificateStore
 
-        -- Workaround the dns issue in simple tcp
---        let params' = params { TLS.clientServerIdentification = ("chat.freenode.net", C8.pack $ show $ port sc) }
+        -- Workaround with a bug about connecting to sockets with domain
+        -- name with ipv6 bridge up
+        let params' = params
+                { TLS.clientServerIdentification = ("chat.freenode.net", C8.pack $ show $ port sc)
+                , TLS.clientHooks = (TLS.clientHooks params)
+                    { TLS.onCertificateRequest = \_ -> return $ Nothing
+                    }
+                }
 
         -- Stablish connection
-        TLS.connect params (server sc) (show $ port sc) (\(context, _) -> do
+        TLS.connect params' (server sc) (show $ port sc) (\(context, _) -> do
             -- Session start time
             t <- getClockTime
 
@@ -261,13 +267,10 @@ pretty td = join . intersperse " " . filter (not . null) . map f $
 
 
 ftestConfig :: ServerConfig
-ftestConfig = ServerConfig "chat.freenode.net" 6697 ["levchius"] "Ghost Bot" Nothing True "test.log"
-
-otestConfig :: ServerConfig
-otestConfig = ServerConfig "206.12.19.242" 6697 ["levchius"] "Ghost Bot" Nothing True "test.log"
+ftestConfig = ServerConfig "208.80.155.68" 6697 ["levchius"] "Ghost Bot" Nothing True "test.log"
 
 testConfig :: ServerConfig
-testConfig = ServerConfig "127.0.0.1" 9998 ["levchius"] "Ghost Bot" Nothing True "test.log"
+testConfig = ServerConfig "127.0.0.1" 9999 ["levchius"] "Ghost Bot" Nothing True "test.log"
 
 testPersistent :: ServerPersistentState
 testPersistent = ServerPersistentState ["#levchins_minecraft"]
