@@ -11,3 +11,4 @@
 *.log
 dist/
 cabal.sandbox.config
+libs/
