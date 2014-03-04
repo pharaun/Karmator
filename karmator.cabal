@@ -18,23 +18,37 @@ executable karmator
   main-is:             main.hs
   other-extensions:    OverloadedStrings
   build-depends:       base >=4.5 && <4.7
-                     , transformers >=0.3 && <0.4
-                     , monads-tf >= 0.1
-                     , irc >= 0.6
+                     , attoparsec
                      , bytestring >= 0.10
-                     , network >= 2.4
+                     , monads-tf >= 0.1
                      , text
+                     , transformers >=0.3 && <0.4
+                     -- Irc
+                     , irc >= 0.6
                      -- Pipes
                      , pipes
                      , pipes-attoparsec >= 0.4.0
-                     , attoparsec
-                     , pipes-bytestring
                      , pipes-network
                      , pipes-network-tls >= 0.3
+                     -- Network/TLS
+                     , network >= 2.4
                      , network-simple-tls >= 0.3
                      , tls >= 1.2.2
                      , x509-system
+
+                     -- Persistent
+                     , esqueleto
+                     , persistent
+                     , persistent-template
+                     , persistent-sqlite
+
+                     -- Groundhog
+                     , groundhog
+                     , groundhog-sqlite
+                     , groundhog-th
+
                      -- TODO: clean this up
+                     , time
                      , old-time
 
 
