@@ -42,9 +42,6 @@ executable karmator
                      , persistent-template
                      , persistent-sqlite
 
-                     -- Raw sqlite
-                     , sqlite-simple
-
                      -- TODO: clean this up
                      , time
                      , old-time

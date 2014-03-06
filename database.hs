@@ -12,25 +12,8 @@ import qualified Data.ByteString.Char8 as C8
 
 import Types
 
--- Old Schema
--- CREATE TABLE "oldkrc" (
---     name VARCHAR PRIMARY KEY COLLATE nocase,
---     up INTEGER NOT NULL,
---     down INTEGER NOT NULL,
---     side INTEGER NOT NULL
--- );
--- CREATE TABLE oldkarma(
---   id INT,
---   name TEXT,
---   normalized TEXT primary key,
---   added INT,
---   subtracted INT
--- );
--- CREATE TABLE sidevotes (name text, value int);
-
-
 -- Current Schema
-share [mkPersist sqlOnlySettings, mkMigrate "migrateAll"] [persistLowerCase|
+share [mkPersist sqlOnlySettings, mkMigrate "migrateV1"] [persistLowerCase|
 Votes
     votedAt LocalTime
     byWhomName Text Maybe
@@ -52,6 +35,21 @@ KarmaGivenCount
     down Int
     side Int
     UniqueNameG name
+    deriving Show
+
+OldKrc sql=oldkrc
+    name Text
+    up Int
+    down Int
+    side Int
+    UniqueNameO name
+    deriving Show
+OkdKarma sql=oldkarma
+    name Text
+    normalized Text
+    added Int
+    subtracted Int
+    UniqueNormalizedO normalized
     deriving Show
 |]
 --2013-07-26 14:48:33.819647
@@ -75,6 +73,21 @@ KarmaGivenCount
 --    down INTEGER NOT NULL,
 --    side INTEGER NOT NULL
 --);
+--
+-- CREATE TABLE oldkrc (
+--     name VARCHAR PRIMARY KEY COLLATE nocase,
+--     up INTEGER NOT NULL,
+--     down INTEGER NOT NULL,
+--     side INTEGER NOT NULL
+-- );
+-- CREATE TABLE oldkarma(
+--   id INT,
+--   name TEXT,
+--   normalized TEXT primary key,
+--   added INT,
+--   subtracted INT
+-- );
+
 
 -- Future Schema
 --
@@ -93,4 +106,4 @@ KarmaGivenCount
 
 main :: IO ()
 main = runSqlite "test2.db" $ do
-    printMigration migrateAll
+    printMigration migrateV1
