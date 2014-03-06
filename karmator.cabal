@@ -42,10 +42,8 @@ executable karmator
                      , persistent-template
                      , persistent-sqlite
 
-                     -- Groundhog
-                     , groundhog
-                     , groundhog-sqlite
-                     , groundhog-th
+                     -- Raw sqlite
+                     , sqlite-simple
 
                      -- TODO: clean this up
                      , time
