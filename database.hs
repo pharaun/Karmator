@@ -5,18 +5,25 @@ import Data.Time.LocalTime
 import Data.Time.Clock
 import Control.Monad.IO.Class  (liftIO)
 import Database.Persist
-import Database.Persist.Sqlite
+import Database.Persist.Sql
+import Database.Persist.Sqlite (runSqlite)
 import Database.Persist.TH
+import qualified Database.Esqueleto as E
 
 import qualified Data.ByteString.Char8 as C8
+
+-- Queries stuff
+import Data.Conduit (($$))
+import Data.Conduit.List as CL
+import Control.Monad.IO.Class (liftIO)
 
 import Types
 
 -- Current Schema
-share [mkPersist sqlOnlySettings, mkMigrate "migrateV1"] [persistLowerCase|
+share [mkPersist sqlOnlySettings] [persistLowerCase|
 Votes
     votedAt LocalTime
-    byWhomName Text Maybe
+    byWhomName Text
     forWhatName Text
     amount Int
     deriving Show
@@ -52,42 +59,6 @@ OkdKarma sql=oldkarma
     UniqueNormalizedO normalized
     deriving Show
 |]
---2013-07-26 14:48:33.819647
---CREATE TABLE votes (
---    voted_at DATETIME,
---    by_whom_name VARCHAR COLLATE nocase,
---    for_what_name VARCHAR NOT NULL COLLATE nocase,
---    amount INTEGER NOT NULL
---);
---
---CREATE TABLE karma_received_count (
---    name VARCHAR PRIMARY KEY COLLATE nocase,
---    up INTEGER NOT NULL,
---    down INTEGER NOT NULL,
---    side INTEGER NOT NULL
---);
---
---CREATE TABLE karma_given_count (
---    name VARCHAR PRIMARY KEY COLLATE nocase,
---    up INTEGER NOT NULL,
---    down INTEGER NOT NULL,
---    side INTEGER NOT NULL
---);
---
--- CREATE TABLE oldkrc (
---     name VARCHAR PRIMARY KEY COLLATE nocase,
---     up INTEGER NOT NULL,
---     down INTEGER NOT NULL,
---     side INTEGER NOT NULL
--- );
--- CREATE TABLE oldkarma(
---   id INT,
---   name TEXT,
---   normalized TEXT primary key,
---   added INT,
---   subtracted INT
--- );
-
 
 -- Future Schema
 --
@@ -106,4 +77,10 @@ OkdKarma sql=oldkarma
 
 main :: IO ()
 main = runSqlite "test2.db" $ do
-    printMigration migrateV1
+    rawQuery "select * from Votes limit 1" [] $$ CL.mapM_ (liftIO . print)
+
+    vote <- selectList [VotesForWhatName ==. "nishbot"] [LimitTo 1]
+    liftIO $ print vote
+
+    vote2 <- E.select $ E.from (\v -> E.where_ (v E.^. VotesForWhatName E.==. E.val "nishbot") >> E.limit 1 >> return v)
+    liftIO $ Prelude.mapM_ (print . entityVal) vote2

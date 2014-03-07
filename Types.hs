@@ -8,6 +8,7 @@ import Database.Persist
 import Database.Persist.Sql
 
 import qualified Data.ByteString.Char8 as C8
+import qualified Data.Text as T
 
 -- Typeclass stuff
 instance PersistField LocalTime where
@@ -17,7 +18,9 @@ instance PersistField LocalTime where
     -- we will unfortunately be stuck with "PDT and/or PST" so need to code
     -- up a function to perform the conversion properly to UTC
     fromPersistValue (PersistDbSpecific t) = Right $ read $ C8.unpack t :: Either Text LocalTime
-    fromPersistValue _ = Left "LocalTime values must be converted from PersistDbSpecific"
+    fromPersistValue (PersistByteString t) = Right $ read $ C8.unpack t :: Either Text LocalTime
+    fromPersistValue (PersistText t)       = Right $ read $ T.unpack t :: Either Text LocalTime
+    fromPersistValue _                     = Left "LocalTime values must be converted from PersistDbSpecific"
 
 instance PersistFieldSql LocalTime where
-    sqlType _ = SqlOther "DATETIME"
+    sqlType _    = SqlOther "DATETIME"
