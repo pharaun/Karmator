@@ -42,7 +42,9 @@ executable karmator
                      , persistent-template
                      , persistent-sqlite
 
-                     -- TODO: clean this up
+                     -- Timezone updates
+                     , timezone-olson
+                     , timezone-series
                      , time
                      , old-time
 
