@@ -2,17 +2,13 @@
 
 import Data.List as DL
 import Data.Time.LocalTime
-import Data.Time.Clock
 import qualified Database.Persist as P
-import qualified Database.Persist.Sql as P
 import qualified Database.Persist.Sqlite as P
 import qualified Database.Persist.TH as P
 import Database.Esqueleto
 
-import qualified Data.ByteString.Char8 as C8
 import Data.Text (Text)
 import qualified Data.Text as T
-import System.IO (FilePath)
 
 -- Queries stuff
 import Data.Conduit (($$))
@@ -97,11 +93,11 @@ updateTime tzs (Entity {entityKey = key, entityVal=(Votes {votesVotedAt = time})
     let redundant = isRedundantLocalTime tzs time
     let zst       = localTimeToZoneSeriesTime tzs time
     let zone      = zoneSeriesTimeZone zst
-    let utc       = zoneSeriesTimeToUTC zst
+    let utct      = zoneSeriesTimeToUTC zst
 
     -- Dump any that isn't valid or are redundant
     if (not valid) || redundant
-    then liftIO $ putStrLn $ DL.intercalate "," [show time, show zone, show valid, show redundant, show utc]
+    then liftIO $ putStrLn $ DL.intercalate "," [show time, show zone, show valid, show redundant, show utct]
     else return ()
 
 main :: IO ()

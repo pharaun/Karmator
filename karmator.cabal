@@ -14,9 +14,10 @@ extra-source-files:  README.rst
 cabal-version:       >=1.10
 
 executable karmator
-  ghc-options:       -Wall -fno-warn-missing-signatures -O2 -rtsopts
+  ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts
+  default-language:    Haskell2010
   main-is:             main.hs
-  other-extensions:    OverloadedStrings
+  extra-libraries:     pthread
   build-depends:       base >=4.5 && <4.7
                      , attoparsec
                      , bytestring >= 0.10
@@ -48,7 +49,24 @@ executable karmator
                      , time
                      , old-time
 
-
-  -- other-modules:
-  -- hs-source-dirs:
+executable migration
+  ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts
   default-language:    Haskell2010
+  main-is:             migration.hs
+  extra-libraries:     pthread
+  build-depends:       base >=4.5 && <4.7
+                     , bytestring >= 0.10
+                     , transformers >=0.3 && <0.4
+                     , text
+
+                     -- Persistent
+                     , esqueleto
+                     , persistent
+                     , persistent-sqlite
+                     , persistent-template
+                     , conduit
+
+                     -- Timezone updates
+                     , timezone-olson
+                     , timezone-series
+                     , time
