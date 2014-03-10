@@ -1,13 +1,10 @@
 {-# LANGUAGE EmptyDataDecls, FlexibleContexts, GADTs, OverloadedStrings, QuasiQuotes, TemplateHaskell, TypeFamilies #-}
 
+import System.Environment (getArgs)
 import Data.List as DL
-import Data.Time.LocalTime
-import qualified Database.Persist as P
-import qualified Database.Persist.Sqlite as P
-import qualified Database.Persist.TH as P
-import Database.Esqueleto
-
-import Data.Text (Text)
+import Database.Persist
+import Database.Persist.Sqlite
+import Database.Persist.TH
 import qualified Data.Text as T
 
 -- Queries stuff
@@ -18,15 +15,14 @@ import Control.Monad.IO.Class
 -- Timezones
 import Data.Time.LocalTime.TimeZone.Series
 import Data.Time.LocalTime.TimeZone.Olson
+import Data.Time.LocalTime
 
-import Types
-
--- Current Schema
-P.share [P.mkPersist P.sqlOnlySettings] [P.persistLowerCase|
+-- V1 -> V2 schema (timestamp is string so we can mangle it into UTC)
+share [mkPersist sqlOnlySettings] [persistLowerCase|
 Votes
-    votedAt LocalTime
-    byWhomName Text
-    forWhatName Text
+    votedAt T.Text
+    byWhomName T.Text
+    forWhatName T.Text
     amount Int
     deriving Show
 
@@ -62,13 +58,9 @@ OkdKarma sql=oldkarma
     UniqueNormalizedO normalized
     deriving Show
 |]
-
 -- Future Schema
 --
--- voted_at - NOT NULL & UTCTime (Convert from LocalTime in PDT/PST to UTC)
--- by_whom_name - NOT NULL (one entry, remove)
--- for_what_name - NOT NULL (three entry, remove)
--- name - NOT NULL (one entry in both cases, remove)
+-- voted_at - NOT NULL & UTCTime (Convert from LocalTime in PDT/PST to UTC) -- DONE
 --
 -- collate nocase == ascii, does not do unicode (utf8) nor case-folding,
 -- normalization, may want 2 column (raw value, normalized value)
@@ -80,33 +72,37 @@ OkdKarma sql=oldkarma
 
 -- Streaming conversion from LocalTime to UTCTime
 convertToUTC :: FilePath -> T.Text -> IO ()
-convertToUTC tz conn = P.runSqlite conn $ do
+convertToUTC tz conn = runSqlite conn $ do
     tzs <- liftIO $ getTimeZoneSeriesFromOlsonFile tz
 
     liftIO $ putStrLn "LocalTime, TimeZone, validLocalTime, redundantLocalTime, UTCTime"
+    selectSource [] [] $$ CL.mapM_ (updateTime tzs)
 
-    P.selectSource [] [] $$ CL.mapM_ (updateTime tzs)
-
-updateTime :: MonadIO m => TimeZoneSeries -> Entity Votes -> m ()
-updateTime tzs (Entity {entityKey = key, entityVal=(Votes {votesVotedAt = time})}) = do
+updateTime :: (PersistQuery m, PersistMonadBackend m ~ SqlBackend) => TimeZoneSeries -> Entity Votes -> m ()
+updateTime tzs (Entity {entityKey = key, entityVal=(Votes {votesVotedAt = textTime})}) = do
+    let time      = read $ T.unpack textTime
     let valid     = isValidLocalTime tzs time
     let redundant = isRedundantLocalTime tzs time
     let zst       = localTimeToZoneSeriesTime tzs time
     let zone      = zoneSeriesTimeZone zst
     let utct      = zoneSeriesTimeToUTC zst
 
-    -- Dump any that isn't valid or are redundant
+    -- Error reporting, go on ahead and report any invalid/redundant
+    -- entries
     if (not valid) || redundant
     then liftIO $ putStrLn $ DL.intercalate "," [show time, show zone, show valid, show redundant, show utct]
     else return ()
 
+    -- Update the row to have UTC timestamp
+    update key [VotesVotedAt =. (T.pack $ show utct)]
+
+
 main :: IO ()
-main = convertToUTC "/etc/localtime" $ T.pack "test2.db"
---main = P.runSqlite "test2.db" $ do
---    rawQuery "select * from Votes limit 1" [] $$ CL.mapM_ (liftIO . print)
---
---    vote <- P.selectList [VotesForWhatName P.==. "nishbot"] [P.LimitTo 1]
---    liftIO $ print vote
---
---    vote2 <- select $ from (\v -> where_ (v ^. VotesForWhatName ==. val "nishbot") >> limit 1 >> return v)
---    liftIO $ Prelude.mapM_ (print . entityVal) vote2
+main = do
+    fileNames <- getArgs
+
+    if DL.length fileNames /= 2
+    then putStrLn "migration <localtime file '/etc/localtime/'> <database to be migrated>"
+    else do
+        putStrLn "Migration: LocalTime -> UTCTime"
+        convertToUTC (DL.head fileNames) $ T.pack (DL.last fileNames)
