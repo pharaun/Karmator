@@ -15,7 +15,6 @@ import Control.Monad.IO.Class
 -- Timezones
 import Data.Time.LocalTime.TimeZone.Series
 import Data.Time.LocalTime.TimeZone.Olson
-import Data.Time.LocalTime
 
 -- V1 -> V2 schema (timestamp is string so we can mangle it into UTC)
 share [mkPersist sqlOnlySettings] [persistLowerCase|
@@ -27,7 +26,7 @@ Votes
     deriving Show
 
 KarmaReceivedCount
-    name Text
+    name T.Text
     up Int
     down Int
     side Int
@@ -35,7 +34,7 @@ KarmaReceivedCount
     deriving Show
 
 KarmaGivenCount
-    name Text
+    name T.Text
     up Int
     down Int
     side Int
@@ -43,7 +42,7 @@ KarmaGivenCount
     deriving Show
 
 OldKrc sql=oldkrc
-    name Text
+    name T.Text
     up Int
     down Int
     side Int
@@ -51,8 +50,8 @@ OldKrc sql=oldkrc
     deriving Show
 
 OkdKarma sql=oldkarma
-    name Text
-    normalized Text
+    name T.Text
+    normalized T.Text
     added Int
     subtracted Int
     UniqueNormalizedO normalized

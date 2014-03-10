@@ -65,3 +65,7 @@ Karmator
 1. Add support for option parsing for alternative karma command (!karma vs @karma vs...)
 
 2. Fix case lookup (karma/nickname) and do unicode case folding for sql lookup
+
+3. URI for connecting to irc:
+   example uri for a bot ircs://ircbot:password@irc.freenode.com/channel
+   ircs: for ssl, irc: for not
