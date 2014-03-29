@@ -14,9 +14,6 @@ import qualified Data.Conduit.List as CL
 import Control.Monad.IO.Class
 
 import Data.Int
-import Control.Monad.Logger
-import Control.Monad.Trans.Resource.Internal
-import Control.Monad.Trans.Control
 
 -- Current Schema
 P.share [P.mkPersist P.sqlOnlySettings] [P.persistLowerCase|
@@ -44,134 +41,101 @@ KarmaGivenCount
     deriving Show
 |]
 
-main :: IO ()
-main = P.runSqlite "test2.db" $ do
+-- Support both type of karma; received and given
+data KarmaTable = KarmaReceived | KarmaGiven
 
-    vote4 <- allKarma
-    vote5 <- allCountsReceived
-    vote7 <- countsReceived ["nishbot", "doesnotexist"]
-    vote8 <- topNDenormalizedReceived 3 desc
-    vote9 <- rankingDenormalizedReceived "nishbot"
-    vote10 <- countReceived "nishbot"
-    vote11 <- statsForReceived 3 "nishbot"
-    vote12 <- topNSideVotesDenormalizedReceived 3
-    vote13 <- sideVotesRankingDenormalizedReceived "nishbot"
-    vote14 <- sideVoteStats 3 "nishbot"
+-- Karma*Name
+karmaReceivedName t = t ^. KarmaReceivedCountName
+karmaGivenName t    = t ^. KarmaGivenCountName
 
-    liftIO $ Prelude.mapM_ (print . show) vote13
---    liftIO $ (print . show) vote11
+-- Karma*Up
+karmaReceivedUp t = t ^. KarmaReceivedCountUp
+karmaGivenUp t    = t ^. KarmaGivenCountUp
+
+-- Karma*Down
+karmaReceivedDown t = t ^. KarmaReceivedCountDown
+karmaGivenDown t    = t ^. KarmaGivenCountDown
+
+-- Karma*Side
+karmaReceivedSide t = t ^. KarmaReceivedCountSide
+karmaGivenSide t    = t ^. KarmaGivenCountSide
+
+-- Karma*Total
+karmaReceivedTotal t = karmaReceivedUp t -. karmaReceivedDown t
+karmaGivenTotal t    = karmaGivenUp t -. karmaGivenDown t
+
+-- Queries
+allKarma KarmaReceived = allKarmaT karmaReceivedName karmaReceivedTotal
+allKarma KarmaGiven    = allKarmaT karmaGivenName karmaGivenTotal
+
+allCounts KarmaReceived = allCountsT karmaReceivedName karmaReceivedUp karmaReceivedDown karmaReceivedSide
+allCounts KarmaGiven    = allCountsT karmaGivenName karmaGivenUp karmaGivenDown karmaGivenSide
+
+counts KarmaReceived = countsT karmaReceivedName karmaReceivedUp karmaReceivedDown karmaReceivedSide
+counts KarmaGiven    = countsT karmaGivenName karmaGivenUp karmaGivenDown karmaGivenSide
+
+topNDenormalized KarmaReceived = topNDenormalizedT karmaReceivedName karmaReceivedTotal
+topNDenormalized KarmaGiven    = topNDenormalizedT karmaGivenName karmaGivenTotal
+
+rankingDenormalized KarmaReceived = rankingDenormalizedT karmaReceivedName karmaReceivedTotal
+rankingDenormalized KarmaGiven    = rankingDenormalizedT karmaGivenName karmaGivenTotal
+
+countK KarmaReceived = countT karmaReceivedName
+countK KarmaGiven    = countT karmaGivenName
+
+topNSideVotesDenormalized KarmaReceived lmt = topNDenormalizedT karmaReceivedName karmaReceivedSide lmt desc
+topNSideVotesDenormalized KarmaGiven lmt    = topNDenormalizedT karmaGivenName karmaGivenSide lmt desc
+
+sideVotesRankingDenormalized KarmaReceived = rankingDenormalizedT karmaReceivedName karmaReceivedSide
+sideVotesRankingDenormalized KarmaGiven    = rankingDenormalizedT karmaGivenName karmaGivenSide
 
 
 -- TODO: extract (Value Text, Value Int) -> (Text, Int)
-allKarma = select $ from (\v -> do
-    orderBy [desc (v ^. KarmaReceivedCountName)]
-    return (v ^. KarmaReceivedCountName, (v ^. KarmaReceivedCountUp) -. (v ^. KarmaReceivedCountDown))
+allKarmaT karmaName karmaTotal = select $ from (\v -> do
+    orderBy [desc (karmaName v)]
+    return (karmaName v, karmaTotal v)
     )
 
--- Genericify this to work both on Received or Given
-allCountsReceived = select $ from (\v -> do
-    orderBy [desc (v ^. KarmaReceivedCountName)]
-    return (v ^. KarmaReceivedCountName, v ^. KarmaReceivedCountUp, v ^. KarmaReceivedCountDown, v ^. KarmaReceivedCountSide)
+allCountsT karmaName karmaUp karmaDown karmaSide = select $ from (\v -> do
+    orderBy [desc (karmaName v)]
+    return (karmaName v, karmaUp v, karmaDown v, karmaSide v)
     )
 
 -- TODO: extract the entity and fill out any non-existant entity with 0's for its values
--- Genericify this to work both on Received or Given
-countsReceived [] = return []
-countsReceived names = do
+countsT _ _ _ _ [] = return []
+countsT karmaName karmaUp karmaDown karmaSide names = do
     select $ from (\v -> do
-        orderBy [desc (v ^. KarmaReceivedCountName)]
-        where_ (v ^. KarmaReceivedCountName `in_` valList names)
-        return v
+        orderBy [desc (karmaName v)]
+        where_ ((karmaName v) `in_` valList names)
+        return (karmaName v, (karmaUp v, karmaDown v, karmaSide v))
         )
 --    return [(name, ret.get(name, (0, 0, 0))) for name in names]
 
--- Genericify this to work both on Received or Given
---def general_stats(session, count, from_whom): return stats_for(session, karma_in, count, from_whom)
---def giver_stats(session, count, from_whom): return stats_for(session, karma_out, count, from_whom)
---generalStatsReceived count nick =
-
-
--- Genericify this to work both on Received or Given
-topNDenormalizedReceived lmt ord = do
+-- karmaTotal is also good for karmaSide
+topNDenormalizedT karmaName karmaTotal lmt ord =
     select $ from (\v -> do
-        let cnt = ((v ^. KarmaReceivedCountUp) -. (v ^. KarmaReceivedCountDown))
-        orderBy [ord cnt]
+        orderBy [ord (karmaTotal v)]
         limit lmt
-        return (v ^. KarmaReceivedCountName, cnt)
+        return (karmaName v, karmaTotal v)
         )
 
--- Genericify this to work both on Received or Given
-rankingDenormalizedReceived
-    :: (MonadIO m, MonadBaseControl IO m, MonadUnsafeIO m, MonadThrow m, MonadLogger m)
-    => T.Text
-    -> SqlPersistT m [Value Int]
-rankingDenormalizedReceived whom = do
+-- karmaTotal is also good for karmaSide
+-- TODO: i think it needs to be a +1 here
+rankingDenormalizedT karmaName karmaTotal whom =
     select $ from (\v -> do
         let sub = from $ (\c -> do
-            where_ (c ^. KarmaReceivedCountName ==. val whom)
-            return ((c ^. KarmaReceivedCountUp) -. (c ^.KarmaReceivedCountDown))
+            where_ (karmaName c ==. val whom)
+            return $ karmaTotal c
             )
-
-        where_ (((v ^. KarmaReceivedCountUp) -. (v ^. KarmaReceivedCountDown)) >. sub_select sub)
-        return $ count (v ^. KarmaReceivedCountName)
+        where_ (karmaTotal v >. sub_select sub)
+        return $ count (karmaName v) :: SqlQuery (SqlExpr (Value Int))
         )
 
--- Genericify this to work both on Received or Given
-countReceived
-    :: (MonadIO m, MonadBaseControl IO m, MonadUnsafeIO m, MonadThrow m, MonadLogger m)
-    => T.Text
-    -> SqlPersistT m [Value Int]
-countReceived whom = do
+countT karmaName whom =
     select $ from (\v -> do
-        where_ (v ^. KarmaReceivedCountName !=. val whom)
-        return $ count (v ^. KarmaReceivedCountName) +. val 1
+        where_ (karmaName v !=. val whom)
+        return $ count (karmaName v) +. val 1 :: SqlQuery (SqlExpr (Value Int))
         )
-
--- Genericify this to work both on Received or Given
-statsForReceived lmt whom = do
-    desc_top <- topNDenormalizedReceived lmt desc
-    asc_top  <- topNDenormalizedReceived lmt asc
-    ranking  <- rankingDenormalizedReceived whom
-    counting <- countReceived whom
-
-    return (desc_top, asc_top, ranking, counting)
-
-
--- Genericify this to work both on Received or Given
-topNSideVotesDenormalizedReceived lmt = do
-    select $ from (\v -> do
-        orderBy [desc (v ^. KarmaReceivedCountSide)]
-        limit lmt
-        return (v ^. KarmaReceivedCountName, v ^. KarmaReceivedCountSide)
-        )
-
--- Genericify this to work both on Received or Given
-sideVotesRankingDenormalizedReceived
-    :: (MonadIO m, MonadBaseControl IO m, MonadUnsafeIO m, MonadThrow m, MonadLogger m)
-    => T.Text
-    -> SqlPersistT m [Value Int]
-sideVotesRankingDenormalizedReceived whom = do
-    select $ from (\v -> do
-        let sub = from $ (\c -> do
-            where_ (c ^. KarmaReceivedCountName ==. val whom)
-            return (c ^. KarmaReceivedCountSide)
-            )
-
-        where_ ((v ^. KarmaReceivedCountSide) >. sub_select sub)
-        return $ count (v ^. KarmaReceivedCountName)
-        )
-
--- Genericify this to work both on Received or Given
-sideVoteStats lmt whom = do
-    top_in    <- topNSideVotesDenormalizedReceived 3
---    top_out  <- topNSideVotesDenormalizedGiven 3
---    side_out  <- sideVotesRankingDenormalizedGiven whom
---    count_out <- countGiven whom
-    side_in   <- sideVotesRankingDenormalizedReceived whom
-    count_in  <- countReceived whom
-
---    return (top_in, top_out, side_out, count_out, side_in, count_in)
-    return (top_in, side_in, count_in)
 
 
 -- @interaction
@@ -182,3 +146,37 @@ sideVoteStats lmt whom = do
 --             .values(by_whom_name=by_whom_name, for_what_name=kind['message'],
 --                     amount=vote_amount_map[kind['karma_type']]))
 --        session.execute(q)
+
+
+
+main :: IO ()
+main = P.runSqlite "test2.db" $ do
+
+    vote1a <- allKarma KarmaReceived
+    vote1b <- allKarma KarmaGiven
+
+    vote2a <- allCounts KarmaReceived
+    vote2b <- allCounts KarmaGiven
+
+    vote3a <- counts KarmaReceived ["nishbot", "doesnotexist"]
+    vote3b <- counts KarmaGiven ["nishbot", "doesnotexist"]
+
+    vote4a <- topNDenormalized KarmaReceived 3 desc
+    vote4b <- topNDenormalized KarmaGiven 3 desc
+    vote4c <- topNDenormalized KarmaReceived 3 asc
+    vote4d <- topNDenormalized KarmaGiven 3 asc
+
+    vote5a <- rankingDenormalized KarmaReceived "nishbot"
+    vote5b <- rankingDenormalized KarmaGiven "nishbot"
+
+    vote6a <- countK KarmaReceived "nishbot"
+    vote6b <- countK KarmaGiven "nishbot"
+
+    vote7a <- topNSideVotesDenormalized KarmaReceived 3
+    vote7b <- topNSideVotesDenormalized KarmaGiven 3
+
+    vote8a <- sideVotesRankingDenormalized KarmaReceived "nishbot"
+    vote8b <- sideVotesRankingDenormalized KarmaGiven "nishbot"
+
+    liftIO $ Prelude.mapM_ (print . show) vote8a
+--    liftIO $ (print . show) vote11
