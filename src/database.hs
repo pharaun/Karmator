@@ -65,14 +65,11 @@ karmaReceivedTotal t = karmaReceivedUp t -. karmaReceivedDown t
 karmaGivenTotal t    = karmaGivenUp t -. karmaGivenDown t
 
 -- Queries
-allKarma KarmaReceived = allKarmaT karmaReceivedName karmaReceivedTotal
-allKarma KarmaGiven    = allKarmaT karmaGivenName karmaGivenTotal
+allKarma KarmaReceived = allKarmaT karmaReceivedName karmaReceivedUp karmaReceivedDown karmaReceivedSide
+allKarma KarmaGiven    = allKarmaT karmaGivenName karmaGivenUp karmaGivenDown karmaGivenSide
 
-allCounts KarmaReceived = allCountsT karmaReceivedName karmaReceivedUp karmaReceivedDown karmaReceivedSide
-allCounts KarmaGiven    = allCountsT karmaGivenName karmaGivenUp karmaGivenDown karmaGivenSide
-
-counts KarmaReceived = countsT karmaReceivedName karmaReceivedUp karmaReceivedDown karmaReceivedSide
-counts KarmaGiven    = countsT karmaGivenName karmaGivenUp karmaGivenDown karmaGivenSide
+partalKarma KarmaReceived = partalKarmaT karmaReceivedName karmaReceivedUp karmaReceivedDown karmaReceivedSide
+partalKarma KarmaGiven    = partalKarmaT karmaGivenName karmaGivenUp karmaGivenDown karmaGivenSide
 
 topNDenormalized KarmaReceived = topNDenormalizedT karmaReceivedName karmaReceivedTotal
 topNDenormalized KarmaGiven    = topNDenormalizedT karmaGivenName karmaGivenTotal
@@ -89,27 +86,27 @@ topNSideVotesDenormalized KarmaGiven lmt    = topNDenormalizedT karmaGivenName k
 sideVotesRankingDenormalized KarmaReceived = rankingDenormalizedT karmaReceivedName karmaReceivedSide
 sideVotesRankingDenormalized KarmaGiven    = rankingDenormalizedT karmaGivenName karmaGivenSide
 
-
--- TODO: extract (Value Text, Value Int) -> (Text, Int)
-allKarmaT karmaName karmaTotal = select $ from (\v -> do
-    orderBy [desc (karmaName v)]
-    return (karmaName v, karmaTotal v)
-    )
-
-allCountsT karmaName karmaUp karmaDown karmaSide = select $ from (\v -> do
+---------------------------------------------------------------------------------------------
+allKarmaT karmaName karmaUp karmaDown karmaSide = select $ from (\v -> do
     orderBy [desc (karmaName v)]
     return (karmaName v, karmaUp v, karmaDown v, karmaSide v)
     )
 
 -- TODO: extract the entity and fill out any non-existant entity with 0's for its values
-countsT _ _ _ _ [] = return []
-countsT karmaName karmaUp karmaDown karmaSide names = do
+-- return [(name, ret.get(name, (0, 0, 0))) for name in names]
+partalKarmaT _ _ _ _ [] = return []
+partalKarmaT karmaName karmaUp karmaDown karmaSide names = do
     select $ from (\v -> do
         orderBy [desc (karmaName v)]
         where_ ((karmaName v) `in_` valList names)
-        return (karmaName v, (karmaUp v, karmaDown v, karmaSide v))
+        return (karmaName v, karmaUp v, karmaDown v, karmaSide v)
         )
---    return [(name, ret.get(name, (0, 0, 0))) for name in names]
+
+countT karmaName whom =
+    select $ from (\v -> do
+        where_ (karmaName v !=. val whom)
+        return $ count (karmaName v) +. val 1 :: SqlQuery (SqlExpr (Value Int))
+        )
 
 -- karmaTotal is also good for karmaSide
 topNDenormalizedT karmaName karmaTotal lmt ord =
@@ -131,12 +128,6 @@ rankingDenormalizedT karmaName karmaTotal whom =
         return $ count (karmaName v) :: SqlQuery (SqlExpr (Value Int))
         )
 
-countT karmaName whom =
-    select $ from (\v -> do
-        where_ (karmaName v !=. val whom)
-        return $ count (karmaName v) +. val 1 :: SqlQuery (SqlExpr (Value Int))
-        )
-
 
 -- @interaction
 --def add_karma(session, json_blob):
@@ -155,11 +146,8 @@ main = P.runSqlite "test2.db" $ do
     vote1a <- allKarma KarmaReceived
     vote1b <- allKarma KarmaGiven
 
-    vote2a <- allCounts KarmaReceived
-    vote2b <- allCounts KarmaGiven
-
-    vote3a <- counts KarmaReceived ["nishbot", "doesnotexist"]
-    vote3b <- counts KarmaGiven ["nishbot", "doesnotexist"]
+    vote3a <- partalKarma KarmaReceived ["nishbot", "doesnotexist"]
+    vote3b <- partalKarma KarmaGiven ["nishbot", "doesnotexist"]
 
     vote4a <- topNDenormalized KarmaReceived 3 desc
     vote4b <- topNDenormalized KarmaGiven 3 desc
