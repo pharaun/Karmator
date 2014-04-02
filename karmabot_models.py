@@ -4,6 +4,7 @@ import datetime
 
 import sqlalchemy as sa
 import sqlalchemy.orm
+import sqlalchemy.exc as exc
 from twisted.internet.threads import deferToThread
 
 
@@ -188,9 +189,9 @@ def sidevote_stats(session, count, from_whom):
         top_n_sidevotes_denormalized(session, karma_in, count),
         top_n_sidevotes_denormalized(session, karma_out, count),
         sidevote_ranking_denormalized(session, karma_out, from_whom),
-        count_table(session, karma_out),
+        count_table(session, karma_out, from_whom),
         sidevote_ranking_denormalized(session, karma_in, from_whom),
-        count_table(session, karma_in),
+        count_table(session, karma_in, from_whom),
     )
 
 def counts_by_column(session, column, names):
@@ -250,7 +251,14 @@ def add_karma(session, json_blob):
         q = (vote.insert()
              .values(by_whom_name=by_whom_name, for_what_name=kind['message'],
                      amount=vote_amount_map[kind['karma_type']]))
-        session.execute(q)
+
+        for attempt in range(10):
+            try:
+                session.execute(q)
+            except exc.OperationalError as e:
+                print "retrying %s" % (e,)
+            else:
+                break
 
 @interaction
 def all_counts_graph(session, table, sortkey):

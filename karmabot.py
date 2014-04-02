@@ -70,8 +70,13 @@ class Karmabot(IRCClient):
         if not message.startswith('!'):
             return
 
-        splut = shlex.split(message[1:])
-        command, params = splut[0], splut[1:]
+        try:
+            splut = shlex.split(message[1:])
+            command, params = splut[0], splut[1:]
+        except exceptions.IndexError as e:
+            print 'mesg: %s splut: %s' % (message, splut)
+            raise e
+
         meth = getattr(self, 'command_%s' % (command.lower(),), None)
         if meth is not None:
             d = defer.maybeDeferred(meth, nick, channel, *params)
