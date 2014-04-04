@@ -117,7 +117,7 @@ establishTLS sc sps = PNT.withSocketsDo $
             -- Session start time
             t <- getClockTime
 
-            handleIRC (TLS.fromContext context >-> log l) (TLS.toContext context) (ServerState sps sc l t)
+            handleIRC (TLS.fromContext context >-> log l) (log l >-> TLS.toContext context) (ServerState sps sc l t)
 
             return ()
             )
@@ -170,14 +170,17 @@ ircParserErrorLogging l producer = do
     (result, rest) <- lift $ runStateT (PA.parse message) producer
 
     case result of
-        Right x -> yield x
-        Left x  -> liftIO $ BS.hPutStr l $ BS.concat
-            [ "===========\n"
-            , "\n"
-            , C8.pack $ show x -- TODO: Ascii packing
-            , "\n"
-            , "===========\n"
-            ]
+        Nothing -> liftIO $ BS.hPutStr l "Pipe is exhausted for irc parser\n"
+        Just y  ->
+            case y of
+                Right x -> yield x
+                Left x  -> liftIO $ BS.hPutStr l $ BS.concat
+                    [ "===========\n"
+                    , "\n"
+                    , C8.pack $ show x -- TODO: Ascii packing
+                    , "\n"
+                    , "===========\n"
+                    ]
     ircParserErrorLogging l rest
 
 --
