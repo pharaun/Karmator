@@ -247,6 +247,7 @@ command t = forever $ do
     result <- catMaybes <$> forM
         [ return . ping
         , uptime t
+        , return . motdJoin
 --        , quit -- TODO: need to implement a way to exit/die so that we gracefully exit from the server
         ]
         (\a -> a msg)
@@ -258,6 +259,12 @@ command t = forever $ do
 ping :: IRC.Message -> Maybe IRC.Message
 ping msg = if "PING" == IRC.msg_command msg
            then Just $ IRC.pong (head $ IRC.msg_params msg) -- TODO: Unsafe head
+           else Nothing
+
+-- TODO: with the precidate logic this would just parse the host out and reply with a pong
+motdJoin :: IRC.Message -> Maybe IRC.Message
+motdJoin msg = if "700" == IRC.msg_command msg
+           then Just $ IRC.joinChan "#marley"
            else Nothing
 
 -- TODO: extend the IRC.privmsg to support sending to multiple people/channels
