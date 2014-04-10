@@ -1,5 +1,5 @@
 {-# LANGUAGE EmptyDataDecls, FlexibleContexts, GADTs, OverloadedStrings, QuasiQuotes, TemplateHaskell, TypeFamilies #-}
-module Database
+module Plugins.Karma.Database
     ( KarmaTable(..)
     , allKarma
     , partalKarma

@@ -4,7 +4,7 @@ import qualified Database.Persist.Sqlite as P
 import Database.Esqueleto
 import Control.Monad.IO.Class
 
-import Database
+import Plugins.Karma.Database
 
 main :: IO ()
 main = P.runSqlite "test2.db" $ do

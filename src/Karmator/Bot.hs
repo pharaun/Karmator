@@ -1,6 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
+module Karmator.Bot
+    -- TODO: Merge these two and add in ssl configuration
+    ( establishTLS
+    , establish
+
+    ) where
+
 import Data.List
-import Network
 import System.IO
 import System.Time
 import Control.Monad.Reader
@@ -10,7 +16,6 @@ import Data.Maybe
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
-import qualified Data.Text as T
 
 import qualified Pipes.Network.TCP as PNT
 import qualified Pipes.Attoparsec as PA
@@ -20,7 +25,6 @@ import Pipes
 -- IRC Parser
 import qualified Network.IRC as IRC
 import Control.Applicative
-import Data.Attoparsec.ByteString
 
 -- TLS
 import qualified Pipes.Network.TCP.TLS as TLS
@@ -28,65 +32,14 @@ import qualified Network.Simple.TCP.TLS as TLS
 import qualified System.X509.Unix as TLS
 import qualified Network.TLS as TLS
 
+-- Karmator Stuff
+-- TODO: upstream the Patch
+import Karmator.Types
+import Network.IRC.Patch
 
--- Per server config for the bot
-data ServerConfig = ServerConfig
-    { server :: String
-    , port :: PortNumber
-    , nicks :: [BS.ByteString] -- First one then alternatives in descending order
-    , userName :: BS.ByteString
-    , serverPassword :: Maybe BS.ByteString
-
-    -- TODO
-    , reconnect :: Bool
-
-    , logfile :: String -- logfile
-
-    -- Function for default encoding and decoding
---    , defaultEncoding :: BS.ByteString -> T.Text
---    , defaultDecoding :: T.Text -> BS.ByteString
-
-    -- Rates:
-    --  messages_per_seconds, server_queue_size
-    --
-    -- Messages:
-    --  message_split_start, message_split_end, max_messages, encoding
-    --
-    -- Timeouts:
-    --  read - 240s
-    --  connect - 10s
-    --  ping_interval
-    --  max_reconnect_delay
-    --  delay_joins
-    --
-    -- Security:
-    --  ssl {use, verify, client_cert, ca_path}
-    --  sasl {username, password}
-    --  serverauth {username, password}
-    --
-    -- Misc Server:
-    --  log-level
-    --  realname
-    --  modes
-    --
-    }
-
-
--- Persistent State:
-data ServerPersistentState = ServerPersistentState
-    { channels :: [BS.ByteString]
---   channels, encoding
-    }
-
--- Ephemeral State:
-data ServerState = ServerState
-    { session :: ServerPersistentState
-    , config :: ServerConfig
-    , logStream :: Handle
-
-    -- Debugging/initial test impl
-    , startTime :: ClockTime
-    }
+-- Plugins
+-- TODO: migrate these to Main.hs
+import Plugins.Ping
 
 
 --
@@ -245,9 +198,10 @@ command t = forever $ do
     -- generic filtering rules such as "if chan = y send to x", etc..
     -- Perhaps Pipe.Prelude.Filter
     result <- catMaybes <$> forM
-        [ return . ping
+        [ \a -> return $ if pingMatch a then ping a else Nothing
+        , \a -> return $ if motdMatch a then motdJoin a else Nothing
+
         , uptime t
-        , return . motdJoin
 --        , quit -- TODO: need to implement a way to exit/die so that we gracefully exit from the server
         ]
         (\a -> a msg)
@@ -255,17 +209,6 @@ command t = forever $ do
     -- TODO: Unsafe head
     unless (null result) (yield $ head result)
 
--- TODO: with the precidate logic this would just parse the host out and reply with a pong
-ping :: IRC.Message -> Maybe IRC.Message
-ping msg = if "PING" == IRC.msg_command msg
-           then Just $ IRC.pong (head $ IRC.msg_params msg) -- TODO: Unsafe head
-           else Nothing
-
--- TODO: with the precidate logic this would just parse the host out and reply with a pong
-motdJoin :: IRC.Message -> Maybe IRC.Message
-motdJoin msg = if "700" == IRC.msg_command msg
-           then Just $ IRC.joinChan "#marley"
-           else Nothing
 
 -- TODO: extend the IRC.privmsg to support sending to multiple people/channels
 uptime :: MonadIO m => ClockTime -> IRC.Message -> m (Maybe IRC.Message)
@@ -275,7 +218,7 @@ uptime t msg = do
     return $ if "PRIVMSG" /= IRC.msg_command msg
     then Nothing
     else if "!uptime" `BS.isPrefixOf` (head $ tail $ IRC.msg_params msg) -- TODO: unsafe head/tail
-         then Just $ IRC.privmsg "#levchins_minecraft" (C8.pack $ pretty $ diffClockTimes now t)
+         then Just $ IRC.privmsg "#test" (C8.pack $ pretty $ diffClockTimes now t)
          else Nothing
 
 --
@@ -292,57 +235,3 @@ pretty td = join . intersperse " " . filter (not . null) . map f $
     months  = days   `div` 28 ; years  = months `div` 12
     f (i,s) | i == 0    = []
             | otherwise = show i ++ s
-
-
-
-
-
-ftestConfig :: ServerConfig
-ftestConfig = ServerConfig "208.80.155.68" 6697 ["levchius"] "Ghost Bot" Nothing True "test.log"
-
-testConfig :: ServerConfig
-testConfig = ServerConfig "127.0.0.1" 9999 ["levchius"] "Ghost Bot" (Just "karma") True "test.log"
-
-testPersistent :: ServerPersistentState
-testPersistent = ServerPersistentState ["#levchins_minecraft"]
-
-main :: IO ()
-main = establishTLS ftestConfig testPersistent
-
--- 4. Do a dumb loop, basically since you can have nested pipes should be
---      able to do an `await` to get a message, in then you loop through
---      a list of pipes and feed the message into each, and if one yields
---      up a result, this means we should abort early and proceed to send
---      the result down the pipeline to the "sending" side.  Later on can
---      probably improve things by using actual queues, as in just queue up
---      a copy of the message into each queue and spawn off a thread for
---      each queue for processing, and then have a listener that will read
---      off the reply queue and send it.
-
-
-
-
--- UPSTREAM this to Network.IRC.Parser
---------------------------------------------------------------------------
-optionMaybe :: Parser a -> Parser (Maybe a)
-optionMaybe p = option Nothing (Just <$> p)
-
-tokenize  :: Parser a -> Parser a
-tokenize p = p >>= \x -> IRC.spaces >> return x
-
--- Streaming version of the IRC message parser
-message :: Parser IRC.Message
-message  = do
-    p <- optionMaybe $ tokenize IRC.prefix
-    c <- IRC.command
-    ps <- many (IRC.spaces >> IRC.parameter)
-    _ <- IRC.crlf
-    return $ IRC.Message p c ps
-
-
-mkMessage           :: BS.ByteString -> [IRC.Parameter] -> IRC.Message
-mkMessage cmd params = IRC.Message Nothing cmd params
-
-pass  :: IRC.Password -> IRC.Message
-pass u = mkMessage "PASS" [u]
---------------------------------------------------------------------------
