@@ -200,38 +200,11 @@ command t = forever $ do
     result <- catMaybes <$> forM
         [ \a -> return $ if pingMatch a then ping a else Nothing
         , \a -> return $ if motdMatch a then motdJoin a else Nothing
+        , \a -> if uptimeMatch a then uptime t a else return $ Nothing -- IO
 
-        , uptime t
 --        , quit -- TODO: need to implement a way to exit/die so that we gracefully exit from the server
         ]
         (\a -> a msg)
 
     -- TODO: Unsafe head
     unless (null result) (yield $ head result)
-
-
--- TODO: extend the IRC.privmsg to support sending to multiple people/channels
-uptime :: MonadIO m => ClockTime -> IRC.Message -> m (Maybe IRC.Message)
-uptime t msg = do
-    now <- liftIO $ getClockTime
-
-    return $ if "PRIVMSG" /= IRC.msg_command msg
-    then Nothing
-    else if "!uptime" `BS.isPrefixOf` (head $ tail $ IRC.msg_params msg) -- TODO: unsafe head/tail
-         then Just $ IRC.privmsg "#test" (C8.pack $ pretty $ diffClockTimes now t)
-         else Nothing
-
---
--- Pretty print the date in '1d 9h 9m 17s' format
---
-pretty :: TimeDiff -> String
-pretty td = join . intersperse " " . filter (not . null) . map f $
-    [(years          ,"y") ,(months `mod` 12,"m")
-    ,(days   `mod` 28,"d") ,(hours  `mod` 24,"h")
-    ,(mins   `mod` 60,"m") ,(secs   `mod` 60,"s")]
-  where
-    secs    = abs $ tdSec td  ; mins   = secs   `div` 60
-    hours   = mins   `div` 60 ; days   = hours  `div` 24
-    months  = days   `div` 28 ; years  = months `div` 12
-    f (i,s) | i == 0    = []
-            | otherwise = show i ++ s

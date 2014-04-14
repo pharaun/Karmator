@@ -5,8 +5,15 @@ module Plugins.Ping
 
     , motdMatch
     , motdJoin
+
+    , uptimeMatch
+    , uptime
     ) where
 
+import Data.List
+import System.Time
+import Control.Monad.Reader
+import qualified Data.ByteString.Char8 as C8
 
 import Karmator.Filter
 import qualified Network.IRC as IRC
@@ -46,41 +53,32 @@ ping = Just . IRC.pong . head . IRC.msg_params
 -- TODO: improve this (Such as list of channels to join)
 --
 motdMatch  = exactCommand "700"
-motdJoin _ = Just $ IRC.joinChan "#test"
+motdJoin _ = Just $ IRC.joinChan "#test" -- TODO: Need to take list of channels to join
 
 
 --
 -- Uptime
 -- TODO: Improve state persisting
 --
+uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!uptime")
+uptime t m  = do
+    now <- liftIO $ getClockTime
+    return $ Just $ IRC.privmsg (whichChannel m) (C8.pack $ pretty $ diffClockTimes now t)
 
-
 --
----- TODO: extend the IRC.privmsg to support sending to multiple people/channels
---uptime :: MonadIO m => ClockTime -> IRC.Message -> m (Maybe IRC.Message)
---uptime t msg = do
---    now <- liftIO $ getClockTime
+-- Pretty print the date in '1d 9h 9m 17s' format
 --
---    return $ if "PRIVMSG" /= IRC.msg_command msg
---    then Nothing
---    else if "!uptime" `BS.isPrefixOf` (head $ tail $ IRC.msg_params msg) -- TODO: unsafe head/tail
---         then Just $ IRC.privmsg "#test" (C8.pack $ pretty $ diffClockTimes now t)
---         else Nothing
---
-----
----- Pretty print the date in '1d 9h 9m 17s' format
-----
---pretty :: TimeDiff -> String
---pretty td = join . intersperse " " . filter (not . null) . map f $
---    [(years          ,"y") ,(months `mod` 12,"m")
---    ,(days   `mod` 28,"d") ,(hours  `mod` 24,"h")
---    ,(mins   `mod` 60,"m") ,(secs   `mod` 60,"s")]
---  where
---    secs    = abs $ tdSec td  ; mins   = secs   `div` 60
---    hours   = mins   `div` 60 ; days   = hours  `div` 24
---    months  = days   `div` 28 ; years  = months `div` 12
---    f (i,s) | i == 0    = []
---            | otherwise = show i ++ s
+pretty :: TimeDiff -> String
+pretty td = join . intersperse " " . filter (not . null) . map f $
+    [(years          ,"y") ,(months `mod` 12,"m")
+    ,(days   `mod` 28,"d") ,(hours  `mod` 24,"h")
+    ,(mins   `mod` 60,"m") ,(secs   `mod` 60,"s")]
+  where
+    secs    = abs $ tdSec td  ; mins   = secs   `div` 60
+    hours   = mins   `div` 60 ; days   = hours  `div` 24
+    months  = days   `div` 28 ; years  = months `div` 12
+    f (i,s) | i == 0    = []
+            | otherwise = show i ++ s
 
 
 
