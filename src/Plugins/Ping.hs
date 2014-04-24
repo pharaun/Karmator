@@ -59,6 +59,10 @@ motdJoin _ = Just $ IRC.joinChan "#test" -- TODO: Need to take list of channels 
 --
 -- Uptime
 -- TODO: Improve state persisting
+--  - For state persisting can probably provide an interface that takes and
+--      yields bytestring for serialization to storage, only thing i am
+--      uncertain of is temporary values, can we not bother with
+--      serialization?
 --
 uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!uptime")
 uptime t m  = do

@@ -68,6 +68,7 @@ establishTLS sc sps = PNT.withSocketsDo $
             hSetBuffering l NoBuffering
 
             -- Session start time
+            -- TODO: move this into the uptime plugin
             t <- getClockTime
 
             handleIRC (TLS.fromContext context >-> log l) (log l >-> TLS.toContext context) (ServerState sps sc l t)
@@ -93,6 +94,7 @@ establish sc sps = PNT.withSocketsDo $
             hSetBuffering l NoBuffering
 
             -- Session start time
+            -- TODO: move this into the uptime plugin
             t <- getClockTime
 
             handleIRC (PNT.fromSocket sock 8192 >-> log l) (log l >-> PNT.toSocket sock) (ServerState sps sc l t)
@@ -146,6 +148,22 @@ showMessage = PP.map encode
 
 --
 -- Handshake for the initial connection to the network
+-- TODO: Support/move this to some form of Auth plugin, need to be able to
+--      generate requests and request replies, and need to be able to
+--      perform it in lockstep or as callbacks
+--
+--  Example:
+--      Should support doing `cap ls` to find out if the server support caps
+--          - Should also proceed with pass/nick/user part of the connect
+--              (to support servers that don't support cap)
+--          - But if server supports caps it will reply back, need to request caps that we want/need
+--          - If it does not it can either reply with 001 or so or ignore it.
+--
+--      Should support auth ping, for ex after registeration you may need to do auth-ping to join a channel
+--
+--      Should be able to support "STARTTLS" or -> SSL only
+--
+--      Also should in theory have a post setup for registering with nickserv or identifying your nick
 --
 handshake :: Monad m => ServerState -> Producer IRC.Message m ()
 handshake ss = do
