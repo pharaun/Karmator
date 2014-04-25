@@ -1,4 +1,4 @@
-{-# LANGUAGE Rank2Types, DeriveDataTypeable, StandaloneDeriving, NoMonomorphismRestriction, OverloadedStrings, TemplateHaskell #-}
+{-# LANGUAGE Rank2Types, DeriveDataTypeable, StandaloneDeriving, NoMonomorphismRestriction, OverloadedStrings, TemplateHaskell, GeneralizedNewtypeDeriving #-}
 import Data.Dynamic
 import Data.Typeable
 
@@ -13,7 +13,14 @@ import Control.Applicative
 
 import qualified Data.Map.Strict as Map
 import qualified Data.ByteString as B
-import Control.Monad.Trans.State.Strict
+import Control.Monad.Trans.State
+import Control.Monad.Trans.Reader
+import Control.Monad.Trans.Writer
+import Control.Monad.Trans.Class
+
+import System.Console.Haskeline.MonadException
+
+import Control.Concurrent (MVar)
 
 -- TEMPLATE HASKELL
 import Language.Haskell.TH hiding (match)
@@ -23,8 +30,82 @@ moduleName = fmap loc_module qLocation >>= \mod -> return (AppE (VarE (mkName "D
 -- TEMPLATE HASKELL
 
 type Msg = String
-deriving instance Typeable ClockTime
 
+--
+-- Generation Three
+--
+
+-- Plugin Monad
+newtype PM a = PM { runPM :: ReaderT (String) IO a }
+    deriving (Functor, Applicative, Monad, MonadIO, MonadException)
+
+-- | This transformer encodes the additional information a module might
+--   need to access its name or its state.
+newtype PluginT st m a = PluginT { runPluginT :: ReaderT (MVar st, B.ByteString) m a }
+    deriving (Applicative, Functor, Monad, MonadTrans, MonadIO, MonadException)
+
+-- Deals in serialization of the state for the plugin
+-- Consider doing some serialization with acid-state
+data Serial st = Serial
+    { serialize   :: st -> Maybe B.ByteString
+    , deserialize :: B.ByteString -> Maybe st
+    }
+
+-- Deals with pattern matching a match to a eval
+data Command m = Command
+    { commandName  :: String
+    , commandHelp  :: Msg -> WriterT [Msg] m ()
+    , commandMatch :: Msg -> m Bool
+    , commandEval  :: Msg -> WriterT [Msg] m ()
+    }
+
+-- Plugin structure, for a collection of shared commands
+-- TODO: Maybe the monadic structure is a bit too complicated
+data Plugin st = Plugin
+    -- If want its state to be saved on shutdown return a serializer, returns Nothing in default impl
+    { pluginSerialize :: !(Maybe (Serial st))
+
+    -- Default state, returns error in default impl
+    , pluginDefState :: !(PM st)
+
+    -- Initialize
+    , pluginInit :: !(PluginT st PM ())
+
+    -- Finalize
+    , pluginExit :: !(PluginT st PM ())
+
+    -- Listeners
+    , pluginListeners :: !(PluginT st PM [Command (PluginT st PM)])
+
+    -- TODO: do we want contextual listeners who can response to raw stream IRC Messages
+    }
+
+
+--
+-- Plugin Constructor
+--
+newPlugin :: Plugin st
+newPlugin = Plugin
+    { pluginSerialize = Nothing
+    , pluginDefState  = return $ error "State not initalized"
+    , pluginInit      = return ()
+    , pluginExit      = return ()
+    , pluginListeners = return []
+    }
+
+
+
+
+
+
+
+
+
+
+--
+-- Generation Two
+--
+deriving instance Typeable ClockTime
 data PluginPlus = PluginPlus
     -- Plugin Name
     { nameP :: B.ByteString
@@ -75,6 +156,10 @@ initEmptyPluginData :: (Functor f, Monad f, MonadIO f) => [PluginPlus] -> f (Map
 initEmptyPluginData l = liftM Map.fromList $ zip (map nameP l) `fmap` mapM (`initP` Nothing) l
 
 
+--
+-- Take advantage of lazy eval and maybe consider revert state to lazy
+-- We just need to feed this into everything (maybe problemic with IO, need
+-- double check)
 commandP :: (Monad f, MonadIO f)
          => [PluginPlus]
          -> Map.Map B.ByteString Dynamic
@@ -110,65 +195,6 @@ commandP s m = undefined
 --    unless (null result) (yield $ head result)
 
 
-plugins = [ping, uptime]
-
-initPlugins :: (Functor f, Monad f, MonadIO f) => f [Dynamic]
-initPlugins = fmap concat $ mapM init plugins
-
-matchPlugins :: (Monad f, MonadIO f)
-             => [([Dynamic] -> Msg -> Bool, [Dynamic] -> Msg -> f (Maybe Msg))]
-matchPlugins = fmap (\a -> (match a, eval a)) plugins
-
-command :: (Monad f, MonadIO f)
-        => [([Dynamic] -> Msg -> Bool, [Dynamic] -> Msg -> f (Maybe Msg))]
-        -> [Dynamic]
-        -> Msg
-        -> f [Maybe Msg]
-command match dat msg = forM match (\(a, b) -> if a dat msg then b dat msg else (return Nothing))
-
-
-runCommand init msg = do
-    command matchPlugins init msg
-
-
-
-
-
-
--- Types
-data Plugin' = Plugin'
-    { init  :: (Monad f, MonadIO f) => f [Dynamic]
-    , match :: [Dynamic] -> Msg -> Bool
-    , eval  :: (Monad f, MonadIO f) => [Dynamic] -> Msg -> f (Maybe Msg)
-    }
-
--- getDynamic - return first matching one
-getDynamic :: (Typeable a) => [Dynamic] -> Maybe a
-getDynamic = listToMaybe . catMaybes . map fromDynamic
-
-ping = Plugin' pingInit pingMatch pingMsg
-    where
-        pingInit :: Monad f => f [Dynamic]
-        pingInit = return []
-        pingMatch _ m = m == "Hi"
-        pingMsg _ m = return $ Just m
-
-uptime = Plugin' uptimeInit uptimeMatch uptimeMsg
-    where
-        uptimeInit :: MonadIO f => f [Dynamic]
-        uptimeInit = do
-            t <- liftIO $ getClockTime
-            return [toDyn t]
-
-        uptimeMatch _ m = m == "Bye"
-
-        uptimeMsg :: MonadIO f => [Dynamic] -> Msg -> f (Maybe Msg)
-        uptimeMsg d m = do
-            now <- liftIO $ getClockTime
-            return $ case getDynamic d of
-                Nothing   -> Nothing
-                Just past -> do
-                    Just $ pretty $ diffClockTimes now past
 
 
 
