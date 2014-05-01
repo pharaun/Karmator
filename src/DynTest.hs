@@ -1,4 +1,4 @@
-{-# LANGUAGE Rank2Types, DeriveDataTypeable, StandaloneDeriving, NoMonomorphismRestriction, OverloadedStrings, TemplateHaskell, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE Rank2Types, DeriveDataTypeable, StandaloneDeriving, NoMonomorphismRestriction, OverloadedStrings, TemplateHaskell, GeneralizedNewtypeDeriving, ExistentialQuantification #-}
 import Data.Dynamic
 import Data.Typeable
 
@@ -22,6 +22,7 @@ import System.Console.Haskeline.MonadException
 
 import Control.Concurrent (MVar)
 
+
 -- TEMPLATE HASKELL
 import Language.Haskell.TH hiding (match)
 import Language.Haskell.TH.Syntax
@@ -30,6 +31,36 @@ moduleName = fmap loc_module qLocation >>= \mod -> return (AppE (VarE (mkName "D
 -- TEMPLATE HASKELL
 
 type Msg = String
+
+
+--
+-- Generation Five
+-- TODO: consider breaking it apart some more to decouple the state/other
+--       action from the plugin definition maybe
+--
+data Plug = forall st. Plug
+    { _this  :: st
+    , _init  :: Maybe B.ByteString -> st
+    , _save  :: st -> Maybe B.ByteString
+    , _match :: Msg -> st -> Bool
+    , _eval  :: Msg -> st -> (st, Maybe Msg)
+    }
+
+init :: Maybe B.ByteString -> Plug -> Plug
+init st (Plug _ i s m e) = Plug (i st) i s m e
+
+save :: Plug -> Maybe B.ByteString
+save (Plug t _ s _ _) = s t
+
+match :: Plug -> Msg -> Bool
+match (Plug t _ _ m _) msg = m msg t
+
+eval :: Plug -> Msg -> (Plug, Maybe Msg)
+eval (Plug t i s m e) msg = do
+    let (st, ms) = e msg t
+    (Plug st i s m e, ms)
+
+
 
 --
 -- Generation Three
@@ -95,10 +126,38 @@ newPlugin = Plugin
 
 
 
+--
+-- Generation Four
+--
+data ExtensibleState = ExtensibleState (Map.Map String (Either String StateExtension))
 
 
+-- ---------------------------------------------------------------------
+-- Extensible state
+--
 
+-- | Every module must make the data it wants to store
+-- an instance of this class.
+--
+-- Minimal complete definition: initialValue
+class Typeable a => ExtensionClass a where
+    -- | Defines an initial value for the state extension
+    initialValue :: a
+    -- | Specifies whether the state extension should be
+    -- persistent. Setting this method to 'PersistentExtension'
+    -- will make the stored data survive restarts, but
+    -- requires a to be an instance of Read and Show.
+    --
+    -- It defaults to 'StateExtension', i.e. no persistence.
+    extensionType :: a -> StateExtension
+    extensionType = StateExtension
 
+-- | Existential type to store a state extension.
+data StateExtension =
+    forall a. ExtensionClass a => StateExtension a
+    -- ^ Non-persistent state extension
+  | forall a. (Read a, Show a, ExtensionClass a) => PersistentExtension a
+    -- ^ Persistent extension
 
 
 

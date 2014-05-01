@@ -33,7 +33,7 @@ executable karmator
                      , pipes-network
                      , pipes-network-tls >= 0.3
                      -- Network/TLS
-                     , network >= 2.4
+                     , network >= 2.5
                      , network-simple-tls >= 0.3
                      , tls >= 1.2.2
                      , x509-system
