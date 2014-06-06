@@ -16,7 +16,7 @@ metadata = sa.MetaData()
 
 vote = sa.Table(
     'votes', metadata,
-    sa.Column('voted_at', sa.DateTime(), nullable=False, default=datetime.datetime.now),
+    sa.Column('voted_at', sa.String(), nullable=False),
     sa.Column('by_whom_name', sa.String(), nullable=True),
     sa.Column('for_what_name', sa.String(), nullable=False),
     sa.Column('amount', sa.Integer(), nullable=False),
@@ -232,25 +232,28 @@ def counts(session, names, table=karma_in):
         ret[r.name] = r.up, r.down, r.side
     return [(name, ret.get(name, (0, 0, 0))) for name in names]
 
-@interaction
+#@interaction
 def counts_normalized(session, names):
     if not names:
         return {}
     return counts_by_column(session, vote.c.for_what_name, names)
 
-@interaction
+#@interaction
 def user_counts(session, names):
     if not names:
         return {}
     return counts_by_column(session, vote.c.by_whom_name, names)
 
-@interaction
+#@interaction
 def add_karma(session, json_blob):
     by_whom_name = json_blob['nick']
     for kind in json_blob['karma']:
-        q = (vote.insert()
-             .values(by_whom_name=by_whom_name, for_what_name=kind['message'],
-                     amount=vote_amount_map[kind['karma_type']]))
+        q = (vote.insert().values(
+                voted_at=(datetime.datetime.utcnow().isoformat(' ') + " UTC"),
+                by_whom_name=by_whom_name,
+                for_what_name=kind['message'],
+                amount=vote_amount_map[kind['karma_type']]
+            ))
 
         for attempt in range(10):
             try:

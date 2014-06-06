@@ -29,7 +29,8 @@ import System.Environment.UTF8 (getArgs)
 main :: IO ()
 main = do
     hSetBuffering stdin LineBuffering
-    hSetBuffering stdout LineBuffering
+    -- Apparently popen in python can't handle linebuffering
+    hSetBuffering stdout NoBuffering
 
     -- Force the encoding to utf8, this is only communicating with a wrapping program which
     -- emits and digests strings in utf8 format.
