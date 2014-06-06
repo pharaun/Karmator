@@ -4,6 +4,8 @@ import re
 import sys
 import subprocess
 
+import pytz
+
 import karmabot_models as models
 
 # Dumb arg parser
@@ -20,15 +22,19 @@ channel = sys.argv[4]
 filename = sys.argv[5]
 
 # Regex compile
-# TODO: take in accord --- Log opened Fri Feb 14 11:36:09 2014 
-day_change = re.compile(r'^--- Day changed (?P<day>[a-zA-Z]+ [a-zA-Z]+ \d{2} \d{4})')
+day_change = re.compile(r'^--- Day changed (?P<day>[a-zA-Z]+ [a-zA-Z]+ \d{2} \d{4})$')
+log_opened = re.compile(r'^--- Log opened (?P<day1>[a-zA-Z]+ [a-zA-Z]+ \d{2}) \d{2}:\d{2}:\d{2} (?P<day2>\d{4})$')
 message    = re.compile(r'^(?P<time>\d{2}:\d{2}) <.(?P<nick>.*?)> (?P<msg>.*)$')
 
 # Database
 engine, Session = models.connect(database_uri)
+session = Session()
 
 # Parser
 karma_parser = subprocess.Popen(['./karma-parser', 'KarmaParser/parser.cfg'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+
+# Timezone
+pacific = pytz.timezone('US/Pacific')
 
 # Open the logfile
 with open(filename, 'r') as f:
@@ -43,39 +49,51 @@ with open(filename, 'r') as f:
             if new_day is not None: current_day = new_day.date()
 
         else:
-            # skip if its not more recent than start date or less recent
-            # than end date
-            if current_day is not None:
-                if (start.date() <= current_day) and (current_day <= end.date()):
-                    msg = message.match(line)
+            # Check if log has been reopened
+            opened = log_opened.match(line)
 
-                    if msg is not None:
-                        time = datetime.datetime.strptime(msg.group('time'), "%H:%M")
-                        nick = msg.group('nick')
-                        mesg = msg.group('msg')
+            if opened is not None:
+                new_day = datetime.datetime.strptime(opened.group('day1') + ' ' + opened.group('day2'), "%a %b %d %Y")
+                if new_day is not None: current_day = new_day.date()
 
-                        if (time is not None) and (not mesg.startswith('!')):
-                            timestamp = datetime.datetime.combine(current_day, time.time())
-                            # timestamp.replace(tzinfo=None)
+            else:
+                # skip if its not more recent than start date or less recent
+                # than end date
+                if current_day is not None:
+                    if (start.date() <= current_day) and (current_day <= end.date()):
+                        msg = message.match(line)
 
-                            item = {
-                                'user': "unknown",
-                                'nick': nick.decode('utf-8'),
-                                'channel': channel.decode('utf-8'),
-                                'message': mesg.decode('utf-8'),
-                            }
+                        if msg is not None:
+                            time = datetime.datetime.strptime(msg.group('time'), "%H:%M")
+                            nick = msg.group('nick')
+                            mesg = msg.group('msg')
 
-                            # pump into parser
-                            karma_parser.stdin.write(json.dumps(item) + "\n")
-                            karma_parser.stdin.flush()
+                            if (time is not None) and (not mesg.startswith('!')):
+                                timestamp = datetime.datetime.combine(current_day, time.time())
+                                timestamp = pacific.localize(timestamp)
+                                timestamp = timestamp.astimezone(pytz.utc)
 
-                            # Read stdout
-                            reply = json.loads(karma_parser.stdout.readline())
+                                item = {
+                                    'user': "unknown",
+                                    'nick': nick.decode('utf-8'),
+                                    'channel': channel.decode('utf-8'),
+                                    'message': mesg.decode('utf-8'),
+                                }
 
-                            if reply is not None:
-                                if reply.get('karma') is not None:
-                                    print str(timestamp), str(reply)
-                                    # models.add_karma(Session, line_data)
+                                # pump into parser
+                                karma_parser.stdin.write(json.dumps(item) + "\n")
+                                karma_parser.stdin.flush()
+
+                                # Read stdout
+                                reply = json.loads(karma_parser.stdout.readline())
+
+                                if reply is not None:
+                                    if reply.get('karma'):
+                                        models.add_karma(session, reply, timestamp=timestamp)
+
+# Close session
+session.commit()
+session.close()
 
 # close graceful
 karma_parser.stdin.close()

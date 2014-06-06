@@ -232,24 +232,30 @@ def counts(session, names, table=karma_in):
         ret[r.name] = r.up, r.down, r.side
     return [(name, ret.get(name, (0, 0, 0))) for name in names]
 
-#@interaction
+@interaction
 def counts_normalized(session, names):
     if not names:
         return {}
     return counts_by_column(session, vote.c.for_what_name, names)
 
-#@interaction
+@interaction
 def user_counts(session, names):
     if not names:
         return {}
     return counts_by_column(session, vote.c.by_whom_name, names)
 
 #@interaction
-def add_karma(session, json_blob):
+def add_karma(session, json_blob, timestamp=None):
     by_whom_name = json_blob['nick']
+
+    if timestamp is None:
+        voted_at = datetime.datetime.utcnow().isoformat(' ') + " UTC"
+    else:
+        voted_at = timestamp.strftime('%Y-%m-%d %H:%M:%S.%f UTC')
+
     for kind in json_blob['karma']:
         q = (vote.insert().values(
-                voted_at=(datetime.datetime.utcnow().isoformat(' ') + " UTC"),
+                voted_at=voted_at,
                 by_whom_name=by_whom_name,
                 for_what_name=kind['message'],
                 amount=vote_amount_map[kind['karma_type']]
