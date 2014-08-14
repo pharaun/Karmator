@@ -13,6 +13,7 @@ import Control.Applicative
 
 import qualified Data.Map.Strict as Map
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as C8
 import Control.Monad.Trans.State
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Writer
@@ -21,6 +22,9 @@ import Control.Monad.Trans.Class
 import System.Console.Haskeline.MonadException
 
 import Control.Concurrent (MVar)
+
+-- Lazy
+import System.IO.Unsafe
 
 
 -- TEMPLATE HASKELL
@@ -45,6 +49,11 @@ data Plug = forall st. Plug
     , _match :: Msg -> st -> Bool
     , _eval  :: Msg -> st -> (st, Maybe Msg)
     }
+--    , evalP :: (Monad f, MonadIO f) => Msg -> StateT Dynamic f (Maybe Msg)
+
+-- TODO: not the biggest fan of undefined by default, maybe good to find
+-- a way to "provide" the plugin and build the existential qualification
+emptyPlug = Plug undefined
 
 init :: Maybe B.ByteString -> Plug -> Plug
 init st (Plug _ i s m e) = Plug (i st) i s m e
@@ -59,6 +68,23 @@ eval :: Plug -> Msg -> (Plug, Maybe Msg)
 eval (Plug t i s m e) msg = do
     let (st, ms) = e msg t
     (Plug st i s m e, ms)
+
+
+pingPlug = emptyPlug pingInit pingSave pingMatch pingEval
+    where
+        pingInit _ = ()
+        pingSave _ = Nothing
+        pingMatch m _ = m == "Hi"
+        pingEval m _ = ((), Just m)
+
+uptimePlug = emptyPlug uptimeInit uptimeSave uptimeMatch uptimeEval
+    where
+        uptimeInit _ = unsafePerformIO $ liftIO getClockTime
+        uptimeSave _ = Nothing
+        uptimeMatch m _ = m == "Bye"
+        uptimeEval m past = unsafePerformIO $ do
+            now  <- liftIO getClockTime
+            return (past, Just $ pretty $ diffClockTimes now past)
 
 
 
