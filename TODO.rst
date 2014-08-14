@@ -1,9 +1,9 @@
 TODO
 ----
 
-1. Create a build system (make for setting up the project/etc) and (Cabal for the parser)
+1. Finish migrating to haskell
 
-2. Importable corpus (Import from logfile, andor csv file for upgrading from other karma bots)
+2. Majority of the todo is available on github under issues
 
 3. Upgrading script for upgrading from v1 to v2 of this system (need to implement Unicode Normalization, Case Folding, etc)
 

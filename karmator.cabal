@@ -24,7 +24,7 @@ executable karmator
                      , bytestring >= 0.10
                      , monads-tf >= 0.1
                      , text
-                     , transformers >=0.3 && <0.4
+                     , transformers >=0.4 && <0.5
                      -- Irc
                      , irc >= 0.6
                      -- Pipes
@@ -58,7 +58,7 @@ executable migration
   extra-libraries:     pthread
   build-depends:       base >=4.5 && <4.7
                      , bytestring >= 0.10
-                     , transformers >=0.3 && <0.4
+                     , transformers >=0.4 && <0.5
                      , text
 
                      -- Persistent
