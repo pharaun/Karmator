@@ -1,4 +1,5 @@
-{-# LANGUAGE Rank2Types, DeriveDataTypeable, StandaloneDeriving, NoMonomorphismRestriction, OverloadedStrings, TemplateHaskell, GeneralizedNewtypeDeriving, ExistentialQuantification #-}
+{-# LANGUAGE ExistentialQuantification, TemplateHaskell, NoMonomorphismRestriction #-}
+--{-# LANGUAGE Rank2Types, DeriveDataTypeable, StandaloneDeriving, NoMonomorphismRestriction, OverloadedStrings, TemplateHaskell, GeneralizedNewtypeDeriving, ExistentialQuantification #-}
 import Data.Dynamic
 import Data.Typeable
 
@@ -21,7 +22,7 @@ import Control.Monad.Trans.Class
 
 import System.Console.Haskeline.MonadException
 
-import Control.Concurrent (MVar)
+import Control.Concurrent.MVar
 
 -- Lazy
 import System.IO.Unsafe
@@ -80,23 +81,71 @@ data Module m st = Module
     , moduleName :: String
     }
 
+instance Show (Module m st) where
+    show (Module _ _ _ name) = name
 
--- List of existional qualified plugins
-data Plugin = forall st. Plugin
-    { _pthis  :: st
-    , _pinit  :: Maybe B.ByteString -> st
-    , _psave  :: st -> Maybe B.ByteString
-    , _pmatch :: Msg -> st -> Bool
-    , _peval  :: Msg -> st -> (st, Maybe Msg)
-    }
+data ModuleRef m = forall st. ModuleRef (Module m st) (MVar st)
+data CommandRef m = forall st. CommandRef (Command m st) (MVar st)
 
+instance Show (ModuleRef m) where
+    show (ModuleRef m _) = "Module: " ++ show m ++ " state: -"
+
+instance Show (CommandRef m) where
+    show (CommandRef _ _) = "Command: - state: -"
 
 --
 -- This registers a module defined above into a format suitable for
 -- processing by the ircbot in a generic manner
 --
-loadModule :: (Monad m, MonadIO m) => Module m st -> m [CommandRef] [ModuleRef]
-loadModule = undefined
+loadModule :: (Monad m, MonadIO m) => Module m st -> m (ModuleRef m, [CommandRef m])
+loadModule m = do
+    state' <- moduleDefState m
+    ref <- liftIO $ newMVar state'
+    cmdlist <- moduleCmds m
+
+    let cmdref = map (\c -> CommandRef c ref) cmdlist
+
+    return (ModuleRef m ref, cmdref)
+
+
+
+-- Test plugin
+--data Command m st = Command
+--    { commandHelp  :: st -> Msg -> m [Msg]
+--    , commandMatch :: st -> Msg -> m Bool
+--    , commandEval  :: st -> Msg -> m (st, Maybe [Msg])
+--    }
+
+pingMod :: Monad m => Module m ()
+pingMod = Module
+    { moduleSerialize = return Nothing
+    , moduleCmds = return
+        [ Command
+            { commandHelp  = \_ m -> return $ ["<ping>"]
+            , commandMatch = \_ m -> return $ m == "Hi"
+            , commandEval  = \_ m -> return $ ((), Just [m])
+            }
+        ]
+    , moduleDefState = return ()
+    , moduleName = "Ping"
+    }
+
+uptimeMod :: MonadIO m => Module m ClockTime
+uptimeMod = Module
+    { moduleSerialize = return Nothing
+    , moduleCmds = return
+        [ Command
+            { commandHelp  = \_ m -> return $ ["<uptime>"]
+            , commandMatch = \_ m -> return $ m == "bye"
+            , commandEval  = \p m -> do
+                now <- liftIO getClockTime
+                return (p, Just [pretty $ diffClockTimes now p])
+            }
+        ]
+    , moduleDefState = liftIO getClockTime
+    , moduleName = "Uptime"
+    }
+
 
 
 
@@ -118,49 +167,49 @@ loadModule = undefined
 -- TODO: consider breaking it apart some more to decouple the state/other
 --       action from the plugin definition maybe
 --
-data Plug = forall st. Plug
-    { _this  :: st
-    , _init  :: Maybe B.ByteString -> st
-    , _save  :: st -> Maybe B.ByteString
-    , _match :: Msg -> st -> Bool
-    , _eval  :: Msg -> st -> (st, Maybe Msg)
-    }
+--data Plug = forall st. Plug
+--    { _this  :: st
+--    , _init  :: Maybe B.ByteString -> st
+--    , _save  :: st -> Maybe B.ByteString
+--    , _match :: Msg -> st -> Bool
+--    , _eval  :: Msg -> st -> (st, Maybe Msg)
+--    }
 --    , evalP :: (Monad f, MonadIO f) => Msg -> StateT Dynamic f (Maybe Msg)
 
 -- TODO: not the biggest fan of undefined by default, maybe good to find
 -- a way to "provide" the plugin and build the existential qualification
-emptyPlug = Plug undefined
-
-init :: Maybe B.ByteString -> Plug -> Plug
-init st (Plug _ i s m e) = Plug (i st) i s m e
-
-save :: Plug -> Maybe B.ByteString
-save (Plug t _ s _ _) = s t
-
-match :: Plug -> Msg -> Bool
-match (Plug t _ _ m _) msg = m msg t
-
-eval :: Plug -> Msg -> (Plug, Maybe Msg)
-eval (Plug t i s m e) msg = do
-    let (st, ms) = e msg t
-    (Plug st i s m e, ms)
-
-
-pingPlug = emptyPlug pingInit pingSave pingMatch pingEval
-    where
-        pingInit _ = ()
-        pingSave _ = Nothing
-        pingMatch m _ = m == "Hi"
-        pingEval m _ = ((), Just m)
-
-uptimePlug = emptyPlug uptimeInit uptimeSave uptimeMatch uptimeEval
-    where
-        uptimeInit _ = unsafePerformIO $ liftIO getClockTime
-        uptimeSave _ = Nothing
-        uptimeMatch m _ = m == "Bye"
-        uptimeEval m past = unsafePerformIO $ do
-            now  <- liftIO getClockTime
-            return (past, Just $ pretty $ diffClockTimes now past)
+--emptyPlug = Plug undefined
+--
+--init :: Maybe B.ByteString -> Plug -> Plug
+--init st (Plug _ i s m e) = Plug (i st) i s m e
+--
+--save :: Plug -> Maybe B.ByteString
+--save (Plug t _ s _ _) = s t
+--
+--match :: Plug -> Msg -> Bool
+--match (Plug t _ _ m _) msg = m msg t
+--
+--eval :: Plug -> Msg -> (Plug, Maybe Msg)
+--eval (Plug t i s m e) msg = do
+--    let (st, ms) = e msg t
+--    (Plug st i s m e, ms)
+--
+--
+--pingPlug = emptyPlug pingInit pingSave pingMatch pingEval
+--    where
+--        pingInit _ = ()
+--        pingSave _ = Nothing
+--        pingMatch m _ = m == "Hi"
+--        pingEval m _ = ((), Just m)
+--
+--uptimePlug = emptyPlug uptimeInit uptimeSave uptimeMatch uptimeEval
+--    where
+--        uptimeInit _ = unsafePerformIO $ liftIO getClockTime
+--        uptimeSave _ = Nothing
+--        uptimeMatch m _ = m == "Bye"
+--        uptimeEval m past = unsafePerformIO $ do
+--            now  <- liftIO getClockTime
+--            return (past, Just $ pretty $ diffClockTimes now past)
 
 
 
