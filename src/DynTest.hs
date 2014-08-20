@@ -1,68 +1,48 @@
-{-# LANGUAGE ExistentialQuantification, TemplateHaskell, NoMonomorphismRestriction #-}
---{-# LANGUAGE Rank2Types, DeriveDataTypeable, StandaloneDeriving, NoMonomorphismRestriction, OverloadedStrings, TemplateHaskell, GeneralizedNewtypeDeriving, ExistentialQuantification #-}
-import Data.Dynamic
-import Data.Typeable
+{-# LANGUAGE ExistentialQuantification, NoMonomorphismRestriction #-}
 
 import Data.List hiding (init)
-import System.IO
 import System.Time
 import Control.Monad
 import Control.Monad.IO.Class
 import Prelude hiding (log, init)
+
 import Data.Maybe
 import Control.Applicative
+import Control.Monad.State.Strict
+import Control.Monad.Reader
 
-import qualified Data.Map.Strict as Map
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as C8
-import Control.Monad.Trans.State
-import Control.Monad.Trans.Reader
-import Control.Monad.Trans.Writer
-import Control.Monad.Trans.Class
-
-import System.Console.Haskeline.MonadException
 
 import Control.Concurrent.MVar
-
--- Lazy
-import System.IO.Unsafe
 
 
 -- TEMPLATE HASKELL
 import Language.Haskell.TH hiding (match)
-import Language.Haskell.TH.Syntax
+import Language.Haskell.TH.Syntax hiding (lift)
 
-moduleNameTH = fmap loc_module qLocation >>= \mod -> return (AppE (VarE (mkName "Data.ByteString.Char8.pack")) (LitE (StringL mod)))
+moduleNameTH :: Quasi m => m Exp
+moduleNameTH = fmap loc_module qLocation >>= \mods -> return (AppE (VarE (mkName "Data.ByteString.Char8.pack")) (LitE (StringL mods)))
 -- TEMPLATE HASKELL
 
 type Msg = String
 
 
-
 --
--- Final
---
-
 -- Final version that trys to incorporate all of the nice features of all
 -- of the other versions
 --
-data Command m st = Command -- TODO: the st maybe better off as State monad so they can pull/update the state if needed
-    { commandHelp  :: st -> Msg -> m [Msg] -- TODO: uncertain, this should be as simple as possible
-    , commandMatch :: st -> Msg -> m Bool
-    , commandEval  :: st -> Msg -> m (st, Maybe [Msg])
+data Command m st = Command
+    { commandName  :: String
+    , commandHelp  :: [Msg] -- TODO: not sure how to integrate commandHelp, but for now if "help <command> matches the command name, it'll invoke the help"
+    , commandMatch :: Msg -> ReaderT st m Bool
+    , commandEval  :: Msg -> StateT st m (Maybe [Msg])
     }
+
+instance Show (Command m st) where
+    show (Command n _ _ _) = "Cmd: " ++ n
 
 -- Deals in serialization of the state for the plugin
 -- TODO: customize it so that I can provide some default serialization such as json, etc
--- TODO: look into doing something like this below v to automate serialization (ie read/show)
---
----- | Existential type to store a state extension.
---data StateExtension =
---    forall a. ExtensionClass a => StateExtension a
---    -- ^ Non-persistent state extension
---  | forall a. (Read a, Show a, ExtensionClass a) => PersistentExtension a
---    -- ^ Persistent extension
---
 data Serial st = Serial
     { serialize   :: st -> Maybe B.ByteString
     , deserialize :: B.ByteString -> Maybe st
@@ -70,20 +50,24 @@ data Serial st = Serial
 
 -- Module that contains the plugins
 data Module m st = Module
-    { moduleSerialize :: m (Maybe (Serial st))
-    , moduleCmds :: m [Command m st]
-
-    -- TODO: not certain how to handle init/exit yet
-    --, pluginDefState  = return $ error "State not initalized"
-    , moduleDefState :: m st
-
     -- TODO: this should be handled by some template haskell maybe
-    , moduleName :: String
+    { moduleName :: String
+    , moduleSerialize :: m (Maybe (Serial st))
+
+    -- TODO: may want to better separate default value versus init/exit
+    , moduleInit :: m st
+    , moduleExit :: m ()
+
+    , moduleCmds :: [Command m st]
     }
 
 instance Show (Module m st) where
-    show (Module _ _ _ name) = name
+    show (Module n _ _ _ c) = "Mod: " ++ n ++ " Cmds: " ++ show c
 
+
+
+-- This data structure stuff is purely for the ircbot to keep track of the
+-- modules and commands
 data ModuleRef m = forall st. ModuleRef (Module m st) (MVar st)
 data CommandRef m = forall st. CommandRef (Command m st) (MVar st)
 
@@ -91,7 +75,7 @@ instance Show (ModuleRef m) where
     show (ModuleRef m _) = "Module: " ++ show m ++ " state: -"
 
 instance Show (CommandRef m) where
-    show (CommandRef _ _) = "Command: - state: -"
+    show (CommandRef c _) = "Command: " ++ show c ++ " state: -"
 
 --
 -- This registers a module defined above into a format suitable for
@@ -99,50 +83,86 @@ instance Show (CommandRef m) where
 --
 loadModule :: (Monad m, MonadIO m) => Module m st -> m (ModuleRef m, [CommandRef m])
 loadModule m = do
-    state' <- moduleDefState m
+    -- TODO: support for deserialize here, or take default state then init module
+    state' <- moduleInit m
     ref <- liftIO $ newMVar state'
-    cmdlist <- moduleCmds m
-
-    let cmdref = map (\c -> CommandRef c ref) cmdlist
+    let cmdref = map (`CommandRef` ref) (moduleCmds m)
 
     return (ModuleRef m ref, cmdref)
 
+-- TODO: figure out how to remove commands or only use this strictly for shutdown
+unloadModule :: (Monad m, MonadIO m) => ModuleRef m -> m ()
+unloadModule _ = undefined
 
 
--- Test plugin
---data Command m st = Command
---    { commandHelp  :: st -> Msg -> m [Msg]
---    , commandMatch :: st -> Msg -> m Bool
---    , commandEval  :: st -> Msg -> m (st, Maybe [Msg])
---    }
+helpCommands :: (Monad m, MonadIO m) => Msg -> [CommandRef m] -> m (Maybe [Msg])
+helpCommands m cs
+    -- TODO: replace with a real match
+    | "help" `isPrefixOf` m = do
+        let match = filter (\(CommandRef (Command n _ _ _) _) -> n `isSuffixOf` m) cs
+        case match of
+            (CommandRef (Command _ h _ _) _):_ -> return $ Just h
+            []    -> return Nothing
+    | otherwise             = return Nothing
+
+
+-- TODO: look into early termination to avoid effectful computation/updates of states if we can avoid it,
+--      we may be safe here because of thunks but let's verify esp with modifyMVar involved
+--runCommands :: (Monad m, MonadIO m) => Msg -> [CommandRef m] -> m (Maybe [Msg])
+runCommands :: Msg -> [CommandRef IO] -> IO (Maybe [Msg])
+runCommands m cs = listToMaybe <$> catMaybes <$> mapM (runCommand m) cs
+
+
+-- TODO: find out why the typeclass monad/monadio isn't working right
+--runCommand :: (Monad m, MonadIO m) => Msg -> CommandRef m -> m (Maybe [Msg])
+runCommand :: Msg -> CommandRef IO -> IO (Maybe [Msg])
+runCommand m (CommandRef c st) = liftIO $ modifyMVar st (\s -> do
+    matched <- liftIO $ runReaderT (c `commandMatch` m) s
+    if matched
+    then do
+        (r, ns) <- liftIO $ runStateT (c `commandEval` m) s
+        return (ns, r)
+    else do
+        return (s, Nothing)
+    )
+
+
+
+
+
 
 pingMod :: Monad m => Module m ()
 pingMod = Module
     { moduleSerialize = return Nothing
-    , moduleCmds = return
+    , moduleCmds =
         [ Command
-            { commandHelp  = \_ m -> return $ ["<ping>"]
-            , commandMatch = \_ m -> return $ m == "Hi"
-            , commandEval  = \_ m -> return $ ((), Just [m])
+            { commandName  = "Ping"
+            , commandHelp  = ["<ping>"]
+            , commandMatch = \m -> return $ m == "Hi"
+            , commandEval  = \m -> return $ Just [m]
             }
         ]
-    , moduleDefState = return ()
+    , moduleInit = return ()
+    , moduleExit = return ()
     , moduleName = "Ping"
     }
 
 uptimeMod :: MonadIO m => Module m ClockTime
 uptimeMod = Module
     { moduleSerialize = return Nothing
-    , moduleCmds = return
+    , moduleCmds =
         [ Command
-            { commandHelp  = \_ m -> return $ ["<uptime>"]
-            , commandMatch = \_ m -> return $ m == "bye"
-            , commandEval  = \p m -> do
+            { commandName  = "uptime"
+            , commandHelp  = ["<uptime>"]
+            , commandMatch = \m -> return $ m == "bye"
+            , commandEval  = \_ -> do
+                past <- get
                 now <- liftIO getClockTime
-                return (p, Just [pretty $ diffClockTimes now p])
+                return $ Just [pretty $ diffClockTimes now past]
             }
         ]
-    , moduleDefState = liftIO getClockTime
+    , moduleInit = liftIO getClockTime
+    , moduleExit = return ()
     , moduleName = "Uptime"
     }
 
@@ -157,77 +177,6 @@ uptimeMod = Module
 --  - There maybe a better approach such as a single list that holds all of
 --      the needed info and building a nice ... transversable interface for
 --      transversing the list for modules vs commands
-
-
-
-
-
---
--- Generation Five
--- TODO: consider breaking it apart some more to decouple the state/other
---       action from the plugin definition maybe
---
---data Plug = forall st. Plug
---    { _this  :: st
---    , _init  :: Maybe B.ByteString -> st
---    , _save  :: st -> Maybe B.ByteString
---    , _match :: Msg -> st -> Bool
---    , _eval  :: Msg -> st -> (st, Maybe Msg)
---    }
---    , evalP :: (Monad f, MonadIO f) => Msg -> StateT Dynamic f (Maybe Msg)
-
--- TODO: not the biggest fan of undefined by default, maybe good to find
--- a way to "provide" the plugin and build the existential qualification
---emptyPlug = Plug undefined
---
---init :: Maybe B.ByteString -> Plug -> Plug
---init st (Plug _ i s m e) = Plug (i st) i s m e
---
---save :: Plug -> Maybe B.ByteString
---save (Plug t _ s _ _) = s t
---
---match :: Plug -> Msg -> Bool
---match (Plug t _ _ m _) msg = m msg t
---
---eval :: Plug -> Msg -> (Plug, Maybe Msg)
---eval (Plug t i s m e) msg = do
---    let (st, ms) = e msg t
---    (Plug st i s m e, ms)
---
---
---pingPlug = emptyPlug pingInit pingSave pingMatch pingEval
---    where
---        pingInit _ = ()
---        pingSave _ = Nothing
---        pingMatch m _ = m == "Hi"
---        pingEval m _ = ((), Just m)
---
---uptimePlug = emptyPlug uptimeInit uptimeSave uptimeMatch uptimeEval
---    where
---        uptimeInit _ = unsafePerformIO $ liftIO getClockTime
---        uptimeSave _ = Nothing
---        uptimeMatch m _ = m == "Bye"
---        uptimeEval m past = unsafePerformIO $ do
---            now  <- liftIO getClockTime
---            return (past, Just $ pretty $ diffClockTimes now past)
-
-
-
-
-
---    -- TODO: look into seeing if there's a way to setup some form of
---    -- generic filtering rules such as "if chan = y send to x", etc..
---    -- Perhaps Pipe.Prelude.Filter
---    result <- catMaybes <$> forM
---        [ \a -> return $ if pingMatch a then ping a else Nothing
---        , \a -> return $ if motdMatch a then motdJoin a else Nothing
---        , \a -> if uptimeMatch a then uptime t a else return $ Nothing -- IO
---        ]
---        (\a -> a msg)
---
---    -- TODO: Unsafe head
---    unless (null result) (yield $ head result)
-
 
 
 
