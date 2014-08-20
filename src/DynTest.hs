@@ -177,7 +177,14 @@ uptimeMod = Module
 --  - There maybe a better approach such as a single list that holds all of
 --      the needed info and building a nice ... transversable interface for
 --      transversing the list for modules vs commands
-
+--
+--  - Look at - http://golang.org/pkg/net/http/#ServeMux
+--      * You create a serveMux, then register a pattern + handler
+--      * it iterates through the pattern till it finds a match, which it then calls the assocated handle
+--      * The clever bit is that ServeMux is also a handle so it can call a nested ServeMux
+--      $ This current system is just a linear list of matches, no nested matches
+--      $ Need to find a clever way of doing that, need to decouple matchers a bit from the handlers
+--      $ Main trick is how to share the state so that matchers can look up the state (do we need/want this?)
 
 
 
