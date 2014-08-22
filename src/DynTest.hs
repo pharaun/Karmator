@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification, NoMonomorphismRestriction #-}
+{-# LANGUAGE ExistentialQuantification, NoMonomorphismRestriction, FlexibleInstances, MultiParamTypeClasses #-}
 
 import Data.List hiding (init)
 import System.Time
@@ -185,6 +185,145 @@ uptimeMod = Module
 --      $ This current system is just a linear list of matches, no nested matches
 --      $ Need to find a clever way of doing that, need to decouple matchers a bit from the handlers
 --      $ Main trick is how to share the state so that matchers can look up the state (do we need/want this?)
+--
+--      * ok, for stand-alone commands/matches, i can just do "addMatch(match, command)" for ex, and for the shared module level,
+--          if i make the this mux thing nestable, i could just define a mux in the module level and add handler+match there
+--      * for that group, and have nested mux which would achieve both goals of decoupling matches from command, and be able to
+--          have modules of shared commands (for shared states)
+
+
+
+
+
+
+--
+-- Routing Experiments
+--
+
+-- Server, Nick, Content (Test message for the matcher)
+data Message = Message String String String
+
+-- Type for Match
+newtype HandlerT s m a = HandlerT
+    { runHandler :: s -> Message -> m (Either [Msg] a, s) }
+
+instance Functor m => Functor (HandlerT s m) where
+  fmap f (HandlerT act) = HandlerT $ \st0 req ->
+    go `fmap` act st0 req
+    where go (eaf, st) = case eaf of
+                              Left resp -> (Left resp, st)
+                              Right result -> (Right $ f result, st)
+
+instance Monad m => Monad (HandlerT s m) where
+  return a = HandlerT $ \st _ -> return $ (Right a, st)
+  (HandlerT act) >>= fn = HandlerT $ \st0 req -> do
+    (eres, st) <- act st0 req
+    case eres of
+      Left resp -> return (Left resp, st)
+      Right result -> do
+        let (HandlerT fres) = fn result
+        fres st req
+
+instance (Monad m, Functor m) => Applicative (HandlerT s m) where
+  pure = return
+  (<*>) = ap
+
+instance (Functor m, Monad m) => Alternative (HandlerT s m) where
+  empty = respond []
+  (<|>) = (>>)
+
+instance Monad m => MonadPlus (HandlerT s m) where
+  mzero = respond []
+  mplus = flip (>>)
+
+instance Monad m => MonadState s (HandlerT s m) where
+  get = HandlerT $ \s _ -> return (Right s, s)
+  put s = HandlerT $ \_ _ -> return (Right (), s)
+
+instance Monad m => MonadReader Message (HandlerT s m) where
+  ask = HandlerT $ \st req -> return (Right req, st)
+  local f (HandlerT act) = HandlerT $ \st req -> act st (f req)
+
+instance MonadTrans (HandlerT s) where
+  lift act = HandlerT $ \st _ -> act >>= \r -> return (Right r, st)
+
+instance MonadIO m => MonadIO (HandlerT s m) where
+  liftIO = lift . liftIO
+
+hoistEither :: Monad m => Either [Msg] a -> HandlerT s m a
+hoistEither eith = HandlerT $ \st _ -> return (eith, st)
+
+respond :: Monad m => [Msg] -> HandlerT s m a
+respond resp = hoistEither $ Left resp
+
+request :: Monad m => HandlerT s m Message
+request = ask
+
+
+
+--
+-- Route
+--
+guardMessage :: Monad m => (Message -> Bool) -> HandlerT s m a -> HandlerT s m ()
+guardMessage f = guardM (liftM f request)
+
+guardM :: Monad m => HandlerT s m Bool -> HandlerT s m a -> HandlerT s m ()
+guardM b c = b >>= flip guardH c
+
+guardH :: Monad m => Bool -> HandlerT s m a -> HandlerT s m ()
+guardH b c = if b then c >> return () else return ()
+
+
+
+
+type SimpleCommand m = Message -> m [Msg]
+
+-- | Convert the controller into an 'Application'
+controllerApp :: Monad m => s -> HandlerT s m a -> SimpleCommand m
+controllerApp s ctrl req =
+  runHandler ctrl s req >>=
+    either return (const $ return []) . fst
+
+
+test :: HandlerT (HandlerT () IO ()) IO [Msg] -> SimpleCommand IO
+test = controllerApp $ do
+    guardH True $ do
+        guardH False $ do
+            respond []
+        guardH True $ do
+            respond ["Hi"]
+
+
+
+--routeTop :: Monad m => HandlerT s m a -> HandlerT s m ()
+--routeMatch :: Monad m => (Message -> Bool) -> HandlerT s m a -> HandlerT s m ()
+
+
+--    , commandMatch :: Msg -> ReaderT st m Bool
+--    , commandEval  :: Msg -> StateT st m (Maybe [Msg])
+--data ModuleRef m = forall st. ModuleRef (Module m st) (MVar st)
+--data CommandRef m = forall st. CommandRef (Command m st) (MVar st)
+
+
+--runCommands :: Msg -> [CommandRef IO] -> IO (Maybe [Msg])
+--runCommands m cs = listToMaybe <$> catMaybes <$> mapM (runCommand m) cs
+--
+--runCommand :: Msg -> CommandRef IO -> IO (Maybe [Msg])
+--runCommand m (CommandRef c st) = liftIO $ modifyMVar st (\s -> do
+--    matched <- liftIO $ runReaderT (c `commandMatch` m) s
+--    if matched
+--    then do
+--        (r, ns) <- liftIO $ runStateT (c `commandEval` m) s
+--        return (ns, r)
+--    else do
+--        return (s, Nothing)
+--    )
+
+
+
+
+
+
 
 
 
