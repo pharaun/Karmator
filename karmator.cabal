@@ -25,6 +25,7 @@ executable karmator
                      , monads-tf >= 0.1
                      , text
                      , transformers >=0.4 && <0.5
+                     , free
                      -- Irc
                      , irc >= 0.6
                      -- Pipes

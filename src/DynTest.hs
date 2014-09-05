@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification, NoMonomorphismRestriction, FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE ExistentialQuantification, NoMonomorphismRestriction, FlexibleInstances, MultiParamTypeClasses, DeriveFunctor, GADTs, GeneralizedNewtypeDeriving #-}
 
 import Data.List hiding (init)
 import System.Time
@@ -15,10 +15,13 @@ import qualified Data.ByteString as B
 
 import Control.Concurrent.MVar
 
+import Text.Show.Functions
+import Control.Monad.Free (Free(Pure, Free), liftF)
+
 
 -- TEMPLATE HASKELL
-import Language.Haskell.TH hiding (match)
-import Language.Haskell.TH.Syntax hiding (lift)
+import Language.Haskell.TH hiding (match, Match)
+import Language.Haskell.TH.Syntax hiding (lift, Match)
 
 moduleNameTH :: Quasi m => m Exp
 moduleNameTH = fmap loc_module qLocation >>= \mods -> return (AppE (VarE (mkName "Data.ByteString.Char8.pack")) (LitE (StringL mods)))
@@ -203,95 +206,86 @@ uptimeMod = Module
 -- Server, Nick, Content (Test message for the matcher)
 data Message = Message String String String
 
--- Type for Match
-newtype HandlerT s m a = HandlerT
-    { runHandler :: s -> Message -> m (Either [Msg] a, s) }
+data Segment a where
+    Match   :: String -> a         -> Segment a
+    Capture :: (String -> Maybe a) -> Segment a
+    Choice  :: [a]                 -> Segment a
+    Zero    ::                        Segment a
+    deriving (Functor, Show)
 
-instance Functor m => Functor (HandlerT s m) where
-  fmap f (HandlerT act) = HandlerT $ \st0 req ->
-    go `fmap` act st0 req
-    where go (eaf, st) = case eaf of
-                              Left resp -> (Left resp, st)
-                              Right result -> (Right $ f result, st)
+type Route = Free Segment
 
-instance Monad m => Monad (HandlerT s m) where
-  return a = HandlerT $ \st _ -> return $ (Right a, st)
-  (HandlerT act) >>= fn = HandlerT $ \st0 req -> do
-    (eres, st) <- act st0 req
-    case eres of
-      Left resp -> return (Left resp, st)
-      Right result -> do
-        let (HandlerT fres) = fn result
-        fres st req
+-- | Match on a static path segment
+match :: String -> Route ()
+match p = liftF (Match p ())
 
-instance (Monad m, Functor m) => Applicative (HandlerT s m) where
-  pure = return
-  (<*>) = ap
+-- | Match on path segment and convert it to a type
+capture :: (String -> Maybe a) -> Route a
+capture convert = liftF (Capture convert)
 
-instance (Functor m, Monad m) => Alternative (HandlerT s m) where
-  empty = respond []
-  (<|>) = (>>)
+-- | Try several routes, using the first that succeeds
+choice :: [Route a] -> Route a
+choice a = join $ liftF (Choice a)
 
-instance Monad m => MonadPlus (HandlerT s m) where
-  mzero = respond []
-  mplus = flip (>>)
+-- | A route that always fails
+zero :: Route a
+zero = liftF Zero
 
-instance Monad m => MonadState s (HandlerT s m) where
-  get = HandlerT $ \s _ -> return (Right s, s)
-  put s = HandlerT $ \_ _ -> return (Right (), s)
-
-instance Monad m => MonadReader Message (HandlerT s m) where
-  ask = HandlerT $ \st req -> return (Right req, st)
-  local f (HandlerT act) = HandlerT $ \st req -> act st (f req)
-
-instance MonadTrans (HandlerT s) where
-  lift act = HandlerT $ \st _ -> act >>= \r -> return (Right r, st)
-
-instance MonadIO m => MonadIO (HandlerT s m) where
-  liftIO = lift . liftIO
-
-hoistEither :: Monad m => Either [Msg] a -> HandlerT s m a
-hoistEither eith = HandlerT $ \st _ -> return (eith, st)
-
-respond :: Monad m => [Msg] -> HandlerT s m a
-respond resp = hoistEither $ Left resp
-
-request :: Monad m => HandlerT s m Message
-request = ask
+-- | run a route, full backtracking on failure
+runRoute :: Route a -> [String] -> Maybe a
+runRoute (Pure a) _  = Just a
+runRoute _        [] = Nothing
+runRoute (Free (Match p' r)) (p:ps)
+    | p == p'   = runRoute r ps
+    | otherwise = Nothing
+runRoute (Free (Capture convert)) (p:ps) =
+    case convert p of
+      Nothing  -> Nothing
+      (Just r) -> runRoute r ps
+runRoute (Free (Choice choices)) paths =
+    msum $ map (flip runRoute paths) choices
+runRoute (Free Zero) _ =
+    Nothing
 
 
+readMaybe :: (Read a) => String -> Maybe a
+readMaybe s =
+   case reads s of
+     [(n,[])] -> Just n
+     _        -> Nothing
 
---
--- Route
---
-guardMessage :: Monad m => (Message -> Bool) -> HandlerT s m a -> HandlerT s m ()
-guardMessage f = guardM (liftM f request)
-
-guardM :: Monad m => HandlerT s m Bool -> HandlerT s m a -> HandlerT s m ()
-guardM b c = b >>= flip guardH c
-
-guardH :: Monad m => Bool -> HandlerT s m a -> HandlerT s m ()
-guardH b c = if b then c >> return () else return ()
-
-
-
-
-type SimpleCommand m = Message -> m [Msg]
-
--- | Convert the controller into an 'Application'
-controllerApp :: Monad m => s -> HandlerT s m a -> SimpleCommand m
-controllerApp s ctrl req =
-  runHandler ctrl s req >>=
-    either return (const $ return []) . fst
+route1Free :: Route String
+route1Free =
+    choice [ do match "foo"
+                i <- capture readMaybe
+                return $ "You are looking at /foo/" ++ show (i :: Int)
+           , do match "bar"
+                i <- capture readMaybe
+                return $ "You are looking at /bar/" ++ show (i :: Double)
+           , do match "foo"
+                match "cat"
+                return $ "You are looking at /foo/cat"
+           , do match "bar"
+                i <- capture readMaybe
+                return $ "You are looking at /bar2/" ++ show (i :: Double)
+           ]
 
 
-test :: HandlerT (HandlerT () IO ()) IO [Msg] -> SimpleCommand IO
-test = controllerApp $ do
-    guardH True $ do
-        guardH False $ do
-            respond []
-        guardH True $ do
-            respond ["Hi"]
+(==>) :: a -> b -> (a,b)
+a ==> b = (a, b)
+
+route1_results =
+      [ ["foo", "1"]     ==> Just "You are looking at /foo/1"
+      , ["foo", "cat"]   ==> Just "You are looking at /foo/cat"
+      , ["bar", "3.141"] ==> Just "You are looking at /bar/3.141"
+      , ["baz"]          ==> Nothing
+      ]
+
+testRoute :: (Eq a) => Route a -> [([String], Maybe a)] -> Bool
+testRoute r tests = all (\(paths, result) -> (runRoute r paths) == result) tests
+
+route1Free_tests = testRoute route1Free route1_results
+
 
 
 
