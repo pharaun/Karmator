@@ -232,20 +232,37 @@ zero :: Route a
 zero = liftF Zero
 
 -- | run a route, full backtracking on failure
-runRoute :: Route a -> [String] -> Maybe a
-runRoute (Pure a) _  = Just a
-runRoute _        [] = Nothing
-runRoute (Free (Match p' r)) (p:ps)
-    | p == p'   = runRoute r ps
+runFirstRoute :: Route a -> [String] -> Maybe a
+runFirstRoute (Pure a) _  = Just a
+runFirstRoute _        [] = Nothing
+runFirstRoute (Free (Match p' r)) (p:ps)
+    | p == p'   = runFirstRoute r ps
     | otherwise = Nothing
-runRoute (Free (Capture convert)) (p:ps) =
+runFirstRoute (Free (Capture convert)) (p:ps) =
     case convert p of
       Nothing  -> Nothing
-      (Just r) -> runRoute r ps
-runRoute (Free (Choice choices)) paths =
-    msum $ map (flip runRoute paths) choices
-runRoute (Free Zero) _ =
+      (Just r) -> runFirstRoute r ps
+runFirstRoute (Free (Choice choices)) paths =
+    msum $ map (flip runFirstRoute paths) choices
+runFirstRoute (Free Zero) _ =
     Nothing
+
+-- | Run all routes that matches, full backtracking on failure
+runAllRoute :: Route a -> [String] -> [a]
+runAllRoute (Pure a) _  = [a]
+runAllRoute _        [] = []
+runAllRoute (Free (Match p' r)) (p:ps)
+    | p == p'   = runAllRoute r ps
+    | otherwise = []
+runAllRoute (Free (Capture convert)) (p:ps) =
+    case convert p of
+      Nothing  -> []
+      (Just r) -> runAllRoute r ps
+runAllRoute (Free (Choice choices)) paths =
+    msum $ map (flip runAllRoute paths) choices
+runAllRoute (Free Zero) _ =
+    []
+
 
 
 readMaybe :: (Read a) => String -> Maybe a
@@ -281,10 +298,21 @@ route1_results =
       , ["baz"]          ==> Nothing
       ]
 
-testRoute :: (Eq a) => Route a -> [([String], Maybe a)] -> Bool
-testRoute r tests = all (\(paths, result) -> (runRoute r paths) == result) tests
+route2_results =
+      [ ["foo", "1"]     ==> ["You are looking at /foo/1"]
+      , ["foo", "cat"]   ==> ["You are looking at /foo/cat"]
+      , ["bar", "3.141"] ==> ["You are looking at /bar/3.141", "You are looking at /bar2/3.141"]
+      , ["baz"]          ==> []
+      ]
 
-route1Free_tests = testRoute route1Free route1_results
+testFirstRoute :: (Eq a) => Route a -> [([String], Maybe a)] -> Bool
+testFirstRoute r tests = all (\(paths, result) -> (runFirstRoute r paths) == result) tests
+
+testAllRoute :: (Eq a) => Route a -> [([String], [a])] -> Bool
+testAllRoute r tests = all (\(paths, result) -> (runAllRoute r paths) == result) tests
+
+route1Free_tests = testFirstRoute route1Free route1_results
+route2Free_tests = testAllRoute route1Free route2_results
 
 
 
