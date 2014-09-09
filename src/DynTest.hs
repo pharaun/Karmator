@@ -213,23 +213,29 @@ uptimeMod = Module
 data Message = Message String String String
 
 
-data Segment a where
-    Match   :: (String -> Bool) -> a    -> Segment a
-    Get     :: (String -> Maybe a)      -> Segment a
-    Set     :: String -> a              -> Segment a
-    Choice  :: [a]                      -> Segment a
-    Zero    ::                             Segment a
+data Segment b a where
+    Match   :: (String -> Bool) -> a    -> Segment b a
+    Capture :: (String -> Maybe a)      -> Segment b a
+    Get     :: (b -> a)                 -> Segment b a
+    Set     :: b -> a                   -> Segment b a
+    Choice  :: [a]                      -> Segment b a
+    Zero    ::                             Segment b a
     deriving (Functor, Show)
 
-type Route = Free Segment
+--type Route b = Free (Segment b)
+type Route = Free (Segment String)
 
 -- | Match on a static path segment
 match :: (String -> Bool) -> Route ()
 match p = liftF (Match p ())
 
 -- | Match on path segment and convert it to a type
-getState :: (String -> Maybe a) -> Route a
-getState convert = liftF (Get convert)
+capture :: (String -> Maybe a) -> Route a
+capture convert = liftF (Capture convert)
+
+-- | Pseudo state get (TODO: make String -> b for generic values)
+getState :: Route String
+getState = liftF (Get id)
 
 -- | Pseudo state set
 setState :: String -> Route ()
@@ -250,12 +256,14 @@ runAllRoute (Pure a) _ =
 runAllRoute (Free (Match p' r)) (p:ps)
     | p' p      = runAllRoute r ps
     | otherwise = []
-runAllRoute (Free (Get convert)) (p:ps) =
+runAllRoute (Free (Capture convert)) (p:ps) =
     case convert p of
       Nothing  -> []
       (Just r) -> runAllRoute r ps
 runAllRoute (Free (Set val r)) ps =
     runAllRoute r ps
+runAllRoute (Free (Get r)) ps =
+    runAllRoute (r "Test") ps
 runAllRoute (Free (Choice choices)) paths =
     msum $ map (flip runAllRoute paths) choices
 runAllRoute (Free Zero) _ =
@@ -274,7 +282,7 @@ debugRoute (Free (Match p' r)) (p:ps)
         in (text "dir" <+> text "<predicate>" <+> text "-- matched" <+> text p $+$ doc, ma)
     | otherwise =
        (text "dir" <+> text "<predicate>" <+> text "-- did not match" <+> text p $+$ text "-- aborted", [])
-debugRoute (Free (Get convert)) (p:ps) =
+debugRoute (Free (Capture convert)) (p:ps) =
    case convert p of
      Nothing  -> (text "path <func>" <+> text "-- was not able to convert" <+> text p $+$ text "-- aborted", [])
      (Just r) ->
@@ -283,6 +291,9 @@ debugRoute (Free (Get convert)) (p:ps) =
 debugRoute (Free (Set val r)) ps =
     let (doc, ma) = debugRoute r ps
     in (text "saved" <+> text val <+> text "-- saved" $+$ doc, ma)
+debugRoute (Free (Get r)) ps =
+    let (doc, ma) = debugRoute (r "Test") ps
+    in (text "get" <+> text (show (r "Test")) <+> text "-- loaded" $+$ doc, ma) -- TODO: nice to be able to display the value in the get somehow
 debugRoute (Free (Choice choices)) paths =
     let debugs (doc, []) (docs, [])  = (doc:docs, [])
         debugs (doc, a)  (docs, [])  = (doc:docs, a)
@@ -314,24 +325,28 @@ readMaybe s =
 route1Free :: Route String
 route1Free =
     choice [ do match (== "foo")
-                i <- getState readMaybe
+                i <- capture readMaybe
+                j <- getState
                 setState "test1"
-                return $ "You are looking at /foo/" ++ show (i :: Int)
+                return $ "You are looking at /foo/" ++ show (i :: Int) ++ "/" ++ j
            , do match (== "bar")
-                i <- getState readMaybe
+                i <- capture readMaybe
                 setState "test2"
-                j <- getState readMaybe
+                _ <- getState
+                j <- capture readMaybe
+                z <- getState
                 setState "test3"
-                return $ "You are looking at /bar/" ++ show (i :: Double) ++ "/" ++ show (j :: Int)
+                return $ "You are looking at /bar/" ++ show (i :: Double) ++ "/" ++ show (j :: Int) ++ "/" ++ z
            , do match (== "foo")
                 choice [ do match (== "foo")
                             setState "test4"
                             return $ "Hi"
                        , do match (== "cat")
+                            _ <- getState
                             return $ "cat"
                        ]
            , do match (== "bar")
-                i <- getState readMaybe
+                i <- capture readMaybe
                 return $ "You are looking at /bar2/" ++ show (i :: Double)
            , do match (== "foo")
                 match (== "foo")
@@ -343,9 +358,9 @@ route1Free =
 a ==> b = (a, b)
 
 route2_results =
-      [ ["foo", "1"]            ==> ["You are looking at /foo/1"]
+      [ ["foo", "1"]            ==> ["You are looking at /foo/1/Test"]
       , ["bar", "3.141"]        ==> ["You are looking at /bar2/3.141"]
-      , ["bar", "3.141", "2"]   ==> ["You are looking at /bar/3.141/2", "You are looking at /bar2/3.141"]
+      , ["bar", "3.141", "2"]   ==> ["You are looking at /bar/3.141/2/Test", "You are looking at /bar2/3.141"]
       , ["baz"]                 ==> []
       , ["foo"]                 ==> []
       , ["foo", "foo"]          ==> ["Hi", "Bye"]
