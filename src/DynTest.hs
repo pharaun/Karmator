@@ -214,16 +214,16 @@ data Message = Message String String String
 
 
 data Segment a where
-    Match   :: String -> a         -> Segment a
-    Capture :: (String -> Maybe a) -> Segment a
-    Choice  :: [a]                 -> Segment a
-    Zero    ::                        Segment a
+    Match   :: (String -> Bool) -> a    -> Segment a
+    Capture :: (String -> Maybe a)      -> Segment a
+    Choice  :: [a]                      -> Segment a
+    Zero    ::                             Segment a
     deriving (Functor, Show)
 
 type Route = Free Segment
 
 -- | Match on a static path segment
-match :: String -> Route ()
+match :: (String -> Bool) -> Route ()
 match p = liftF (Match p ())
 
 -- | Match on path segment and convert it to a type
@@ -243,7 +243,7 @@ runAllRoute :: Route a -> [String] -> [a]
 runAllRoute (Pure a) _  = [a]
 runAllRoute _        [] = []
 runAllRoute (Free (Match p' r)) (p:ps)
-    | p == p'   = runAllRoute r ps
+    | p' p      = runAllRoute r ps
     | otherwise = []
 runAllRoute (Free (Capture convert)) (p:ps) =
     case convert p of
@@ -260,11 +260,11 @@ debugRoute :: Show a => Route a -> [String] -> (Doc, [a])
 debugRoute (Pure a) _  = (text "Pure [" <+> (text $ show a) <+> text "]", [a])
 debugRoute _        [] = (text "-- ran out of path segments before finding 'Pure'", [])
 debugRoute (Free (Match p' r)) (p:ps)
-    | p == p'   =
+    | p' p      =
         let (doc, ma) = debugRoute r ps
-        in (text "dir" <+> text p' <+> text "-- matched" <+> text p $+$ doc, ma)
+        in (text "dir" <+> text "<predicate>" <+> text "-- matched" <+> text p $+$ doc, ma)
     | otherwise =
-       (text "dir" <+> text p' <+> text "-- did not match" <+> text p $+$ text "-- aborted", [])
+       (text "dir" <+> text "<predicate>" <+> text "-- did not match" <+> text p $+$ text "-- aborted", [])
 debugRoute (Free (Capture convert)) (p:ps) =
    case convert p of
      Nothing  -> (text "path <func>" <+> text "-- was not able to convert" <+> text p $+$ text "-- aborted", [])
@@ -299,23 +299,24 @@ readMaybe s =
 
 route1Free :: Route String
 route1Free =
-    choice [ do match "foo"
+    choice [ do match (== "foo")
                 i <- capture readMaybe
                 return $ "You are looking at /foo/" ++ show (i :: Int)
-           , do match "bar"
+           , do match (== "bar")
                 i <- capture readMaybe
-                return $ "You are looking at /bar/" ++ show (i :: Double)
-           , do match "foo"
-                choice [ do match "foo"
-                            return $ "hi"
-                       , do match "cat"
+                j <- capture readMaybe
+                return $ "You are looking at /bar/" ++ show (i :: Double) ++ "/" ++ show (j :: Int)
+           , do match (== "foo")
+                choice [ do match (== "foo")
+                            return $ "Hi"
+                       , do match (== "cat")
                             return $ "cat"
                        ]
-           , do match "bar"
+           , do match (== "bar")
                 i <- capture readMaybe
                 return $ "You are looking at /bar2/" ++ show (i :: Double)
-           , do match "foo"
-                match "foo"
+           , do match (== "foo")
+                match (== "foo")
                 return $ "Bye"
            ]
 
@@ -325,7 +326,8 @@ a ==> b = (a, b)
 
 route2_results =
       [ ["foo", "1"]            ==> ["You are looking at /foo/1"]
-      , ["bar", "3.141"]        ==> ["You are looking at /bar/3.141", "You are looking at /bar2/3.141"]
+      , ["bar", "3.141"]        ==> ["You are looking at /bar2/3.141"]
+      , ["bar", "3.141", "2"]   ==> ["You are looking at /bar/3.141/2", "You are looking at /bar2/3.141"]
       , ["baz"]                 ==> []
       , ["foo"]                 ==> []
       , ["foo", "foo"]          ==> ["Hi", "Bye"]
