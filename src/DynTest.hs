@@ -18,6 +18,8 @@ import Control.Concurrent.MVar
 import Text.Show.Functions
 import Control.Monad.Free (Free(Pure, Free), liftF)
 
+import Text.PrettyPrint.HughesPJ (Doc, (<+>), ($+$), (<>), char, doubleQuotes, nest, space, text, vcat, empty)
+
 
 -- TEMPLATE HASKELL
 import Language.Haskell.TH hiding (match, Match)
@@ -197,6 +199,10 @@ uptimeMod = Module
 
 
 
+--data ModuleRef m = forall st. ModuleRef (Module m st) (MVar st)
+--data CommandRef m = forall st. CommandRef (Command m st) (MVar st)
+--commandMatch :: Msg -> ReaderT st m Bool
+--commandEval  :: Msg -> StateT st m (Maybe [Msg])
 
 
 --
@@ -205,6 +211,7 @@ uptimeMod = Module
 
 -- Server, Nick, Content (Test message for the matcher)
 data Message = Message String String String
+
 
 data Segment a where
     Match   :: String -> a         -> Segment a
@@ -231,22 +238,6 @@ choice a = join $ liftF (Choice a)
 zero :: Route a
 zero = liftF Zero
 
--- | run a route, full backtracking on failure
-runFirstRoute :: Route a -> [String] -> Maybe a
-runFirstRoute (Pure a) _  = Just a
-runFirstRoute _        [] = Nothing
-runFirstRoute (Free (Match p' r)) (p:ps)
-    | p == p'   = runFirstRoute r ps
-    | otherwise = Nothing
-runFirstRoute (Free (Capture convert)) (p:ps) =
-    case convert p of
-      Nothing  -> Nothing
-      (Just r) -> runFirstRoute r ps
-runFirstRoute (Free (Choice choices)) paths =
-    msum $ map (flip runFirstRoute paths) choices
-runFirstRoute (Free Zero) _ =
-    Nothing
-
 -- | Run all routes that matches, full backtracking on failure
 runAllRoute :: Route a -> [String] -> [a]
 runAllRoute (Pure a) _  = [a]
@@ -262,6 +253,41 @@ runAllRoute (Free (Choice choices)) paths =
     msum $ map (flip runAllRoute paths) choices
 runAllRoute (Free Zero) _ =
     []
+
+
+-- | run a route, also returning debug log
+debugRoute :: Show a => Route a -> [String] -> (Doc, [a])
+debugRoute (Pure a) _  = (text "Pure [" <+> (text $ show a) <+> text "]", [a])
+debugRoute _        [] = (text "-- ran out of path segments before finding 'Pure'", [])
+debugRoute (Free (Match p' r)) (p:ps)
+    | p == p'   =
+        let (doc, ma) = debugRoute r ps
+        in (text "dir" <+> text p' <+> text "-- matched" <+> text p $+$ doc, ma)
+    | otherwise =
+       (text "dir" <+> text p' <+> text "-- did not match" <+> text p $+$ text "-- aborted", [])
+debugRoute (Free (Capture convert)) (p:ps) =
+   case convert p of
+     Nothing  -> (text "path <func>" <+> text "-- was not able to convert" <+> text p $+$ text "-- aborted", [])
+     (Just r) ->
+         let (doc, ma) = debugRoute r ps
+         in (text "path <func>" <+> text "-- matched" <+> text p $+$ doc, ma)
+debugRoute (Free (Choice choices)) paths =
+    let debugs (doc, []) (docs, [])  = (doc:docs, [])
+        debugs (doc, a)  (docs, [])  = (doc:docs, a)
+        debugs (doc, []) (docs, a)   = (doc:docs, a)
+        debugs (doc, a)  (docs, b)   = (doc:docs, b++a) -- flipped to match msum in runAllRoutes
+
+        (docs, ma) = foldr debugs ([], []) $ reverse $ map (flip debugRoute paths) choices
+   in (text "choice" <+> showPrettyList (map (\d -> text "do" <+> d) $ reverse docs), ma)
+debugRoute (Free Zero) _      =
+    (text "zero", [])
+
+showPrettyList  :: [Doc] -> Doc
+showPrettyList []     = text "[]"
+showPrettyList [x]    = char '[' <+> x $+$ char ']'
+showPrettyList (h:tl) = char '[' <+> h $+$ (vcat (map showTail tl)) $+$ char ']'
+    where
+     showTail x = char ',' <+> x
 
 
 
@@ -280,38 +306,36 @@ route1Free =
                 i <- capture readMaybe
                 return $ "You are looking at /bar/" ++ show (i :: Double)
            , do match "foo"
-                match "cat"
-                return $ "You are looking at /foo/cat"
+                choice [ do match "foo"
+                            return $ "hi"
+                       , do match "cat"
+                            return $ "cat"
+                       ]
            , do match "bar"
                 i <- capture readMaybe
                 return $ "You are looking at /bar2/" ++ show (i :: Double)
+           , do match "foo"
+                match "foo"
+                return $ "Bye"
            ]
 
 
 (==>) :: a -> b -> (a,b)
 a ==> b = (a, b)
 
-route1_results =
-      [ ["foo", "1"]     ==> Just "You are looking at /foo/1"
-      , ["foo", "cat"]   ==> Just "You are looking at /foo/cat"
-      , ["bar", "3.141"] ==> Just "You are looking at /bar/3.141"
-      , ["baz"]          ==> Nothing
-      ]
-
 route2_results =
-      [ ["foo", "1"]     ==> ["You are looking at /foo/1"]
-      , ["foo", "cat"]   ==> ["You are looking at /foo/cat"]
-      , ["bar", "3.141"] ==> ["You are looking at /bar/3.141", "You are looking at /bar2/3.141"]
-      , ["baz"]          ==> []
+      [ ["foo", "1"]            ==> ["You are looking at /foo/1"]
+      , ["bar", "3.141"]        ==> ["You are looking at /bar/3.141", "You are looking at /bar2/3.141"]
+      , ["baz"]                 ==> []
+      , ["foo"]                 ==> []
+      , ["foo", "foo"]          ==> ["Hi", "Bye"]
+      , ["foo", "cat"]          ==> ["cat"]
+      , ["foo", "foo", "foo"]   ==> ["Hi", "Bye"]
       ]
-
-testFirstRoute :: (Eq a) => Route a -> [([String], Maybe a)] -> Bool
-testFirstRoute r tests = all (\(paths, result) -> (runFirstRoute r paths) == result) tests
 
 testAllRoute :: (Eq a) => Route a -> [([String], [a])] -> Bool
 testAllRoute r tests = all (\(paths, result) -> (runAllRoute r paths) == result) tests
 
-route1Free_tests = testFirstRoute route1Free route1_results
 route2Free_tests = testAllRoute route1Free route2_results
 
 
