@@ -213,6 +213,18 @@ uptimeMod = Module
 data Message = Message String String String
 
 
+--
+-- TODO:
+--  1) Reimplement Free into terms of FreeT so we can bring in State for
+--      reading/writing stateful computation
+--  2) Bring in some form of Monad/MonadIO to support IO action in the
+--      routing handlers
+--  3) Identify how to make the (get/set) be Existential so that we can
+--      have routers with all sort of states
+--  4) Write a simple interpreter that can take care of the routing + state
+--      for the handles
+
+
 data Segment b a where
     Match   :: (String -> Bool) -> a    -> Segment b a
     Capture :: (String -> Maybe a)      -> Segment b a
