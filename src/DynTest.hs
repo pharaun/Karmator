@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification, NoMonomorphismRestriction, FlexibleInstances, MultiParamTypeClasses, DeriveFunctor, GADTs, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ExistentialQuantification, NoMonomorphismRestriction, FlexibleInstances, MultiParamTypeClasses, DeriveFunctor, GADTs, GeneralizedNewtypeDeriving, FlexibleContexts #-}
 
 import Data.List hiding (init)
 import System.Time
@@ -25,7 +25,7 @@ import Text.PrettyPrint.HughesPJ (Doc, (<+>), ($+$), (<>), char, doubleQuotes, n
 
 -- TEMPLATE HASKELL
 import Language.Haskell.TH hiding (match, Match)
-import Language.Haskell.TH.Syntax hiding (lift, Match)
+import Language.Haskell.TH.Syntax hiding (lift, Match, Module)
 
 moduleNameTH :: Quasi m => m Exp
 moduleNameTH = fmap loc_module qLocation >>= \mods -> return (AppE (VarE (mkName "Data.ByteString.Char8.pack")) (LitE (StringL mods)))
@@ -257,34 +257,75 @@ data Message = Message
 --    Choice  :: Show a => [a]                                -> Segment a
 
 data Segment i o n
-    = Match (i -> Bool) (Segment i o n)
-    | Choice [Segment i o n]
+    = Match (i -> Bool) n
+    | Choice [n]
     | forall st. Handler st (st -> i -> o)
 
 instance Functor (Segment i o) where
-    fmap f (Match s r)      = Match s (fmap f r)
-    fmap f (Choice rs)      = Choice (map (fmap f) rs)
+    fmap f (Match s r)      = Match s (f r)
+    fmap f (Choice rs)      = Choice (map f rs)
     fmap f (Handler st h)   = Handler st h
 
 -- TODO: newtype
 type Route a = F.FreeT (Segment Message String) IO a
 
 -- | Match on a message using a predicate
-match :: (i -> Bool) -> Route ()
-match p = F.liftF (Match p _)
+match :: F.MonadFree (Segment i o) m => (i -> Bool) -> m ()
+match p = F.liftF (Match p ())
+
+-- | Try several routes, using all that succeeds
+choice :: F.MonadFree (Segment i o) m => [m a] -> m a
+choice a = join $ F.liftF (Choice a)
+
+-- | Register a handler
+handler :: F.MonadFree (Segment i o) m => st -> (st -> i -> o) -> m a
+handler s h = F.liftF (Handler s h)
+
+-- | Run the route
+--runRoute :: Route String -> Message -> IO [String]
+runRoute :: (Functor f, Monad f) => F.FreeT (Segment b [a]) f a -> b -> f [a]
+runRoute f m = do
+    x <- F.runFreeT f
+    case x of
+        (F.Pure a)                -> return [a] -- TODO: this makes no sense
+        (F.Free (Match p r))      ->
+            if p m
+            then runRoute r m
+            else return []
+        (F.Free (Choice c))       ->
+            fmap concat $ mapM (flip runRoute m) c
+        (F.Free (Handler s e))    ->
+            return $ e s m
+
+-- | Test route
+--route2Free :: Route String
+route2Free :: F.MonadFree (Segment Message [Char]) m => m a
+route2Free = choice
+    [ handler () (\_ _ -> "bye")
+    , do
+        match (\a -> server a == "test")
+        handler "string" (\_ _ -> "server")
+    , do
+        match (\a -> server a == "base")
+        choice
+            [ do
+                match (\a -> channel a == "target")
+                match (\a -> nick a == "never")
+                handler (3.14) (\_ _ -> "never")
+            , handler 1 (\_ _ -> "base")
+            ]
+    ]
 
 
+-- TODO:
+--  1) Basic concept works but we are smashing the strings together, we
+--      need to smash it together into a list instead
+--  2) Doesn't seem to always run all choices, need to fix this up
+--  3) Find out what happens when i insert a return
 
 
 
 --data CommandRef m = forall st. CommandRef (Command m st) (MVar st)
-
-
-
-
-
-
-
 
 
 data UrlPath b a where
@@ -316,8 +357,8 @@ setState :: String -> UrlRoute ()
 setState val = liftF (Set val ())
 
 -- | Try several routes, using the first that succeeds
-choice :: [UrlRoute a] -> UrlRoute a
-choice a = join $ liftF (UrlChoice a)
+urlChoice :: [UrlRoute a] -> UrlRoute a
+urlChoice a = join $ liftF (UrlChoice a)
 
 -- | A route that always fails
 zero :: UrlRoute a
@@ -398,11 +439,11 @@ readMaybe s =
 
 route1Free :: UrlRoute String
 route1Free =
-    choice [ do urlMatch (== "foo")
-                i <- capture readMaybe
-                j <- getState
-                setState "test1"
-                return $ "You are looking at /foo/" ++ show (i :: Int) ++ "/" ++ j
+    urlChoice [ do urlMatch (== "foo")
+                   i <- capture readMaybe
+                   j <- getState
+                   setState "test1"
+                   return $ "You are looking at /foo/" ++ show (i :: Int) ++ "/" ++ j
            , do urlMatch (== "bar")
                 i <- capture readMaybe
                 setState "test2"
@@ -412,9 +453,9 @@ route1Free =
                 setState "test3"
                 return $ "You are looking at /bar/" ++ show (i :: Double) ++ "/" ++ show (j :: Int) ++ "/" ++ z
            , do urlMatch (== "foo")
-                choice [ do urlMatch (== "foo")
-                            setState "test4"
-                            return $ "Hi"
+                urlChoice [ do urlMatch (== "foo")
+                               setState "test4"
+                               return $ "Hi"
                        , do urlMatch (== "cat")
                             _ <- getState
                             return $ "cat"
