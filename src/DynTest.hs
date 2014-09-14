@@ -18,6 +18,8 @@ import Control.Concurrent.MVar
 import Text.Show.Functions
 import Control.Monad.Free (Free(Pure, Free), liftF)
 
+import qualified Control.Monad.Trans.Free as F
+
 import Text.PrettyPrint.HughesPJ (Doc, (<+>), ($+$), (<>), char, doubleQuotes, nest, space, text, vcat, empty)
 
 
@@ -171,6 +173,22 @@ uptimeMod = Module
     , moduleName = "Uptime"
     }
 
+--
+-- Pretty print the date in '1d 9h 9m 17s' format
+--
+pretty :: TimeDiff -> String
+pretty td = join . intersperse " " . filter (not . null) . map f $
+    [(years          ,"y") ,(months `mod` 12,"m")
+    ,(days   `mod` 28,"d") ,(hours  `mod` 24,"h")
+    ,(mins   `mod` 60,"m") ,(secs   `mod` 60,"s")]
+  where
+    secs    = abs $ tdSec td  ; mins   = secs   `div` 60
+    hours   = mins   `div` 60 ; days   = hours  `div` 24
+    months  = days   `div` 28 ; years  = months `div` 12
+    f (i,s) | i == 0    = []
+            | otherwise = show i ++ s
+
+
 
 
 
@@ -198,20 +216,9 @@ uptimeMod = Module
 
 
 
-
---data ModuleRef m = forall st. ModuleRef (Module m st) (MVar st)
---data CommandRef m = forall st. CommandRef (Command m st) (MVar st)
---commandMatch :: Msg -> ReaderT st m Bool
---commandEval  :: Msg -> StateT st m (Maybe [Msg])
-
-
 --
 -- Routing Experiments
 --
-
--- Server, Nick, Content (Test message for the matcher)
-data Message = Message String String String
-
 
 --
 -- TODO:
@@ -223,49 +230,104 @@ data Message = Message String String String
 --      have routers with all sort of states
 --  4) Write a simple interpreter that can take care of the routing + state
 --      for the handles
+--  5) Recursive handlers
+
+data Message = Message
+    { server :: String
+    , channel :: String
+    , nick :: String
+    , msg :: String
+    }
+
+--
+-- Define exactly what needs to happen here.
+--
+-- Handle = One handler + its wrapped state-ref
+-- Match = (Message -> Bool)
+--
+-- a = handle1  -- always execute this one handler
+-- b = [ handle1, handle2 ] -- Always execute these two handler
+-- c = [ Match -> Handle1, Match -> Handle2 ] -- Match then execute matched handler
+-- d = [ Match -> [ Match -> Handle1 ], Match -> Handle2 ] -- Match then descend into pseudo handler to handle further matches
+-- e = [ Match -> Match -> Handle1, [ Match -> [ Match -> Handle2 ], Handle3 ] ] -- Nested matches and mixed matches+handles
+
+--data Segment a where
+--    Handler :: forall st. (st -> Message -> String) -> st   -> Segment String
+--    Match   :: Show a => (Message -> Bool) -> a             -> Segment a
+--    Choice  :: Show a => [a]                                -> Segment a
+
+data Segment i o n
+    = Match (i -> Bool) (Segment i o n)
+    | Choice [Segment i o n]
+    | forall st. Handler st (st -> i -> o)
+
+instance Functor (Segment i o) where
+    fmap f (Match s r)      = Match s (fmap f r)
+    fmap f (Choice rs)      = Choice (map (fmap f) rs)
+    fmap f (Handler st h)   = Handler st h
+
+-- TODO: newtype
+type Route a = F.FreeT (Segment Message String) IO a
+
+-- | Match on a message using a predicate
+match :: (i -> Bool) -> Route ()
+match p = F.liftF (Match p _)
 
 
-data Segment b a where
-    Match   :: (String -> Bool) -> a    -> Segment b a
-    Capture :: (String -> Maybe a)      -> Segment b a
-    Get     :: (b -> a)                 -> Segment b a
-    Set     :: b -> a                   -> Segment b a
-    Choice  :: [a]                      -> Segment b a
-    Zero    ::                             Segment b a
+
+
+
+--data CommandRef m = forall st. CommandRef (Command m st) (MVar st)
+
+
+
+
+
+
+
+
+
+data UrlPath b a where
+    UrlMatch   :: (String -> Bool) -> a    -> UrlPath b a
+    Capture :: (String -> Maybe a)      -> UrlPath b a
+    Get     :: (b -> a)                 -> UrlPath b a
+    Set     :: b -> a                   -> UrlPath b a
+    UrlChoice  :: [a]                      -> UrlPath b a
+    UrlZero    ::                             UrlPath b a
     deriving (Functor, Show)
 
---type Route b = Free (Segment b)
-type Route = Free (Segment String)
+--type Route b = Free (UrlPath b)
+type UrlRoute = Free (UrlPath String)
 
--- | Match on a static path segment
-match :: (String -> Bool) -> Route ()
-match p = liftF (Match p ())
+-- | UrlMatch on a static path segment
+urlMatch :: (String -> Bool) -> UrlRoute ()
+urlMatch p = liftF (UrlMatch p ())
 
--- | Match on path segment and convert it to a type
-capture :: (String -> Maybe a) -> Route a
+-- | UrlMatch on path segment and convert it to a type
+capture :: (String -> Maybe a) -> UrlRoute a
 capture convert = liftF (Capture convert)
 
 -- | Pseudo state get (TODO: make String -> b for generic values)
-getState :: Route String
+getState :: UrlRoute String
 getState = liftF (Get id)
 
 -- | Pseudo state set
-setState :: String -> Route ()
+setState :: String -> UrlRoute ()
 setState val = liftF (Set val ())
 
 -- | Try several routes, using the first that succeeds
-choice :: [Route a] -> Route a
-choice a = join $ liftF (Choice a)
+choice :: [UrlRoute a] -> UrlRoute a
+choice a = join $ liftF (UrlChoice a)
 
 -- | A route that always fails
-zero :: Route a
-zero = liftF Zero
+zero :: UrlRoute a
+zero = liftF UrlZero
 
 -- | Run all routes that matches, full backtracking on failure
-runAllRoute :: Route a -> [String] -> [a]
+runAllRoute :: UrlRoute a -> [String] -> [a]
 runAllRoute (Pure a) _ =
     [a]
-runAllRoute (Free (Match p' r)) (p:ps)
+runAllRoute (Free (UrlMatch p' r)) (p:ps)
     | p' p      = runAllRoute r ps
     | otherwise = []
 runAllRoute (Free (Capture convert)) (p:ps) =
@@ -276,19 +338,19 @@ runAllRoute (Free (Set val r)) ps =
     runAllRoute r ps
 runAllRoute (Free (Get r)) ps =
     runAllRoute (r "Test") ps
-runAllRoute (Free (Choice choices)) paths =
+runAllRoute (Free (UrlChoice choices)) paths =
     msum $ map (flip runAllRoute paths) choices
-runAllRoute (Free Zero) _ =
+runAllRoute (Free UrlZero) _ =
     []
 runAllRoute _        [] =
     []
 
 
 -- | run a route, also returning debug log
-debugRoute :: Show a => Route a -> [String] -> (Doc, [a])
+debugRoute :: Show a => UrlRoute a -> [String] -> (Doc, [a])
 debugRoute (Pure a) _ =
     (text "Pure [" <+> (text $ show a) <+> text "]", [a])
-debugRoute (Free (Match p' r)) (p:ps)
+debugRoute (Free (UrlMatch p' r)) (p:ps)
     | p' p =
         let (doc, ma) = debugRoute r ps
         in (text "dir" <+> text "<predicate>" <+> text "-- matched" <+> text p $+$ doc, ma)
@@ -306,7 +368,7 @@ debugRoute (Free (Set val r)) ps =
 debugRoute (Free (Get r)) ps =
     let (doc, ma) = debugRoute (r "Test") ps
     in (text "get" <+> text (show (r "Test")) <+> text "-- loaded" $+$ doc, ma) -- TODO: nice to be able to display the value in the get somehow
-debugRoute (Free (Choice choices)) paths =
+debugRoute (Free (UrlChoice choices)) paths =
     let debugs (doc, []) (docs, [])  = (doc:docs, [])
         debugs (doc, a)  (docs, [])  = (doc:docs, a)
         debugs (doc, []) (docs, a)   = (doc:docs, a)
@@ -314,7 +376,7 @@ debugRoute (Free (Choice choices)) paths =
 
         (docs, ma) = foldr debugs ([], []) $ reverse $ map (flip debugRoute paths) choices
    in (text "choice" <+> showPrettyList (map (\d -> text "do" <+> d) $ reverse docs), ma)
-debugRoute (Free Zero) _ =
+debugRoute (Free UrlZero) _ =
     (text "zero", [])
 debugRoute _ [] =
     (text "-- ran out of path segments before finding 'Pure'", [])
@@ -334,14 +396,14 @@ readMaybe s =
      [(n,[])] -> Just n
      _        -> Nothing
 
-route1Free :: Route String
+route1Free :: UrlRoute String
 route1Free =
-    choice [ do match (== "foo")
+    choice [ do urlMatch (== "foo")
                 i <- capture readMaybe
                 j <- getState
                 setState "test1"
                 return $ "You are looking at /foo/" ++ show (i :: Int) ++ "/" ++ j
-           , do match (== "bar")
+           , do urlMatch (== "bar")
                 i <- capture readMaybe
                 setState "test2"
                 _ <- getState
@@ -349,19 +411,19 @@ route1Free =
                 z <- getState
                 setState "test3"
                 return $ "You are looking at /bar/" ++ show (i :: Double) ++ "/" ++ show (j :: Int) ++ "/" ++ z
-           , do match (== "foo")
-                choice [ do match (== "foo")
+           , do urlMatch (== "foo")
+                choice [ do urlMatch (== "foo")
                             setState "test4"
                             return $ "Hi"
-                       , do match (== "cat")
+                       , do urlMatch (== "cat")
                             _ <- getState
                             return $ "cat"
                        ]
-           , do match (== "bar")
+           , do urlMatch (== "bar")
                 i <- capture readMaybe
                 return $ "You are looking at /bar2/" ++ show (i :: Double)
-           , do match (== "foo")
-                match (== "foo")
+           , do urlMatch (== "foo")
+                urlMatch (== "foo")
                 return $ "Bye"
            ]
 
@@ -380,7 +442,7 @@ route2_results =
       , ["foo", "foo", "foo"]   ==> ["Hi", "Bye"]
       ]
 
-testAllRoute :: (Eq a) => Route a -> [([String], [a])] -> Bool
+testAllRoute :: (Eq a) => UrlRoute a -> [([String], [a])] -> Bool
 testAllRoute r tests = all (\(paths, result) -> (runAllRoute r paths) == result) tests
 
 route2Free_tests = testAllRoute route1Free route2_results
@@ -419,19 +481,4 @@ route2Free_tests = testAllRoute route1Free route2_results
 
 
 
-
---
--- Pretty print the date in '1d 9h 9m 17s' format
---
-pretty :: TimeDiff -> String
-pretty td = join . intersperse " " . filter (not . null) . map f $
-    [(years          ,"y") ,(months `mod` 12,"m")
-    ,(days   `mod` 28,"d") ,(hours  `mod` 24,"h")
-    ,(mins   `mod` 60,"m") ,(secs   `mod` 60,"s")]
-  where
-    secs    = abs $ tdSec td  ; mins   = secs   `div` 60
-    hours   = mins   `div` 60 ; days   = hours  `div` 24
-    months  = days   `div` 28 ; years  = months `div` 12
-    f (i,s) | i == 0    = []
-            | otherwise = show i ++ s
 
