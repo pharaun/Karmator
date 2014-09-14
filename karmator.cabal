@@ -19,7 +19,7 @@ executable karmator
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts
   hs-source-dirs:      src
   extra-libraries:     pthread
-  build-depends:       base >=4.5 && <4.7
+  build-depends:       base >=4.5 && <4.8
                      , attoparsec
                      , bytestring >= 0.10
                      , monads-tf >= 0.1
@@ -40,6 +40,7 @@ executable karmator
                      , x509-system
 
                      -- Persistent
+                     , scientific
                      , esqueleto
                      , persistent
                      , persistent-template
@@ -57,12 +58,13 @@ executable migration
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts
   hs-source-dirs:      src
   extra-libraries:     pthread
-  build-depends:       base >=4.5 && <4.7
+  build-depends:       base >=4.5 && <4.8
                      , bytestring >= 0.10
                      , transformers >=0.4 && <0.5
                      , text
 
                      -- Persistent
+                     , scientific
                      , esqueleto
                      , persistent
                      , persistent-sqlite
