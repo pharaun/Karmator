@@ -259,12 +259,15 @@ data Message = Message
 data Segment i o n
     = Match (i -> Bool) n
     | Choice [n]
-    | forall st. Handler st (st -> i -> o)
+    | Handler CmdRef
+    deriving (Functor, Show)
 
-instance Functor (Segment i o) where
-    fmap f (Match s r)      = Match s (f r)
-    fmap f (Choice rs)      = Choice (map f rs)
-    fmap f (Handler st h)   = Handler st h
+-- name, state, state-process
+--data CommandRef m = forall st. CommandRef (Command m st) (MVar st)
+data CmdRef = forall st. CmdRef String st (st -> Message -> String)
+instance Show CmdRef where
+    show (CmdRef n _ _) = "Command: " ++ show n
+
 
 -- TODO: newtype
 type Route a = F.FreeT (Segment Message String) IO a
@@ -280,36 +283,35 @@ choice :: [Route a] -> Route a
 choice a = join $ F.liftF (Choice a)
 
 -- | Register a handler
-handler :: F.MonadFree (Segment i o) m => st -> (st -> i -> o) -> m a
---handler :: st -> (st -> Message -> String) -> Route String
-handler s h = F.liftF (Handler s h)
+--handler :: F.MonadFree (Segment i o) m => st -> (st -> i -> o) -> m a
+handler :: F.MonadFree (Segment i o) m => String -> st -> (st -> Message -> String) -> m a
+handler n s h = F.liftF (Handler $ CmdRef n s h)
 
 -- | Non-route that prints debugging info
 debug :: MonadTrans t => String -> t IO ()
 debug = lift . putStrLn
 
 -- | Run the route
---runRoute :: Route String -> Message -> IO [String]
-runRoute :: F.FreeT (Segment b [a]) IO a -> b -> IO [a]
+runRoute :: Route [String] -> Message -> IO [String]
 runRoute f m = do
     x <- F.runFreeT f
     case x of
         -- TODO: this makes no sense
-        (F.Pure a)              -> return [a]
-        (F.Free (Match p r))    -> if p m then runRoute r m else return []
-        (F.Free (Choice c))     -> fmap concat $ mapM (flip runRoute m) c
-        (F.Free (Handler s e))  -> return $ e s m
+        (F.Pure a)                          -> return a
+        (F.Free (Match p r))                -> if p m then runRoute r m else return []
+        (F.Free (Choice c))                 -> fmap concat $ mapM (flip runRoute m) c
+        (F.Free (Handler (CmdRef n st h)))  -> return [h st m]
 
 -- | Test route
-route2Free :: Route a
+route2Free :: Route [String]
 route2Free = choice
     [ do
         debug "bye handler"
-        handler () (\_ _ -> "bye")
+        handler "bye" () (\_ _ -> "bye")
     , do
         match (\a -> server a == "test")
         debug "server handler"
-        handler "string" (\_ _ -> "server")
+        handler "server" "string" (\_ _ -> "server")
     , do
         match (\a -> server a == "base")
         debug "base choice"
@@ -318,220 +320,58 @@ route2Free = choice
                 match (\a -> channel a == "target")
                 match (\a -> nick a == "never")
                 debug "never handler"
-                handler (3.14) (\_ _ -> "never")
+                handler "never" (3.14) (\_ _ -> "never")
             , do
                 debug "base handler"
-                handler 1 (\_ _ -> "base")
+                handler "base" 1 (\_ _ -> "base")
+            , handler "bar" 1 (\_ _ -> "bar")
+            , do
+                return ["hi"]
             ]
     ]
 
---test :: IO [String]
-test :: IO String
+test :: IO [String]
 test = runRoute route2Free (Message "base" "target" "never" "d")
 
--- TODO:
---  1) Basic concept works but we are smashing the strings together, we
---      need to smash it together into a list instead
---  2) Doesn't seem to always run all choices, need to fix this up
---  3) Find out what happens when i insert a return
 
-
-
---data CommandRef m = forall st. CommandRef (Command m st) (MVar st)
-
-
-data UrlPath b a where
-    UrlMatch   :: (String -> Bool) -> a    -> UrlPath b a
-    Capture :: (String -> Maybe a)      -> UrlPath b a
-    Get     :: (b -> a)                 -> UrlPath b a
-    Set     :: b -> a                   -> UrlPath b a
-    UrlChoice  :: [a]                      -> UrlPath b a
-    UrlZero    ::                             UrlPath b a
-    deriving (Functor, Show)
-
---type Route b = Free (UrlPath b)
-type UrlRoute = Free (UrlPath String)
-
--- | UrlMatch on a static path segment
-urlMatch :: (String -> Bool) -> UrlRoute ()
-urlMatch p = liftF (UrlMatch p ())
-
--- | UrlMatch on path segment and convert it to a type
-capture :: (String -> Maybe a) -> UrlRoute a
-capture convert = liftF (Capture convert)
-
--- | Pseudo state get (TODO: make String -> b for generic values)
-getState :: UrlRoute String
-getState = liftF (Get id)
-
--- | Pseudo state set
-setState :: String -> UrlRoute ()
-setState val = liftF (Set val ())
-
--- | Try several routes, using the first that succeeds
-urlChoice :: [UrlRoute a] -> UrlRoute a
-urlChoice a = join $ liftF (UrlChoice a)
-
--- | A route that always fails
-zero :: UrlRoute a
-zero = liftF UrlZero
-
--- | Run all routes that matches, full backtracking on failure
-runAllRoute :: UrlRoute a -> [String] -> [a]
-runAllRoute (Pure a) _ =
-    [a]
-runAllRoute (Free (UrlMatch p' r)) (p:ps)
-    | p' p      = runAllRoute r ps
-    | otherwise = []
-runAllRoute (Free (Capture convert)) (p:ps) =
-    case convert p of
-      Nothing  -> []
-      (Just r) -> runAllRoute r ps
-runAllRoute (Free (Set val r)) ps =
-    runAllRoute r ps
-runAllRoute (Free (Get r)) ps =
-    runAllRoute (r "Test") ps
-runAllRoute (Free (UrlChoice choices)) paths =
-    msum $ map (flip runAllRoute paths) choices
-runAllRoute (Free UrlZero) _ =
-    []
-runAllRoute _        [] =
-    []
-
-
--- | run a route, also returning debug log
-debugRoute :: Show a => UrlRoute a -> [String] -> (Doc, [a])
-debugRoute (Pure a) _ =
-    (text "Pure [" <+> (text $ show a) <+> text "]", [a])
-debugRoute (Free (UrlMatch p' r)) (p:ps)
-    | p' p =
-        let (doc, ma) = debugRoute r ps
-        in (text "dir" <+> text "<predicate>" <+> text "-- matched" <+> text p $+$ doc, ma)
-    | otherwise =
-       (text "dir" <+> text "<predicate>" <+> text "-- did not match" <+> text p $+$ text "-- aborted", [])
-debugRoute (Free (Capture convert)) (p:ps) =
-   case convert p of
-     Nothing  -> (text "path <func>" <+> text "-- was not able to convert" <+> text p $+$ text "-- aborted", [])
-     (Just r) ->
-         let (doc, ma) = debugRoute r ps
-         in (text "path <func>" <+> text "-- matched" <+> text p $+$ doc, ma)
-debugRoute (Free (Set val r)) ps =
-    let (doc, ma) = debugRoute r ps
-    in (text "saved" <+> text val <+> text "-- saved" $+$ doc, ma)
-debugRoute (Free (Get r)) ps =
-    let (doc, ma) = debugRoute (r "Test") ps
-    in (text "get" <+> text (show (r "Test")) <+> text "-- loaded" $+$ doc, ma) -- TODO: nice to be able to display the value in the get somehow
-debugRoute (Free (UrlChoice choices)) paths =
-    let debugs (doc, []) (docs, [])  = (doc:docs, [])
-        debugs (doc, a)  (docs, [])  = (doc:docs, a)
-        debugs (doc, []) (docs, a)   = (doc:docs, a)
-        debugs (doc, a)  (docs, b)   = (doc:docs, b++a) -- flipped to match msum in runAllRoutes
-
-        (docs, ma) = foldr debugs ([], []) $ reverse $ map (flip debugRoute paths) choices
-   in (text "choice" <+> showPrettyList (map (\d -> text "do" <+> d) $ reverse docs), ma)
-debugRoute (Free UrlZero) _ =
-    (text "zero", [])
-debugRoute _ [] =
-    (text "-- ran out of path segments before finding 'Pure'", [])
-
-showPrettyList  :: [Doc] -> Doc
-showPrettyList []     = text "[]"
-showPrettyList [x]    = char '[' <+> x $+$ char ']'
-showPrettyList (h:tl) = char '[' <+> h $+$ (vcat (map showTail tl)) $+$ char ']'
-    where
-     showTail x = char ',' <+> x
-
-
-
-readMaybe :: (Read a) => String -> Maybe a
-readMaybe s =
-   case reads s of
-     [(n,[])] -> Just n
-     _        -> Nothing
-
-route1Free :: UrlRoute String
-route1Free =
-    urlChoice [ do urlMatch (== "foo")
-                   i <- capture readMaybe
-                   j <- getState
-                   setState "test1"
-                   return $ "You are looking at /foo/" ++ show (i :: Int) ++ "/" ++ j
-           , do urlMatch (== "bar")
-                i <- capture readMaybe
-                setState "test2"
-                _ <- getState
-                j <- capture readMaybe
-                z <- getState
-                setState "test3"
-                return $ "You are looking at /bar/" ++ show (i :: Double) ++ "/" ++ show (j :: Int) ++ "/" ++ z
-           , do urlMatch (== "foo")
-                urlChoice [ do urlMatch (== "foo")
-                               setState "test4"
-                               return $ "Hi"
-                       , do urlMatch (== "cat")
-                            _ <- getState
-                            return $ "cat"
-                       ]
-           , do urlMatch (== "bar")
-                i <- capture readMaybe
-                return $ "You are looking at /bar2/" ++ show (i :: Double)
-           , do urlMatch (== "foo")
-                urlMatch (== "foo")
-                return $ "Bye"
-           ]
-
-
-(==>) :: a -> b -> (a,b)
-a ==> b = (a, b)
-
-route2_results =
-      [ ["foo", "1"]            ==> ["You are looking at /foo/1/Test"]
-      , ["bar", "3.141"]        ==> ["You are looking at /bar2/3.141"]
-      , ["bar", "3.141", "2"]   ==> ["You are looking at /bar/3.141/2/Test", "You are looking at /bar2/3.141"]
-      , ["baz"]                 ==> []
-      , ["foo"]                 ==> []
-      , ["foo", "foo"]          ==> ["Hi", "Bye"]
-      , ["foo", "cat"]          ==> ["cat"]
-      , ["foo", "foo", "foo"]   ==> ["Hi", "Bye"]
-      ]
-
-testAllRoute :: (Eq a) => UrlRoute a -> [([String], [a])] -> Bool
-testAllRoute r tests = all (\(paths, result) -> (runAllRoute r paths) == result) tests
-
-route2Free_tests = testAllRoute route1Free route2_results
-
-
-
-
---routeTop :: Monad m => HandlerT s m a -> HandlerT s m ()
---routeMatch :: Monad m => (Message -> Bool) -> HandlerT s m a -> HandlerT s m ()
-
-
---    , commandMatch :: Msg -> ReaderT st m Bool
---    , commandEval  :: Msg -> StateT st m (Maybe [Msg])
---data ModuleRef m = forall st. ModuleRef (Module m st) (MVar st)
---data CommandRef m = forall st. CommandRef (Command m st) (MVar st)
-
-
---runCommands :: Msg -> [CommandRef IO] -> IO (Maybe [Msg])
---runCommands m cs = listToMaybe <$> catMaybes <$> mapM (runCommand m) cs
+---- | run a route, also returning debug log
+--debugRoute :: Show a => UrlRoute a -> [String] -> (Doc, [a])
+--debugRoute (Pure a) _ =
+--    (text "Pure [" <+> (text $ show a) <+> text "]", [a])
+--debugRoute (Free (UrlMatch p' r)) (p:ps)
+--    | p' p =
+--        let (doc, ma) = debugRoute r ps
+--        in (text "dir" <+> text "<predicate>" <+> text "-- matched" <+> text p $+$ doc, ma)
+--    | otherwise =
+--       (text "dir" <+> text "<predicate>" <+> text "-- did not match" <+> text p $+$ text "-- aborted", [])
+--debugRoute (Free (Capture convert)) (p:ps) =
+--   case convert p of
+--     Nothing  -> (text "path <func>" <+> text "-- was not able to convert" <+> text p $+$ text "-- aborted", [])
+--     (Just r) ->
+--         let (doc, ma) = debugRoute r ps
+--         in (text "path <func>" <+> text "-- matched" <+> text p $+$ doc, ma)
+--debugRoute (Free (Set val r)) ps =
+--    let (doc, ma) = debugRoute r ps
+--    in (text "saved" <+> text val <+> text "-- saved" $+$ doc, ma)
+--debugRoute (Free (Get r)) ps =
+--    let (doc, ma) = debugRoute (r "Test") ps
+--    in (text "get" <+> text (show (r "Test")) <+> text "-- loaded" $+$ doc, ma) -- TODO: nice to be able to display the value in the get somehow
+--debugRoute (Free (UrlChoice choices)) paths =
+--    let debugs (doc, []) (docs, [])  = (doc:docs, [])
+--        debugs (doc, a)  (docs, [])  = (doc:docs, a)
+--        debugs (doc, []) (docs, a)   = (doc:docs, a)
+--        debugs (doc, a)  (docs, b)   = (doc:docs, b++a) -- flipped to match msum in runAllRoutes
 --
---runCommand :: Msg -> CommandRef IO -> IO (Maybe [Msg])
---runCommand m (CommandRef c st) = liftIO $ modifyMVar st (\s -> do
---    matched <- liftIO $ runReaderT (c `commandMatch` m) s
---    if matched
---    then do
---        (r, ns) <- liftIO $ runStateT (c `commandEval` m) s
---        return (ns, r)
---    else do
---        return (s, Nothing)
---    )
-
-
-
-
-
-
-
-
-
+--        (docs, ma) = foldr debugs ([], []) $ reverse $ map (flip debugRoute paths) choices
+--   in (text "choice" <+> showPrettyList (map (\d -> text "do" <+> d) $ reverse docs), ma)
+--debugRoute (Free UrlZero) _ =
+--    (text "zero", [])
+--debugRoute _ [] =
+--    (text "-- ran out of path segments before finding 'Pure'", [])
+--
+--showPrettyList  :: [Doc] -> Doc
+--showPrettyList []     = text "[]"
+--showPrettyList [x]    = char '[' <+> x $+$ char ']'
+--showPrettyList (h:tl) = char '[' <+> h $+$ (vcat (map showTail tl)) $+$ char ']'
+--    where
+--     showTail x = char ',' <+> x
