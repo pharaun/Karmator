@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification, NoMonomorphismRestriction, FlexibleInstances, MultiParamTypeClasses, DeriveFunctor, GADTs, GeneralizedNewtypeDeriving, FlexibleContexts #-}
+{-# LANGUAGE ExistentialQuantification, GADTs, DeriveFunctor, FlexibleInstances, FlexibleContexts #-}
 
 import Data.List hiding (init)
 import System.Time
@@ -270,52 +270,64 @@ instance Functor (Segment i o) where
 type Route a = F.FreeT (Segment Message String) IO a
 
 -- | Match on a message using a predicate
-match :: F.MonadFree (Segment i o) m => (i -> Bool) -> m ()
+--match :: F.MonadFree (Segment i o) m => (i -> Bool) -> m ()
+match :: (Message -> Bool) -> Route ()
 match p = F.liftF (Match p ())
 
 -- | Try several routes, using all that succeeds
-choice :: F.MonadFree (Segment i o) m => [m a] -> m a
+--choice :: F.MonadFree (Segment i o) m => [m a] -> m a
+choice :: [Route a] -> Route a
 choice a = join $ F.liftF (Choice a)
 
 -- | Register a handler
 handler :: F.MonadFree (Segment i o) m => st -> (st -> i -> o) -> m a
+--handler :: st -> (st -> Message -> String) -> Route String
 handler s h = F.liftF (Handler s h)
+
+-- | Non-route that prints debugging info
+debug :: MonadTrans t => String -> t IO ()
+debug = lift . putStrLn
 
 -- | Run the route
 --runRoute :: Route String -> Message -> IO [String]
-runRoute :: (Functor f, Monad f) => F.FreeT (Segment b [a]) f a -> b -> f [a]
+runRoute :: F.FreeT (Segment b [a]) IO a -> b -> IO [a]
 runRoute f m = do
     x <- F.runFreeT f
     case x of
-        (F.Pure a)                -> return [a] -- TODO: this makes no sense
-        (F.Free (Match p r))      ->
-            if p m
-            then runRoute r m
-            else return []
-        (F.Free (Choice c))       ->
-            fmap concat $ mapM (flip runRoute m) c
-        (F.Free (Handler s e))    ->
-            return $ e s m
+        -- TODO: this makes no sense
+        (F.Pure a)              -> return [a]
+        (F.Free (Match p r))    -> if p m then runRoute r m else return []
+        (F.Free (Choice c))     -> fmap concat $ mapM (flip runRoute m) c
+        (F.Free (Handler s e))  -> return $ e s m
 
 -- | Test route
---route2Free :: Route String
-route2Free :: F.MonadFree (Segment Message [Char]) m => m a
+route2Free :: Route a
 route2Free = choice
-    [ handler () (\_ _ -> "bye")
+    [ do
+        debug "bye handler"
+        handler () (\_ _ -> "bye")
     , do
         match (\a -> server a == "test")
+        debug "server handler"
         handler "string" (\_ _ -> "server")
     , do
         match (\a -> server a == "base")
+        debug "base choice"
         choice
             [ do
                 match (\a -> channel a == "target")
                 match (\a -> nick a == "never")
+                debug "never handler"
                 handler (3.14) (\_ _ -> "never")
-            , handler 1 (\_ _ -> "base")
+            , do
+                debug "base handler"
+                handler 1 (\_ _ -> "base")
             ]
     ]
 
+--test :: IO [String]
+test :: IO String
+test = runRoute route2Free (Message "base" "target" "never" "d")
 
 -- TODO:
 --  1) Basic concept works but we are smashing the strings together, we
