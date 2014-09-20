@@ -35,6 +35,7 @@ import qualified Network.TLS as TLS
 -- Karmator Stuff
 -- TODO: upstream the Patch
 import Karmator.Types
+import Karmator.Route
 import Network.IRC.Patch
 
 -- Plugins
@@ -212,17 +213,38 @@ command :: (Monad m, MonadIO m) => ClockTime -> Pipe IRC.Message IRC.Message m (
 command t = forever $ do
     msg <- await
 
-    -- TODO: look into seeing if there's a way to setup some form of
-    -- generic filtering rules such as "if chan = y send to x", etc..
-    -- Perhaps Pipe.Prelude.Filter
-    result <- catMaybes <$> forM
-        [ \a -> return $ if pingMatch a then ping a else Nothing
-        , \a -> return $ if motdMatch a then motdJoin a else Nothing
-        , \a -> if uptimeMatch a then uptime t a else return $ Nothing -- IO
-
---        , quit -- TODO: need to implement a way to exit/die so that we gracefully exit from the server
-        ]
-        (\a -> a msg)
+    -- TODO: Extend this to be nicer
+    cmdRefs <- liftIO $ runRoute commandRoute msg
+    results <- liftIO $ executeCmdRef cmdRefs msg
 
     -- TODO: Unsafe head
-    unless (null result) (yield $ head result)
+    unless (null results) (yield $ head $ catMaybes results)
+
+--    -- TODO: look into seeing if there's a way to setup some form of
+--    -- generic filtering rules such as "if chan = y send to x", etc..
+--    -- Perhaps Pipe.Prelude.Filter
+--    result <- catMaybes <$> forM
+--        [ \a -> return $ if pingMatch a then ping a else Nothing
+--        , \a -> return $ if motdMatch a then motdJoin a else Nothing
+--        , \a -> if uptimeMatch a then uptime t a else return $ Nothing -- IO
+--
+--        ]
+--        (\a -> a msg)
+
+-- TODO: clean up types
+type CmdHandler = CmdRef IRC.Message (Maybe IRC.Message)
+commandRoute :: Route IO [CmdHandler]
+commandRoute = choice
+    [ do
+        debug "pingMatch"
+        return []
+    , do
+        debug "motdMatch"
+        return []
+    , do
+        debug "uptimeMatch"
+        return []
+    ]
+
+executeCmdRef :: [CmdHandler] -> IRC.Message -> IO [(Maybe IRC.Message)]
+executeCmdRef cs m = mapM (\(CmdRef _ st h) -> return $ h st m) cs

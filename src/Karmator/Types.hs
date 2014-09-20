@@ -1,8 +1,11 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, ExistentialQuantification #-}
 module Karmator.Types
     ( ServerConfig(..)
     , ServerPersistentState(..)
     , ServerState(..)
+
+    -- TODO: not sure this is best spot
+    , CmdRef(..)
     ) where
 
 import Network
@@ -69,3 +72,9 @@ data ServerState = ServerState
     -- Debugging/initial test impl
     , startTime :: ClockTime
     }
+
+-- TODO: Replace bare state with (MVar state) or something, maybe even a hook to the plugin's module level stuff
+--data CommandRef m = forall st. CommandRef (Command m st) (MVar st)
+data CmdRef i o = forall st. CmdRef String st (st -> i -> o)
+instance Show (CmdRef i o) where
+    show (CmdRef n _ _) = "Command: " ++ show n
