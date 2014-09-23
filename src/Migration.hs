@@ -1,10 +1,11 @@
-{-# LANGUAGE EmptyDataDecls, FlexibleContexts, GADTs, OverloadedStrings, QuasiQuotes, TemplateHaskell, TypeFamilies #-}
+{-# LANGUAGE EmptyDataDecls, FlexibleContexts, GADTs, OverloadedStrings, QuasiQuotes, TemplateHaskell, TypeFamilies, GeneralizedNewtypeDeriving #-}
 
-import System.Environment (getArgs)
+import Control.Monad.Trans.Reader
 import Data.List as DL
 import Database.Persist
 import Database.Persist.Sqlite
 import Database.Persist.TH
+import System.Environment (getArgs)
 import qualified Data.Text as T
 
 -- Queries stuff
@@ -17,7 +18,7 @@ import Data.Time.LocalTime.TimeZone.Series
 import Data.Time.LocalTime.TimeZone.Olson
 
 -- V1 -> V2 schema (timestamp is string so we can mangle it into UTC)
-share [mkPersist sqlOnlySettings] [persistLowerCase|
+share [mkPersist sqlSettings] [persistLowerCase|
 Votes
     votedAt T.Text
     byWhomName T.Text
@@ -77,7 +78,7 @@ convertToUTC tz conn = runSqlite conn $ do
     liftIO $ putStrLn "LocalTime, TimeZone, validLocalTime, redundantLocalTime, UTCTime"
     selectSource [] [] $$ CL.mapM_ (updateTime tzs)
 
-updateTime :: (PersistQuery m, PersistMonadBackend m ~ SqlBackend) => TimeZoneSeries -> Entity Votes -> m ()
+updateTime :: (MonadIO m) => TimeZoneSeries -> Entity Votes -> ReaderT SqlBackend m ()
 updateTime tzs (Entity {entityKey = key, entityVal=(Votes {votesVotedAt = textTime})}) = do
     let time      = read $ T.unpack textTime
     let valid     = isValidLocalTime tzs time
