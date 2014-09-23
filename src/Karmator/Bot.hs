@@ -214,7 +214,7 @@ command t = forever $ do
     msg <- await
 
     -- TODO: Extend this to be nicer
-    cmdRefs <- liftIO $ runRoute commandRoute msg
+    cmdRefs <- liftIO $ runRoute (commandRoute t) msg
     results <- liftIO $ executeCmdRef cmdRefs msg
 
     -- TODO: Unsafe head
@@ -232,19 +232,21 @@ command t = forever $ do
 --        (\a -> a msg)
 
 -- TODO: clean up types
-type CmdHandler = CmdRef IRC.Message (Maybe IRC.Message)
-commandRoute :: Route IO [CmdHandler]
-commandRoute = choice
+commandRoute :: (Monad m, MonadIO m) => ClockTime -> Route m [CmdHandler m]
+commandRoute t = choice
     [ do
+        match pingMatch
         debug "pingMatch"
-        return []
+        handler "ping" () (\_ i -> return $ ping i)
     , do
+        match motdMatch
         debug "motdMatch"
-        return []
+        handler "match" () (\_ i -> return $ motdJoin i)
     , do
+        match uptimeMatch
         debug "uptimeMatch"
-        return []
+        handler "uptime" t (\st i -> uptime st i)
     ]
 
-executeCmdRef :: [CmdHandler] -> IRC.Message -> IO [(Maybe IRC.Message)]
-executeCmdRef cs m = mapM (\(CmdRef _ st h) -> return $ h st m) cs
+executeCmdRef :: (Monad m, MonadIO m) => [CmdHandler m] -> IRC.Message -> m [(Maybe IRC.Message)]
+executeCmdRef cs m = mapM (\(CmdRef _ st h) -> h st m) cs

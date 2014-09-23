@@ -12,6 +12,7 @@ module Karmator.Route
     ) where
 
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Free
 import Text.PrettyPrint.HughesPJ
@@ -26,16 +27,15 @@ import qualified Network.IRC as IRC
 import Karmator.Types
 
 -- | The heart of the Route
-data Segment i o n
+data Segment m i o n
     = Match (i -> Bool) n
     | Choice [n]
-    | Handler (CmdRef i o)
+    | Handler (CmdRef m i o)
     deriving (Functor, Show)
 
 -- | Newtype of the freeT transformer stack
-type Route m a = FreeT (Segment IRC.Message (Maybe IRC.Message)) m a
+type Route m a = FreeT (Segment m IRC.Message (Maybe IRC.Message)) m a
 --newtype Route m a = FreeT (Segment IRC.Message (Maybe IRC.Message)) m a
-type CmdHandler = CmdRef IRC.Message (Maybe IRC.Message)
 
 -- | Match on a message using a predicate
 match :: (Monad m) => (IRC.Message -> Bool) -> Route m ()
@@ -46,26 +46,27 @@ choice :: (Monad m) => [Route m a] -> Route m a
 choice a = join $ liftF (Choice a)
 
 -- | Register a handler
-handler :: MonadFree (Segment i o) m => String -> st -> (st -> i -> o) -> m a
+-- TODO: see if we can't refine the type a bit more? (esp m1 o -> m2 a)
+handler :: MonadFree (Segment m1 i o) m2 => String -> st -> (st -> i -> m1 o) -> m2 a
 handler n s h = liftF (Handler $ CmdRef n s h)
 
 -- | Non-route that prints debugging info
-debug :: MonadTrans t => String -> t IO ()
-debug = lift . putStrLn
+debug :: MonadIO m => String -> m ()
+debug = liftIO . putStrLn
 
 -- | Run the route
-runRoute :: (Monad m, Functor m) => Route m [CmdHandler] -> IRC.Message -> m [CmdHandler]
+-- TODO: refine the functor
+runRoute :: (Monad m, MonadIO m, Functor m) => Route m [CmdHandler m] -> IRC.Message -> m [CmdHandler m]
 runRoute f m = do
     x <- runFreeT f
     case x of
-        -- TODO: this makes no sense
         (Pure a)              -> return a
         (Free (Match p r))    -> if p m then runRoute r m else return []
         (Free (Choice c))     -> fmap concat $ mapM (flip runRoute m) c
         (Free (Handler h))    -> return [h]
 
 -- | Debug interpreter for running route
-debugRoute :: (Monad m) => Route m [CmdHandler] -> IRC.Message -> m (Doc, [CmdHandler])
+debugRoute :: (Monad m, MonadIO m) => Route m [CmdHandler m] -> IRC.Message -> m (Doc, [CmdHandler m])
 debugRoute f m = do
     x <- runFreeT f
     case x of
@@ -104,15 +105,15 @@ debugRoute f m = do
 -- a test case
 --
 --
-route2Free :: Route IO [CmdHandler]
+route2Free :: (Monad m, MonadIO m) => Route m [CmdHandler m]
 route2Free = choice
     [ do
         debug "bye handler"
-        handler "bye" () (\_ _ -> (Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bye"]))
+        handler "bye" () (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bye"]))
     , do
         match (\a -> server a == "test")
         debug "server handler"
-        handler "server" "string" (\_ _ -> (Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "server"]))
+        handler "server" "string" (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "server"]))
     , do
         match (\a -> server a == "base")
         debug "base choice"
@@ -121,14 +122,17 @@ route2Free = choice
                 match (\a -> channel a == "target")
                 match (\a -> nick a == "never")
                 debug "never handler"
-                handler "never" (3.14) (\_ _ -> (Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "never"]))
+                handler "never" (3.14) (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "never"]))
             , do
                 debug "base handler"
-                handler "base" 1 (\_ _ -> (Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "base"]))
-            , handler "bar" 1 (\_ _ -> (Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bar"]))
+                handler "base" 1 (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "base"]))
+            , handler "bar" 1 (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bar"]))
             , do
-                return [CmdRef "return" 2 (\_ _ -> (Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "return"]))]
+                return [CmdRef "return" 2 (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "return"]))]
             ]
+    , do
+        match (\a -> server a == "base")
+        handler "io" () fooIO
     ]
   where
     server :: IRC.Message -> String
@@ -144,8 +148,13 @@ route2Free = choice
     nick IRC.Message{IRC.msg_prefix=(Just (IRC.NickName n _ _))} = C8.unpack n
     nick _ = ""
 
-executeCmdRef :: [CmdHandler] -> IRC.Message -> IO [(Maybe IRC.Message)]
-executeCmdRef cs m = mapM (\(CmdRef _ st h) -> return $ h st m) cs
+    fooIO :: MonadIO m => a -> b -> m (Maybe IRC.Message)
+    fooIO st i = do
+        liftIO $ putStrLn "test"
+        return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "io"]
+
+executeCmdRef :: (Monad m, MonadIO m) => [CmdHandler m] -> IRC.Message -> m [(Maybe IRC.Message)]
+executeCmdRef cs m = mapM (\(CmdRef _ st h) -> h st m) cs
 
 test :: IO [(Maybe IRC.Message)]
 test = do

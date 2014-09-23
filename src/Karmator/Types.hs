@@ -6,6 +6,7 @@ module Karmator.Types
 
     -- TODO: not sure this is best spot
     , CmdRef(..)
+    , CmdHandler(..)
     ) where
 
 import Network
@@ -13,6 +14,7 @@ import System.IO
 import System.Time
 
 import qualified Data.ByteString as BS
+import qualified Network.IRC as IRC
 
 -- Per server config for the bot
 data ServerConfig = ServerConfig
@@ -75,6 +77,7 @@ data ServerState = ServerState
 
 -- TODO: Replace bare state with (MVar state) or something, maybe even a hook to the plugin's module level stuff
 --data CommandRef m = forall st. CommandRef (Command m st) (MVar st)
-data CmdRef i o = forall st. CmdRef String st (st -> i -> o)
-instance Show (CmdRef i o) where
+data CmdRef m i o = forall st. CmdRef String st (st -> i -> m o)
+instance Show (CmdRef m i o) where
     show (CmdRef n _ _) = "Command: " ++ show n
+type CmdHandler m = CmdRef m IRC.Message (Maybe IRC.Message)
