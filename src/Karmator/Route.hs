@@ -1,9 +1,7 @@
-{-# LANGUAGE DeriveFunctor, FlexibleInstances, FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Karmator.Route
     -- TODO: clean up the type export and restrict it
-    ( Route(..)
-
-    , match
+    ( match
     , choice
     , handler
     , debug
@@ -25,17 +23,6 @@ import qualified Network.IRC as IRC
 
 -- Karmator Stuff
 import Karmator.Types
-
--- | The heart of the Route
-data Segment m i o n
-    = Match (i -> Bool) n
-    | Choice [n]
-    | Handler (CmdRef m i o)
-    deriving (Functor, Show)
-
--- | Newtype of the freeT transformer stack
-type Route m a = FreeT (Segment m IRC.Message (Maybe IRC.Message)) m a
---newtype Route m a = FreeT (Segment IRC.Message (Maybe IRC.Message)) m a
 
 -- | Match on a message using a predicate
 match :: (Monad m) => (IRC.Message -> Bool) -> Route m ()

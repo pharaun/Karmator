@@ -27,6 +27,8 @@ executable karmator
                      , transformers >=0.4 && <0.5
                      , free
                      , pretty
+                     , async
+                     , stm
                      -- Irc
                      , irc >= 0.6
                      -- Pipes

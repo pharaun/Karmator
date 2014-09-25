@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import Karmator.Bot
-import Karmator.Types
---import Plugins.Ping
+import Control.Monad.IO.Class
+import System.Time
 
---
--- TODO: Add in all of the plugin configuration
---
+import Karmator.Bot
+import Karmator.Route
+import Karmator.Types
+import Plugins.Ping
 
 
 testConfig :: ServerConfig
@@ -14,6 +14,27 @@ testConfig = ServerConfig "chat.freenode.net" 6697 ["levchius"] "Ghost Bot" Noth
 
 testPersistent :: ServerPersistentState
 testPersistent = ServerPersistentState ["#test"]
+
+testBotConfig :: BotConfig
+testBotConfig = BotConfig
+
+-- TODO: clean up types, needs a better way to get ClockTime into uptime than this
+-- TODO: starting to dislike the consistant (Monad m, MonadIO m) let's see if we can't clean this type crap up too
+commandRoute :: (Monad m, MonadIO m) => ClockTime -> Route m [CmdHandler m]
+commandRoute t = choice
+    [ do
+        match pingMatch
+        debug "pingMatch"
+        handler "ping" () (\_ i -> return $ ping i)
+    , do
+        match motdMatch
+        debug "motdMatch"
+        handler "match" () (\_ i -> return $ motdJoin i)
+    , do
+        match uptimeMatch
+        debug "uptimeMatch"
+        handler "uptime" t (\st i -> uptime st i)
+    ]
 
 -- TODO:
 --  Ideal schema would be like:
@@ -26,4 +47,8 @@ testPersistent = ServerPersistentState ["#test"]
 --      addRoute i xyz
 --      ....
 main :: IO ()
-main = establishTLS testConfig testPersistent
+main =
+    withIRC testBotConfig $ \i -> do
+        t <- getClockTime
+        i'  <- addServer i True testConfig testPersistent
+        addRoute i' (commandRoute t)
