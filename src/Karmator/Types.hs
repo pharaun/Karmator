@@ -94,6 +94,9 @@ data ServerState = ServerState
     { session :: ServerPersistentState
     , config :: ServerConfig
     , logStream :: Handle
+
+    , botQueue :: TQueue (IRC.Message, TQueue IRC.Message)
+    , replyQueue :: TQueue IRC.Message
     }
 
 -- TODO: Replace bare state with (MVar state) or something, maybe even a hook to the plugin's module level stuff

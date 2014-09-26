@@ -38,7 +38,7 @@ import qualified Network.TLS as TLS
 import Karmator.Types
 import Karmator.Route
 import Network.IRC.Patch
---import Karmator.Server
+import Karmator.Server
 
 
 -- TODO: vary up the types a bit more but this will work for a start
@@ -85,8 +85,3 @@ runCommand q routes = forever $ forM routes (\route -> do
 
 executeCmdRef :: (Monad m, MonadIO m) => [CmdHandler m] -> IRC.Message -> m [(Maybe IRC.Message)]
 executeCmdRef cs m = mapM (\(CmdRef _ st h) -> h st m) cs
-
-
--- TODO: This needs some way of interfacing with the currently existing server stuff
-runServer :: Bool -> ServerConfig -> ServerPersistentState -> TQueue (IRC.Message, TQueue IRC.Message) -> IO ()
-runServer tls sc sps queue = undefined

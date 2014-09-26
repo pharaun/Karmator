@@ -4,6 +4,7 @@ module Karmator.Server
     ( establishTLS
     , establish
 
+    , runServer
     ) where
 
 import Data.List
@@ -13,6 +14,8 @@ import Control.Monad.Reader
 import Control.Monad.Trans.State.Strict
 import Prelude hiding (log)
 import Data.Maybe
+import Control.Concurrent.STM
+import Control.Concurrent.Async
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
@@ -38,16 +41,19 @@ import Karmator.Types
 import Karmator.Route
 import Network.IRC.Patch
 
--- Plugins
--- TODO: migrate these to Main.hs
-import Plugins.Ping
 
+-- TODO: This needs some way of interfacing with the currently existing server stuff
+runServer :: Bool -> ServerConfig -> ServerPersistentState -> TQueue (IRC.Message, TQueue IRC.Message) -> IO ()
+runServer tls sc sps queue =
+    if tls
+    then establishTLS sc sps queue
+    else establish sc sps queue
 
 --
 -- Establish TLS connection
 --
-establishTLS :: ServerConfig -> ServerPersistentState -> IO ()
-establishTLS sc sps = PNT.withSocketsDo $
+establishTLS :: ServerConfig -> ServerPersistentState -> TQueue (IRC.Message, TQueue IRC.Message) -> IO ()
+establishTLS sc sps q = PNT.withSocketsDo $
     -- Establish the logfile
     withFile (logfile sc) AppendMode (\l -> do
 
@@ -68,22 +74,18 @@ establishTLS sc sps = PNT.withSocketsDo $
             -- Set log to be unbuffered for testing
             hSetBuffering l NoBuffering
 
-            -- Session start time
-            -- TODO: move this into the uptime plugin
-            t <- getClockTime
+            -- Server queue
+            sq <- newTQueueIO
 
-            handleIRC (TLS.fromContext context >-> log l) (log l >-> TLS.toContext context) (ServerState sps sc l t)
-
-            return ()
+            handleIRC (TLS.fromContext context >-> log l) (log l >-> TLS.toContext context) (ServerState sps sc l q sq)
             )
         )
-
 
 --
 -- Establish an irc session with this server
 --
-establish :: ServerConfig -> ServerPersistentState -> IO ()
-establish sc sps = PNT.withSocketsDo $
+establish :: ServerConfig -> ServerPersistentState -> TQueue (IRC.Message, TQueue IRC.Message) -> IO ()
+establish sc sps q = PNT.withSocketsDo $
     -- Establish the logfile
     withFile (logfile sc) AppendMode (\l ->
         -- TODO: do some form of dns lookup and prefer either v6 or v4
@@ -94,29 +96,17 @@ establish sc sps = PNT.withSocketsDo $
             -- Set log to be unbuffered for testing
             hSetBuffering l NoBuffering
 
-            -- Session start time
-            -- TODO: move this into the uptime plugin
-            t <- getClockTime
+            -- Server queue
+            sq <- newTQueueIO
 
-            handleIRC (PNT.fromSocket sock 8192 >-> log l) (log l >-> PNT.toSocket sock) (ServerState sps sc l t)
+            let ss = ServerState sps sc l q sq
+
+            handleIRC (PNT.fromSocket sock 8192 >-> log l) (log l >-> PNT.toSocket sock) ss
 
             return ()
         )
     )
 
---
--- The IRC handler and protocol
---
-handleIRC :: (Monad m, MonadIO m) => Producer BS.ByteString m () -> Consumer BS.ByteString m () -> ServerState -> m ()
-handleIRC recv send ss = do
-    -- Initial connection
-    -- TODO: Improve error handling if auth has failed
-    runEffect $ handshake ss >-> showMessage >-> send
-
-    -- Regular irc streaming
-    runEffect $ (ircParserErrorLogging (logStream ss) recv) >-> command (startTime ss) >-> showMessage >-> send
-
-    return ()
 
 --
 -- Parses incoming irc messages and emits any errors to a log and keep going
@@ -199,6 +189,32 @@ log h = forever $ do
     liftIO $ BS.hPutStr h x
     yield x
 
--- TODO: remove this and redefine the parser/stuff to pump into a TQueue and have it inset its own TQueue for replying back to the server
-command :: (Monad m, MonadIO m) => ClockTime -> Pipe IRC.Message IRC.Message m ()
-command t = undefined
+--
+-- The IRC handler and protocol
+--
+handleIRC :: Producer BS.ByteString IO () -> Consumer BS.ByteString IO () -> ServerState -> IO ()
+handleIRC recv send ss = do
+    -- Initial connection
+    -- TODO: Improve error handling if auth has failed
+    runEffect (handshake ss >-> showMessage >-> send)
+
+    -- Regular irc streaming
+    race_
+        (runEffect ((ircParserErrorLogging (logStream ss) recv) >-> messagePump ss))
+        (runEffect (messageVacuum ss >-> showMessage >-> send))
+
+--
+-- Pump Message into Bot Queue
+--
+messagePump :: (Monad m, MonadIO m) => ServerState -> Consumer IRC.Message m ()
+messagePump ss = forever $ do
+    msg <- await
+    liftIO $ atomically $ writeTQueue (botQueue ss) (msg, (replyQueue ss))
+
+--
+-- Vacuum, fetch replies and send to network
+--
+messageVacuum :: (Monad m, MonadIO m) => ServerState -> Producer IRC.Message m ()
+messageVacuum ss = forever $ do
+    msg <- liftIO $ atomically $ readTQueue (replyQueue ss)
+    yield msg
