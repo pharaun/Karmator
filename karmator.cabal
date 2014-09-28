@@ -56,7 +56,7 @@ executable karmator
                      , old-time
 
 executable migration
-  main-is:             Migration.hs
+  main-is:             Plugins/Karma/Migration.hs
   default-language:    Haskell2010
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts
   hs-source-dirs:      src
