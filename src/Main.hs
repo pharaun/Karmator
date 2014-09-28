@@ -33,7 +33,7 @@ commandRoute t = choice
     , do
         match uptimeMatch
         debug "uptimeMatch"
-        handler "uptime" t (\st i -> uptime st i)
+        handler "uptime" t uptime
     ]
 
 -- TODO:

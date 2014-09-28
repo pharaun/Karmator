@@ -9,11 +9,9 @@ module Karmator.Server
 
 import Data.List
 import System.IO
-import System.Time
 import Control.Monad.Reader
 import Control.Monad.Trans.State.Strict
 import Prelude hiding (log)
-import Data.Maybe
 import Control.Concurrent.STM
 import Control.Concurrent.Async
 
@@ -38,7 +36,6 @@ import qualified Network.TLS as TLS
 -- Karmator Stuff
 -- TODO: upstream the Patch
 import Karmator.Types
-import Karmator.Route
 import Network.IRC.Patch
 
 
@@ -64,7 +61,7 @@ establishTLS sc sps q = PNT.withSocketsDo $
         let params' = params
                 { TLS.clientServerIdentification = ("chat.freenode.net", C8.pack $ show $ port sc)
                 , TLS.clientHooks = (TLS.clientHooks params)
-                    { TLS.onCertificateRequest = \_ -> return $ Nothing
+                    { TLS.onCertificateRequest = \_ -> return Nothing
                     }
                 }
 
@@ -209,7 +206,7 @@ handleIRC recv send ss = do
 messagePump :: (Monad m, MonadIO m) => ServerState -> Consumer IRC.Message m ()
 messagePump ss = forever $ do
     msg <- await
-    liftIO $ atomically $ writeTQueue (botQueue ss) (msg, (replyQueue ss))
+    liftIO $ atomically $ writeTQueue (botQueue ss) (msg, replyQueue ss)
 
 --
 -- Vacuum, fetch replies and send to network

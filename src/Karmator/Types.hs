@@ -9,20 +9,17 @@ module Karmator.Types
 
     -- TODO: not sure this is best spot
     , CmdRef(..)
-    , CmdHandler(..)
-    , Route(..)
     , Segment(..)
+    , CmdHandler
+    , Route
     ) where
 
 import Network
 import System.IO
 import System.Time
 import Control.Concurrent.STM
-import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
 import Control.Monad.Trans.Free
-import Text.Show.Functions
+import Text.Show.Functions()
 
 import qualified Data.ByteString as BS
 import qualified Network.IRC as IRC

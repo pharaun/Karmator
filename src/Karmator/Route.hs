@@ -9,12 +9,11 @@ module Karmator.Route
     , debugRoute
     ) where
 
+import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
 import Control.Monad.Trans.Free
 import Text.PrettyPrint.HughesPJ
-import Text.Show.Functions
 
 -- TODO: bad
 import qualified Data.ByteString.Char8 as C8
@@ -49,7 +48,7 @@ runRoute f m = do
     case x of
         (Pure a)              -> return a
         (Free (Match p r))    -> if p m then runRoute r m else return []
-        (Free (Choice c))     -> fmap concat $ mapM (flip runRoute m) c
+        (Free (Choice c))     -> concat <$> mapM (`runRoute` m) c
         (Free (Handler h))    -> return [h]
 
 -- | Debug interpreter for running route
@@ -57,19 +56,19 @@ debugRoute :: (Monad m, MonadIO m) => Route m [CmdHandler m] -> IRC.Message -> m
 debugRoute f m = do
     x <- runFreeT f
     case x of
-        (Pure a)              -> return (text "Pure" <+> (text $ show a), a)
+        (Pure a)              -> return (text "Pure" <+> text (show a), a)
         (Free (Match p r))    ->
             if p m
             then do
                 (doc, ma) <- debugRoute r m
-                return (text "match <predicate> -- matched" <+> (text $ show m) $+$ doc, ma)
-            else do
-                return (text "match <predicate> -- did not match" <+> (text $ show m) $+$ text "-- aborted", [])
+                return (text "match <predicate> -- matched" <+> text (show m) $+$ doc, ma)
+            else
+                return (text "match <predicate> -- did not match" <+> text (show m) $+$ text "-- aborted", [])
         (Free (Choice c))     -> do
-            sub <- mapM (flip debugRoute m) c
+            sub <- mapM (`debugRoute` m) c
             let (docs, ma) = foldr debugs ([], []) sub
             return (text "choice" <+> showPrettyList (map (\d -> text "do" <+> d) docs), ma)
-        (Free (Handler h))    -> return (text "Handler" <+> (text $ show h), [h])
+        (Free (Handler h))    -> return (text "Handler" <+> text (show h), [h])
   where
     debugs :: (a, [t]) -> ([a], [t]) -> ([a], [t])
     debugs (doc, []) (docs, [])  = (doc:docs, [])
@@ -80,7 +79,7 @@ debugRoute f m = do
     showPrettyList  :: [Doc] -> Doc
     showPrettyList []     = text "[]"
     showPrettyList [x]    = char '[' <+> x $+$ char ']'
-    showPrettyList (h:tl) = char '[' <+> h $+$ (vcat (map showTail tl)) $+$ char ']'
+    showPrettyList (h:tl) = char '[' <+> h $+$ vcat (map showTail tl) $+$ char ']'
       where
         showTail x = char ',' <+> x
 
@@ -109,13 +108,12 @@ route2Free = choice
                 match (\a -> channel a == "target")
                 match (\a -> nick a == "never")
                 debug "never handler"
-                handler "never" (3.14) (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "never"]))
+                handler "never" 3.14 (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "never"]))
             , do
                 debug "base handler"
                 handler "base" 1 (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "base"]))
             , handler "bar" 1 (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bar"]))
-            , do
-                return [CmdRef "return" 2 (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "return"]))]
+            , return [CmdRef "return" 2 (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "return"]))]
             ]
     , do
         match (\a -> server a == "base")
@@ -136,24 +134,24 @@ route2Free = choice
     nick _ = ""
 
     fooIO :: MonadIO m => a -> b -> m (Maybe IRC.Message)
-    fooIO st i = do
+    fooIO _ _ = do
         liftIO $ putStrLn "test"
         return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "io"]
 
-executeCmdRef :: (Monad m, MonadIO m) => [CmdHandler m] -> IRC.Message -> m [(Maybe IRC.Message)]
+executeCmdRef :: (Monad m, MonadIO m) => [CmdHandler m] -> IRC.Message -> m [Maybe IRC.Message]
 executeCmdRef cs m = mapM (\(CmdRef _ st h) -> h st m) cs
 
-test :: IO [(Maybe IRC.Message)]
+test :: IO [Maybe IRC.Message]
 test = do
     let m = IRC.Message (Just $ IRC.NickName (C8.pack "") (Just $ C8.pack "never") (Just $ C8.pack "base")) (C8.pack "") [C8.pack "target"]
     ref <- runRoute route2Free m
-    putStrLn $ show ref
+    print ref
     executeCmdRef ref m
 
-testDebug :: IO [(Maybe IRC.Message)]
+testDebug :: IO [Maybe IRC.Message]
 testDebug = do
     let m = IRC.Message (Just $ IRC.NickName (C8.pack "") (Just $ C8.pack "never") (Just $ C8.pack "base")) (C8.pack "") [C8.pack "target"]
     (doc, ref) <- debugRoute route2Free m
-    putStrLn $ show doc
-    putStrLn $ show ref
+    print doc
+    print ref
     executeCmdRef ref m
