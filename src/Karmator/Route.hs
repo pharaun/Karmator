@@ -30,7 +30,7 @@ import Karmator.Types
 
 
 -- | Match on a message using a predicate
-match :: (IRC.Message -> Bool) -> Route ()
+match :: (BotEvent -> Bool) -> Route ()
 match p = liftF (Match p ())
 
 -- | Try several routes, using all that succeeds
@@ -48,7 +48,7 @@ debug = liftIO . putStrLn
 
 -- | Run the route
 -- TODO: refine the functor
-runRoute :: Route [CmdHandler] -> IRC.Message -> IO [CmdHandler]
+runRoute :: Route [CmdHandler] -> BotEvent -> IO [CmdHandler]
 runRoute f m = do
     x <- runFreeT f
     case x of
@@ -58,7 +58,7 @@ runRoute f m = do
         (Free (Handler h))    -> return [h]
 
 -- | Debug interpreter for running route
-debugRoute :: Route [CmdHandler] -> IRC.Message -> IO (Doc, [CmdHandler])
+debugRoute :: Route [CmdHandler] -> BotEvent -> IO (Doc, [CmdHandler])
 debugRoute f m = do
     x <- runFreeT f
     case x of
@@ -101,11 +101,11 @@ route2Free :: Route [CmdHandler]
 route2Free = choice
     [ do
         debug "bye handler"
-        handler "bye" () (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bye"]))
+        handler "bye" () (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bye"]))
     , do
         match (\a -> server a == "test")
         debug "server handler"
-        handler "server" "string" (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "server"]))
+        handler "server" "string" (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "server"]))
     , do
         match (\a -> server a == "base")
         debug "base choice"
@@ -114,51 +114,51 @@ route2Free = choice
                 match (\a -> channel a == "target")
                 match (\a -> nick a == "never")
                 debug "never handler"
-                handler "never" 3.14 (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "never"]))
+                handler "never" 3.14 (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "never"]))
             , do
                 debug "base handler"
-                handler "base" 1 (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "base"]))
-            , handler "bar" 1 (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bar"]))
-            , return [CmdRef "return" 2 (\_ _ -> (return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "return"]))]
+                handler "base" 1 (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "base"]))
+            , handler "bar" 1 (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bar"]))
+            , return [CmdRef "return" 2 (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "return"]))]
             ]
     , do
         match (\a -> server a == "base")
         handler "io" () fooIO
     ]
   where
-    server :: IRC.Message -> String
-    server IRC.Message{IRC.msg_prefix=(Just (IRC.Server n))} = C8.unpack n
-    server IRC.Message{IRC.msg_prefix=(Just (IRC.NickName _ _ (Just n)))} = C8.unpack n
+    server :: BotEvent -> String
+    server (EMessage IRC.Message{IRC.msg_prefix=(Just (IRC.Server n))}) = C8.unpack n
+    server (EMessage IRC.Message{IRC.msg_prefix=(Just (IRC.NickName _ _ (Just n)))}) = C8.unpack n
     server _ = "" -- TODO: bad
 
     -- TODO: unsafe head, and does not support multi-channel privmsg
-    channel :: IRC.Message -> String
-    channel = C8.unpack . head . IRC.msg_params
+    channel :: BotEvent -> String
+    channel (EMessage m) = C8.unpack $ head $ IRC.msg_params m
 
-    nick :: IRC.Message -> String
-    nick IRC.Message{IRC.msg_prefix=(Just (IRC.NickName n _ _))} = C8.unpack n
+    nick :: BotEvent -> String
+    nick (EMessage IRC.Message{IRC.msg_prefix=(Just (IRC.NickName n _ _))}) = C8.unpack n
     nick _ = ""
 
-    fooIO :: MonadIO m => a -> b -> m (Maybe IRC.Message)
+    fooIO :: MonadIO m => a -> b -> m (Maybe BotCommand)
     fooIO _ _ = do
         liftIO $ putStrLn "test"
-        return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "io"]
+        return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "io"]
 
-test :: IO [Maybe IRC.Message]
+test :: IO [Maybe BotCommand]
 test = do
-    let m = IRC.Message (Just $ IRC.NickName (C8.pack "") (Just $ C8.pack "never") (Just $ C8.pack "base")) (C8.pack "") [C8.pack "target"]
+    let m = EMessage $ IRC.Message (Just $ IRC.NickName (C8.pack "") (Just $ C8.pack "never") (Just $ C8.pack "base")) (C8.pack "") [C8.pack "target"]
     ref <- runRoute route2Free m
     print ref
     executeCmdRef ref m
 
-testDebug :: IO [Maybe IRC.Message]
+testDebug :: IO [Maybe BotCommand]
 testDebug = do
-    let m = IRC.Message (Just $ IRC.NickName (C8.pack "") (Just $ C8.pack "never") (Just $ C8.pack "base")) (C8.pack "") [C8.pack "target"]
+    let m = EMessage $ IRC.Message (Just $ IRC.NickName (C8.pack "") (Just $ C8.pack "never") (Just $ C8.pack "base")) (C8.pack "") [C8.pack "target"]
     (doc, ref) <- debugRoute route2Free m
     print doc
     print ref
     executeCmdRef ref m
 
 -- TODO: find better home for this
-executeCmdRef :: [CmdHandler] -> IRC.Message -> IO [Maybe IRC.Message]
+executeCmdRef :: [CmdHandler] -> BotEvent -> IO [Maybe BotCommand]
 executeCmdRef cs m = mapM (\(CmdRef _ st h) -> h st m) cs

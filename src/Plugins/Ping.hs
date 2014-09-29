@@ -15,6 +15,7 @@ import System.Time
 import Control.Monad.Reader
 import qualified Data.ByteString.Char8 as C8
 
+import Karmator.Types
 import Karmator.Filter
 import qualified Network.IRC as IRC
 
@@ -40,12 +41,13 @@ import qualified Network.IRC as IRC
 --
 -- Ping
 --
-pingMatch :: IRC.Message -> Bool
+pingMatch :: BotEvent -> Bool
 pingMatch = exactCommand "PING"
 
 -- TODO: Unsafe head
-ping :: IRC.Message -> Maybe IRC.Message
-ping = Just . IRC.pong . head . IRC.msg_params
+ping :: BotEvent -> Maybe BotCommand
+ping (EMessage m) = Just $ CMessage $ IRC.pong $ head $ IRC.msg_params m
+ping _ = Nothing
 
 
 --
@@ -53,7 +55,7 @@ ping = Just . IRC.pong . head . IRC.msg_params
 -- TODO: improve this (Such as list of channels to join)
 --
 motdMatch  = exactCommand "700"
-motdJoin _ = Just $ IRC.joinChan "#test" -- TODO: Need to take list of channels to join
+motdJoin _ = Just $ CMessage $ IRC.joinChan "#test" -- TODO: Need to take list of channels to join
 
 
 --
@@ -67,7 +69,7 @@ motdJoin _ = Just $ IRC.joinChan "#test" -- TODO: Need to take list of channels 
 uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!uptime")
 uptime t m  = do
     now <- liftIO $ getClockTime
-    return $ Just $ IRC.privmsg (whichChannel m) (C8.pack $ pretty $ diffClockTimes now t)
+    return $ Just $ CMessage $ IRC.privmsg (whichChannel m) (C8.pack $ pretty $ diffClockTimes now t)
 
 --
 -- Pretty print the date in '1d 9h 9m 17s' format

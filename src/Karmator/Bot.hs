@@ -31,7 +31,7 @@ runBot s r = do
     waitAny (bot : servers)
     return ()
 
-runCommand :: TQueue (IRC.Message, TQueue IRC.Message) -> [Route [CmdHandler]] -> IO ()
+runCommand :: TQueue (BotEvent, TQueue BotCommand) -> [Route [CmdHandler]] -> IO ()
 runCommand q routes = forever $ do
     (msg, reply) <- atomically $ readTQueue q
 

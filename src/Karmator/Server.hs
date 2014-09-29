@@ -39,7 +39,7 @@ import Network.IRC.Patch
 
 -- TODO: This needs some way of interfacing with the currently existing server stuff
 -- TODO: Merge these two and add in ssl configuration
-runServer :: Bool -> ServerConfig -> TQueue (IRC.Message, TQueue IRC.Message) -> IO ()
+runServer :: Bool -> ServerConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
 runServer tls sc queue =
     if tls
     then establishTLS sc queue
@@ -48,7 +48,7 @@ runServer tls sc queue =
 --
 -- Establish TLS connection
 --
-establishTLS :: ServerConfig -> TQueue (IRC.Message, TQueue IRC.Message) -> IO ()
+establishTLS :: ServerConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
 establishTLS sc q = PNT.withSocketsDo $
     -- Establish the logfile
     withFile (logfile sc) AppendMode (\l -> do
@@ -82,7 +82,7 @@ establishTLS sc q = PNT.withSocketsDo $
 --
 -- Establish an irc session with this server
 --
-establish :: ServerConfig -> TQueue (IRC.Message, TQueue IRC.Message) -> IO ()
+establish :: ServerConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
 establish sc q = PNT.withSocketsDo $
     -- Establish the logfile
     withFile (logfile sc) AppendMode (\l ->
@@ -109,7 +109,7 @@ establish sc q = PNT.withSocketsDo $
 --
 -- Parses incoming irc messages and emits any errors to a log and keep going
 --
-ircParserErrorLogging :: MonadIO m => Handle -> Producer BS.ByteString m () -> Producer IRC.Message m ()
+ircParserErrorLogging :: MonadIO m => Handle -> Producer BS.ByteString m () -> Producer BotEvent m ()
 ircParserErrorLogging l producer = do
     (result, rest) <- lift $ runStateT (PA.parse message) producer
 
@@ -117,7 +117,7 @@ ircParserErrorLogging l producer = do
         Nothing -> liftIO $ BS.hPutStr l "Pipe is exhausted for irc parser\n"
         Just y  ->
             case y of
-                Right x -> yield x
+                Right x -> yield (EMessage x)
                 Left x  -> liftIO $ BS.hPutStr l $ BS.concat
                     [ "===========\n"
                     , "\n"
@@ -134,6 +134,16 @@ showMessage :: Monad m => Pipe IRC.Message BS.ByteString m ()
 showMessage = PP.map encode
     where
         encode = (`BS.append` "\r\n") . IRC.encode
+
+--
+-- Filter any non Message
+--
+onlyMessages :: Monad m => Pipe BotCommand IRC.Message m ()
+onlyMessages = forever $ do
+    c <- await
+    case c of
+        (CMessage m) -> yield m
+        otherwise    -> return ()
 
 --
 -- Handshake for the initial connection to the network
@@ -198,12 +208,12 @@ handleIRC recv send ss = do
     -- Regular irc streaming
     race_
         (runEffect ((ircParserErrorLogging (logStream ss) recv) >-> messagePump ss))
-        (runEffect (messageVacuum ss >-> showMessage >-> send))
+        (runEffect (messageVacuum ss >-> onlyMessages >-> showMessage >-> send))
 
 --
 -- Pump Message into Bot Queue
 --
-messagePump :: (Monad m, MonadIO m) => ServerState -> Consumer IRC.Message m ()
+messagePump :: (Monad m, MonadIO m) => ServerState -> Consumer BotEvent m ()
 messagePump ss = forever $ do
     msg <- await
     liftIO $ atomically $ writeTQueue (botQueue ss) (msg, replyQueue ss)
@@ -211,7 +221,7 @@ messagePump ss = forever $ do
 --
 -- Vacuum, fetch replies and send to network
 --
-messageVacuum :: (Monad m, MonadIO m) => ServerState -> Producer IRC.Message m ()
+messageVacuum :: (Monad m, MonadIO m) => ServerState -> Producer BotCommand m ()
 messageVacuum ss = forever $ do
     msg <- liftIO $ atomically $ readTQueue (replyQueue ss)
     yield msg

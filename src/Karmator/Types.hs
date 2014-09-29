@@ -7,6 +7,10 @@ module Karmator.Types
     , Route
     , CmdHandler
 
+    -- Events
+    , BotEvent(..)
+    , BotCommand(..)
+
     -- Internal
     , Segment(..)
     , CmdRef(..)
@@ -72,12 +76,31 @@ data ServerState = ServerState
     { config :: ServerConfig
     , logStream :: Handle
 
-    , botQueue :: TQueue (IRC.Message, TQueue IRC.Message)
-    , replyQueue :: TQueue IRC.Message
+    , botQueue :: TQueue (BotEvent, TQueue BotCommand)
+    , replyQueue :: TQueue BotCommand
     }
 
+-- Bot/Server Events
+--  0. Bot init
+--  1. Connection established
+--  2. connection lost
+--  3. Normal IRC message
+data BotEvent
+    = BotInit
+    | ConnectionEstablished
+    | ConnectionLost
+    | EMessage IRC.Message
+    deriving (Show)
 
-
+-- Bot/Server Commands
+--  1. Disconnect - if sent to a server, disconnect
+--  2. Die - If emitted the bot needs to die
+--  3. Message
+data BotCommand
+    = Disconnect
+    | Die
+    | CMessage IRC.Message
+    deriving (Show)
 
 -- Routing
 data Segment m i o n
@@ -86,7 +109,7 @@ data Segment m i o n
     | Handler (CmdRef m i o)
     deriving (Functor, Show)
 
-type RouteT m a = FreeT (Segment m IRC.Message (Maybe IRC.Message)) m a
+type RouteT m a = FreeT (Segment m BotEvent (Maybe BotCommand)) m a
 type Route a = RouteT IO a
 
 
@@ -97,4 +120,4 @@ data CmdRef m i o = forall st. CmdRef String st (st -> i -> m o)
 instance Show (CmdRef m i o) where
     show (CmdRef n _ _) = "Command: " ++ show n
 
-type CmdHandler = CmdRef IO IRC.Message (Maybe IRC.Message)
+type CmdHandler = CmdRef IO BotEvent (Maybe BotCommand)
