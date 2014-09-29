@@ -28,7 +28,10 @@ runBot s r = do
 
     -- Give the input to each server thread and spawn them
     servers <- mapM (\(tls, sc) -> async (runServer tls sc q)) s
-    waitAny (bot : servers)
+
+    -- TODO: more sophsicated logic here, we exit upon shutdown of any
+    -- server/bot async
+    waitAnyCancel (bot : servers)
     return ()
 
 runCommand :: TQueue (BotEvent, TQueue BotCommand) -> [Route [CmdHandler]] -> IO ()

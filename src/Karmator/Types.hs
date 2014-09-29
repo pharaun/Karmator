@@ -81,13 +81,16 @@ data ServerState = ServerState
     }
 
 -- Bot/Server Events
---  0. Bot init
 --  1. Connection established
---  2. connection lost
+--  2. Connection lost
 --  3. Normal IRC message
+--
+--  TODO: (Useful for plugin system maybe)
+--   1. Bot init
+--   2. Bot shutdown
+--   3. Auth completed (failed?)
 data BotEvent
-    = BotInit
-    | ConnectionEstablished
+    = ConnectionEstablished
     | ConnectionLost
     | EMessage IRC.Message
     deriving (Show)

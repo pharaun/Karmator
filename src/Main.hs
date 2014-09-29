@@ -26,7 +26,22 @@ commandRoute t = choice
         match uptimeMatch
         debug "uptimeMatch"
         handler "uptime" t uptime
+    , do
+        match conn
+        debug "connected"
+        return []
+    , do
+        match disc
+        debug "disconnected"
+        return []
     ]
+  where
+    conn ConnectionEstablished = True
+    conn _ = False
+
+    disc ConnectionLost = True
+    disc _ = False
+
 
 main :: IO ()
 main = do

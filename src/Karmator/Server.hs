@@ -75,7 +75,14 @@ establishTLS sc q = PNT.withSocketsDo $
 
             let ss = ServerState sc l q sq
 
+            -- Emit connection established here
+            atomically $ writeTQueue q (ConnectionEstablished, sq)
+
+            -- Normal irc stuff
             handleIRC (TLS.fromContext context >-> log l) (log l >-> TLS.toContext context) ss
+
+            -- Emit connection lost here
+            atomically $ writeTQueue q (ConnectionLost, sq)
             )
         )
 
@@ -99,9 +106,14 @@ establish sc q = PNT.withSocketsDo $
 
             let ss = ServerState sc l q sq
 
+            -- Emit connection established here
+            atomically $ writeTQueue q (ConnectionEstablished, sq)
+
+            -- Normal irc stuff
             handleIRC (PNT.fromSocket sock 8192 >-> log l) (log l >-> PNT.toSocket sock) ss
 
-            return ()
+            -- Emit connection lost here
+            atomically $ writeTQueue q (ConnectionLost, sq)
         )
     )
 
