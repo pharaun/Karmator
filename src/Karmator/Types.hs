@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, ExistentialQuantification, DeriveFunctor, FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Karmator.Types
     ( ServerConfig(..)
     , ServerPersistentState(..)
@@ -6,12 +6,6 @@ module Karmator.Types
 
     , BotConfig(..)
     , BotState(..)
-
-    -- TODO: not sure this is best spot
-    , CmdRef(..)
-    , Segment(..)
-    , CmdHandler
-    , Route
     ) where
 
 import Network
@@ -19,19 +13,21 @@ import System.IO
 import System.Time
 import Control.Concurrent.STM
 import Control.Monad.Trans.Free
-import Text.Show.Functions()
 
 import qualified Data.ByteString as BS
 import qualified Network.IRC as IRC
 
+-- Karmator
+import Karmator.Route
+
 -- Bot configuration
 data BotConfig = BotConfig {}
-data BotState m = BotState
+data BotState = BotState
     { botConfig :: BotConfig
     , serverQueue :: TQueue (IRC.Message, TQueue IRC.Message)
 
     , servers :: [(Bool, ServerConfig, ServerPersistentState)]
-    , routes :: [Route m [CmdHandler m]]
+    , routes :: [Route [CmdHandler]]
 
     -- Debugging/initial test impl
     , startTime :: ClockTime
@@ -95,22 +91,3 @@ data ServerState = ServerState
     , botQueue :: TQueue (IRC.Message, TQueue IRC.Message)
     , replyQueue :: TQueue IRC.Message
     }
-
--- TODO: Replace bare state with (MVar state) or something, maybe even a hook to the plugin's module level stuff
---data CommandRef m = forall st. CommandRef (Command m st) (MVar st)
-data CmdRef m i o = forall st. CmdRef String st (st -> i -> m o)
-instance Show (CmdRef m i o) where
-    show (CmdRef n _ _) = "Command: " ++ show n
-type CmdHandler m = CmdRef m IRC.Message (Maybe IRC.Message)
-
-
--- ROUTE STUFF
-data Segment m i o n
-    = Match (i -> Bool) n
-    | Choice [n]
-    | Handler (CmdRef m i o)
-    deriving (Functor, Show)
-
--- | Newtype of the freeT transformer stack
-type Route m a = FreeT (Segment m IRC.Message (Maybe IRC.Message)) m a
---newtype Route m a = FreeT (Segment IRC.Message (Maybe IRC.Message)) m a

@@ -20,7 +20,7 @@ testBotConfig = BotConfig
 
 -- TODO: clean up types, needs a better way to get ClockTime into uptime than this
 -- TODO: starting to dislike the consistant (Monad m, MonadIO m) let's see if we can't clean this type crap up too
-commandRoute :: (Monad m, MonadIO m) => ClockTime -> Route m [CmdHandler m]
+commandRoute :: ClockTime -> Route [CmdHandler]
 commandRoute t = choice
     [ do
         match pingMatch

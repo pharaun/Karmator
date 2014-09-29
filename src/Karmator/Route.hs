@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts, ExistentialQuantification, DeriveFunctor,              FlexibleInstances #-}
 module Karmator.Route
     -- TODO: clean up the type export and restrict it
     ( match
@@ -7,6 +7,11 @@ module Karmator.Route
     , debug
     , runRoute
     , debugRoute
+
+    , Route
+    , CmdHandler
+
+    , executeCmdRef
     ) where
 
 import Control.Applicative
@@ -14,21 +19,43 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Free
 import Text.PrettyPrint.HughesPJ
+import Text.Show.Functions()
+
 
 -- TODO: bad
 import qualified Data.ByteString.Char8 as C8
 
 import qualified Network.IRC as IRC
 
--- Karmator Stuff
-import Karmator.Types
+
+-- Routing
+data Segment m i o n
+    = Match (i -> Bool) n
+    | Choice [n]
+    | Handler (CmdRef m i o)
+    deriving (Functor, Show)
+
+type RouteT m a = FreeT (Segment m IRC.Message (Maybe IRC.Message)) m a
+type Route a = RouteT IO a
+
+
+-- Handler Type
+-- TODO: replace st with (MVar st)
+data CmdRef m i o = forall st. CmdRef String st (st -> i -> m o)
+
+instance Show (CmdRef m i o) where
+    show (CmdRef n _ _) = "Command: " ++ show n
+
+type CmdHandler = CmdRef IO IRC.Message (Maybe IRC.Message)
+
+
 
 -- | Match on a message using a predicate
-match :: (Monad m) => (IRC.Message -> Bool) -> Route m ()
+match :: (IRC.Message -> Bool) -> Route ()
 match p = liftF (Match p ())
 
 -- | Try several routes, using all that succeeds
-choice :: (Monad m) => [Route m a] -> Route m a
+choice :: [Route a] -> Route a
 choice a = join $ liftF (Choice a)
 
 -- | Register a handler
@@ -42,7 +69,7 @@ debug = liftIO . putStrLn
 
 -- | Run the route
 -- TODO: refine the functor
-runRoute :: (Monad m, MonadIO m, Functor m) => Route m [CmdHandler m] -> IRC.Message -> m [CmdHandler m]
+runRoute :: Route [CmdHandler] -> IRC.Message -> IO [CmdHandler]
 runRoute f m = do
     x <- runFreeT f
     case x of
@@ -52,7 +79,7 @@ runRoute f m = do
         (Free (Handler h))    -> return [h]
 
 -- | Debug interpreter for running route
-debugRoute :: (Monad m, MonadIO m) => Route m [CmdHandler m] -> IRC.Message -> m (Doc, [CmdHandler m])
+debugRoute :: Route [CmdHandler] -> IRC.Message -> IO (Doc, [CmdHandler])
 debugRoute f m = do
     x <- runFreeT f
     case x of
@@ -91,7 +118,7 @@ debugRoute f m = do
 -- a test case
 --
 --
-route2Free :: (Monad m, MonadIO m) => Route m [CmdHandler m]
+route2Free :: Route [CmdHandler]
 route2Free = choice
     [ do
         debug "bye handler"
@@ -138,9 +165,6 @@ route2Free = choice
         liftIO $ putStrLn "test"
         return $ Just $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "io"]
 
-executeCmdRef :: (Monad m, MonadIO m) => [CmdHandler m] -> IRC.Message -> m [Maybe IRC.Message]
-executeCmdRef cs m = mapM (\(CmdRef _ st h) -> h st m) cs
-
 test :: IO [Maybe IRC.Message]
 test = do
     let m = IRC.Message (Just $ IRC.NickName (C8.pack "") (Just $ C8.pack "never") (Just $ C8.pack "base")) (C8.pack "") [C8.pack "target"]
@@ -155,3 +179,7 @@ testDebug = do
     print doc
     print ref
     executeCmdRef ref m
+
+-- TODO: find better home for this
+executeCmdRef :: [CmdHandler] -> IRC.Message -> IO [Maybe IRC.Message]
+executeCmdRef cs m = mapM (\(CmdRef _ st h) -> h st m) cs

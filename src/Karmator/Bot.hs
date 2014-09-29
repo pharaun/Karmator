@@ -24,8 +24,7 @@ import Karmator.Server
 
 -- TODO: vary up the types a bit more but this will work for a start
 -- TODO: fix up the type?
---withIRC :: (Monad m, MonadIO m) => BotConfig -> (BotState m -> m (BotState m)) -> m ()
-withIRC :: (Monad m, MonadIO m) => BotConfig -> (BotState m -> m (BotState IO)) -> m ()
+withIRC :: BotConfig -> (BotState -> IO BotState) -> IO ()
 withIRC c p = do
     t <- liftIO getClockTime
     q <- liftIO newTQueueIO
@@ -33,17 +32,17 @@ withIRC c p = do
 
     liftIO $ runBot fs
 
-addServer :: (Monad m, MonadIO m) => BotState m -> Bool -> ServerConfig -> ServerPersistentState -> m (BotState m)
+addServer :: BotState -> Bool -> ServerConfig -> ServerPersistentState -> IO BotState
 addServer bs enableTls sc sps =
     return bs{servers = (enableTls, sc, sps) : servers bs}
 
-addRoute :: (Monad m, MonadIO m) => BotState m -> Route m [CmdHandler m] -> m (BotState m)
+addRoute :: BotState -> Route [CmdHandler] -> IO BotState
 addRoute bs r =
     return bs{routes = r : routes bs}
 
 -- TODO: this function is a tad complicated for now till we can refine things
 -- TODO: fix up the type?
-runBot :: BotState IO -> IO ()
+runBot :: BotState -> IO ()
 runBot bs = do
     -- Start up the bot command + route
     bot <- async (runCommand (serverQueue bs) (routes bs))
@@ -53,7 +52,7 @@ runBot bs = do
     liftIO $ waitAny (bot : servers)
     return ()
 
-runCommand :: (Monad m, MonadIO m, Functor m) => TQueue (IRC.Message, TQueue IRC.Message) -> [Route m [CmdHandler m]] -> m ()
+runCommand :: TQueue (IRC.Message, TQueue IRC.Message) -> [Route [CmdHandler]] -> IO ()
 runCommand q routes = forever $ forM routes (\route -> do
         (msg, reply) <- liftIO $ atomically $ readTQueue q
 
@@ -63,6 +62,3 @@ runCommand q routes = forever $ forM routes (\route -> do
 
         mapM (liftIO . atomically . writeTQueue reply) (catMaybes results)
     )
-
-executeCmdRef :: (Monad m, MonadIO m) => [CmdHandler m] -> IRC.Message -> m [Maybe IRC.Message]
-executeCmdRef cs m = mapM (\(CmdRef _ st h) -> h st m) cs
