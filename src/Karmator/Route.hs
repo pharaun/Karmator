@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, ExistentialQuantification, DeriveFunctor,              FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Karmator.Route
     -- TODO: clean up the type export and restrict it
     ( match
@@ -26,28 +26,7 @@ import Text.Show.Functions()
 import qualified Data.ByteString.Char8 as C8
 
 import qualified Network.IRC as IRC
-
-
--- Routing
-data Segment m i o n
-    = Match (i -> Bool) n
-    | Choice [n]
-    | Handler (CmdRef m i o)
-    deriving (Functor, Show)
-
-type RouteT m a = FreeT (Segment m IRC.Message (Maybe IRC.Message)) m a
-type Route a = RouteT IO a
-
-
--- Handler Type
--- TODO: replace st with (MVar st)
-data CmdRef m i o = forall st. CmdRef String st (st -> i -> m o)
-
-instance Show (CmdRef m i o) where
-    show (CmdRef n _ _) = "Command: " ++ show n
-
-type CmdHandler = CmdRef IO IRC.Message (Maybe IRC.Message)
-
+import Karmator.Types
 
 
 -- | Match on a message using a predicate

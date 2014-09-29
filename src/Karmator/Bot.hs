@@ -4,7 +4,6 @@ module Karmator.Bot
     ) where
 
 import System.IO
-import System.Time
 import Control.Monad.Reader
 import Prelude hiding (log)
 import Data.Maybe

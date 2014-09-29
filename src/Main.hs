@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import Control.Monad.IO.Class
 import System.Time
 
 import Karmator.Bot

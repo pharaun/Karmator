@@ -1,21 +1,26 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, ExistentialQuantification, DeriveFunctor, FlexibleInstances #-}
 module Karmator.Types
     ( ServerConfig(..)
     , ServerState(..)
+
+    -- Route
+    , Route
+    , CmdHandler
+
+    -- Internal
+    , Segment(..)
+    , CmdRef(..)
     ) where
 
 import Network
 import System.IO
-import System.Time
 import Control.Concurrent.STM
 import Control.Monad.Trans.Free
+import Text.Show.Functions()
+
 
 import qualified Data.ByteString as BS
 import qualified Network.IRC as IRC
-
--- Karmator
-import Karmator.Route
-
 
 -- Per server config for the bot
 data ServerConfig = ServerConfig
@@ -70,3 +75,26 @@ data ServerState = ServerState
     , botQueue :: TQueue (IRC.Message, TQueue IRC.Message)
     , replyQueue :: TQueue IRC.Message
     }
+
+
+
+
+-- Routing
+data Segment m i o n
+    = Match (i -> Bool) n
+    | Choice [n]
+    | Handler (CmdRef m i o)
+    deriving (Functor, Show)
+
+type RouteT m a = FreeT (Segment m IRC.Message (Maybe IRC.Message)) m a
+type Route a = RouteT IO a
+
+
+-- Handler Type
+-- TODO: replace st with (MVar st)
+data CmdRef m i o = forall st. CmdRef String st (st -> i -> m o)
+
+instance Show (CmdRef m i o) where
+    show (CmdRef n _ _) = "Command: " ++ show n
+
+type CmdHandler = CmdRef IO IRC.Message (Maybe IRC.Message)
