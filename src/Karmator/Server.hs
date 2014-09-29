@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Karmator.Server
-    -- TODO: Merge these two and add in ssl configuration
     ( establishTLS
     , establish
 
@@ -34,23 +33,23 @@ import qualified System.X509.Unix as TLS
 import qualified Network.TLS as TLS
 
 -- Karmator Stuff
--- TODO: upstream the Patch
 import Karmator.Types
 import Network.IRC.Patch
 
 
 -- TODO: This needs some way of interfacing with the currently existing server stuff
-runServer :: Bool -> ServerConfig -> ServerPersistentState -> TQueue (IRC.Message, TQueue IRC.Message) -> IO ()
-runServer tls sc sps queue =
+-- TODO: Merge these two and add in ssl configuration
+runServer :: Bool -> ServerConfig -> TQueue (IRC.Message, TQueue IRC.Message) -> IO ()
+runServer tls sc queue =
     if tls
-    then establishTLS sc sps queue
-    else establish sc sps queue
+    then establishTLS sc queue
+    else establish sc queue
 
 --
 -- Establish TLS connection
 --
-establishTLS :: ServerConfig -> ServerPersistentState -> TQueue (IRC.Message, TQueue IRC.Message) -> IO ()
-establishTLS sc sps q = PNT.withSocketsDo $
+establishTLS :: ServerConfig -> TQueue (IRC.Message, TQueue IRC.Message) -> IO ()
+establishTLS sc q = PNT.withSocketsDo $
     -- Establish the logfile
     withFile (logfile sc) AppendMode (\l -> do
 
@@ -74,15 +73,17 @@ establishTLS sc sps q = PNT.withSocketsDo $
             -- Server queue
             sq <- newTQueueIO
 
-            handleIRC (TLS.fromContext context >-> log l) (log l >-> TLS.toContext context) (ServerState sps sc l q sq)
+            let ss = ServerState sc l q sq
+
+            handleIRC (TLS.fromContext context >-> log l) (log l >-> TLS.toContext context) ss
             )
         )
 
 --
 -- Establish an irc session with this server
 --
-establish :: ServerConfig -> ServerPersistentState -> TQueue (IRC.Message, TQueue IRC.Message) -> IO ()
-establish sc sps q = PNT.withSocketsDo $
+establish :: ServerConfig -> TQueue (IRC.Message, TQueue IRC.Message) -> IO ()
+establish sc q = PNT.withSocketsDo $
     -- Establish the logfile
     withFile (logfile sc) AppendMode (\l ->
         -- TODO: do some form of dns lookup and prefer either v6 or v4
@@ -96,7 +97,7 @@ establish sc sps q = PNT.withSocketsDo $
             -- Server queue
             sq <- newTQueueIO
 
-            let ss = ServerState sps sc l q sq
+            let ss = ServerState sc l q sq
 
             handleIRC (PNT.fromSocket sock 8192 >-> log l) (log l >-> PNT.toSocket sock) ss
 
@@ -156,10 +157,9 @@ showMessage = PP.map encode
 handshake :: Monad m => ServerState -> Producer IRC.Message m ()
 handshake ss = do
     let sc  = config ss
-    let sps = session ss
 
     let nick = head $ nicks sc -- TODO: unsafe head
-    let chan = head $ channels sps -- TODO: unsafe head
+    let chan = head $ channels sc -- TODO: unsafe head
     let user = userName sc
     let pasw = serverPassword sc
 

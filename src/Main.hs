@@ -10,16 +10,9 @@ import Plugins.Ping
 
 
 testConfig :: ServerConfig
-testConfig = ServerConfig "chat.freenode.net" 6697 ["levchius"] "Ghost Bot" Nothing True "test.log"
-
-testPersistent :: ServerPersistentState
-testPersistent = ServerPersistentState ["#test"]
-
-testBotConfig :: BotConfig
-testBotConfig = BotConfig
+testConfig = ServerConfig "chat.freenode.net" 6697 ["levchius"] "Ghost Bot" Nothing True ["#gamelost"] "test.log"
 
 -- TODO: clean up types, needs a better way to get ClockTime into uptime than this
--- TODO: starting to dislike the consistant (Monad m, MonadIO m) let's see if we can't clean this type crap up too
 commandRoute :: ClockTime -> Route [CmdHandler]
 commandRoute t = choice
     [ do
@@ -36,19 +29,7 @@ commandRoute t = choice
         handler "uptime" t uptime
     ]
 
--- TODO:
---  Ideal schema would be like:
---
---  withIRC botConfig \i -> do
---      addServer i serverConfig
---      addServer i serverConfig2
---
---      addHook i xyz
---      addRoute i xyz
---      ....
 main :: IO ()
-main =
-    withIRC testBotConfig $ \i -> do
-        t <- getClockTime
-        i'  <- addServer i True testConfig testPersistent
-        addRoute i' (commandRoute t)
+main = do
+    t <- getClockTime
+    runBot [(True, testConfig)] (commandRoute t)

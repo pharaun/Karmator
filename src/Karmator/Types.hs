@@ -1,11 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Karmator.Types
     ( ServerConfig(..)
-    , ServerPersistentState(..)
     , ServerState(..)
-
-    , BotConfig(..)
-    , BotState(..)
     ) where
 
 import Network
@@ -20,18 +16,6 @@ import qualified Network.IRC as IRC
 -- Karmator
 import Karmator.Route
 
--- Bot configuration
-data BotConfig = BotConfig {}
-data BotState = BotState
-    { botConfig :: BotConfig
-    , serverQueue :: TQueue (IRC.Message, TQueue IRC.Message)
-
-    , servers :: [(Bool, ServerConfig, ServerPersistentState)]
-    , routes :: [Route [CmdHandler]]
-
-    -- Debugging/initial test impl
-    , startTime :: ClockTime
-    }
 
 -- Per server config for the bot
 data ServerConfig = ServerConfig
@@ -43,6 +27,9 @@ data ServerConfig = ServerConfig
 
     -- TODO
     , reconnect :: Bool
+
+    -- Default set of channels to always join
+    , channels :: [BS.ByteString]
 
     , logfile :: String -- logfile
 
@@ -75,17 +62,9 @@ data ServerConfig = ServerConfig
     --
     }
 
-
--- Persistent State: TODO: probably can just fold into server config
-data ServerPersistentState = ServerPersistentState
-    { channels :: [BS.ByteString]
---   channels, encoding
-    }
-
 -- Ephemeral State:
 data ServerState = ServerState
-    { session :: ServerPersistentState
-    , config :: ServerConfig
+    { config :: ServerConfig
     , logStream :: Handle
 
     , botQueue :: TQueue (IRC.Message, TQueue IRC.Message)
