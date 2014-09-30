@@ -1,4 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
+module Plugins.Karma
+    ( karmaMatch
+    , karma
+
+    ) where
+
+import Control.Monad.Error
+import Control.Monad.IO.Class
+import Data.List
+import qualified Data.ByteString.Char8 as C8
+
 import System.IO (stdin, stdout, stderr, hSetBuffering, BufferMode(..), hPrint, hIsEOF, Handle, hSetEncoding, utf8)
 import Control.Monad (mzero, unless, liftM)
 
@@ -16,8 +27,8 @@ import qualified Data.List as DL
 import Text.Parsec
 
 -- Karma module
-import Parser.Karma
-import Parser.Types
+import Plugins.Karma.Karma
+import Plugins.Karma.Types
 
 -- Configuration
 import Data.ConfigFile
@@ -26,8 +37,35 @@ import Prelude hiding (readFile)
 import System.Environment.UTF8 (getArgs)
 
 
-main :: IO ()
-main = do
+
+import Karmator.Types
+import Karmator.Filter
+import qualified Network.IRC as IRC
+
+
+karmaMatch :: BotEvent -> Bool
+karmaMatch = exactCommand "PING"
+
+-- TODO: Unsafe head
+karma :: (MonadIO m) => a -> BotEvent -> m (Maybe BotCommand)
+karma _ (EMessage m) = return $ Just $ CMessage $ IRC.pong $ head $ IRC.msg_params m
+karma _ _ = return Nothing
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+foo :: IO ()
+foo = do
     hSetBuffering stdin LineBuffering
     -- Apparently popen in python can't handle linebuffering
     hSetBuffering stdout NoBuffering
@@ -91,23 +129,21 @@ filterKarma n = filter (\Karma{kMessage=msg} -> msg `DL.notElem` n)
 -- Load the config
 getConfig :: FilePath -> IO Config
 getConfig conf = do
-    contents <- readFile conf
-
-    let config = do
-        c <- readstring emptyCP contents
+    config <- runErrorT (do
+        c <- join $ liftIO $ readfile emptyCP conf
 
         strictMatch <- get c "nick_filtering" "strict_match"
         prefixMatch <- get c "nick_filtering" "prefix_match"
 
         -- Force the Parser to invoke Read on the Partial/KarmaTypes
-        partialKarma <- get c "karma_parsing" "partial" :: Either CPError [ (Char, PartialKarmaType) ]
-        totalKarma <- get c "karma_parsing" "total" :: Either CPError [ (Char, KarmaType) ]
+        partialKarma <- get c "karma_parsing" "partial"
+        totalKarma <- get c "karma_parsing" "total"
 
         -- Braces
         open <- get c "karma_parsing" "open_brace"
         close <- get c "karma_parsing" "close_brace"
 
-        return $ Config strictMatch prefixMatch partialKarma totalKarma open close
+        return $ Config strictMatch prefixMatch partialKarma totalKarma open close)
 
     case config of
         Left cperr   -> error $ show cperr

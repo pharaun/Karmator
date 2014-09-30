@@ -5,7 +5,10 @@ import System.Time
 import Karmator.Bot
 import Karmator.Route
 import Karmator.Types
-import Plugins.Ping
+
+-- Plugins
+import Plugins.Generic
+import Plugins.Karma
 
 
 testConfig :: ServerConfig
@@ -26,21 +29,14 @@ commandRoute t = choice
         match uptimeMatch
         debug "uptimeMatch"
         handler "uptime" t uptime
-    , do
-        match conn
-        debug "connected"
-        return []
-    , do
-        match disc
-        debug "disconnected"
-        return []
-    ]
-  where
-    conn ConnectionEstablished = True
-    conn _ = False
 
-    disc ConnectionLost = True
-    disc _ = False
+    -- Karma handlers
+    -- Need to "create a database connection" then pass it into all karma handlers
+    , do
+        match karmaMatch
+        debug "karmaMatch"
+        handler "karma" () karma
+    ]
 
 
 main :: IO ()

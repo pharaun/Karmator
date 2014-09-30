@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Parser.Karma
+module Plugins.Karma.Karma
     ( nickDeFuzzifier
     , filterBot
     , karmaParse
@@ -20,7 +20,7 @@ import Control.Applicative hiding ((<|>), many, optional)
 
 import Data.Traversable (sequenceA)
 
-import Parser.Types
+import Plugins.Karma.Types
 
 
 -- TODO: break this out to the NickName module.

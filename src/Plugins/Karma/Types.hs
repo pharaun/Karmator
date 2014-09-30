@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Parser.Types
+module Plugins.Karma.Types
     ( IrcMessage(..)
     , KarmaReply(..)
     , KarmaType(..)

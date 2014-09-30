@@ -1,4 +1,4 @@
-{-# LANGUAGE EmptyDataDecls, FlexibleContexts, GADTs, OverloadedStrings, QuasiQuotes, TemplateHaskell, TypeFamilies #-}
+{-# LANGUAGE EmptyDataDecls, FlexibleContexts, GADTs, OverloadedStrings, QuasiQuotes, TemplateHaskell, TypeFamilies, GeneralizedNewtypeDeriving #-}
 module Plugins.Karma.Database
     ( KarmaTable(..)
     , allKarma
@@ -25,7 +25,7 @@ import Control.Monad.IO.Class
 import Data.Int
 
 -- Current Schema
-P.share [P.mkPersist P.sqlOnlySettings] [P.persistLowerCase|
+P.share [P.mkPersist P.sqlSettings] [P.persistLowerCase|
 Votes
     votedAt UTCTime
     byWhomName Text

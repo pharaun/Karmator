@@ -8,8 +8,10 @@ import qualified Data.List as L
 import Data.Maybe (catMaybes)
 
 import Text.Parsec
-import Parser.Karma
-import Parser.Types
+
+
+import Plugins.Karma.Karma
+import Plugins.Karma.Types
 
 main :: IO ()
 main = do

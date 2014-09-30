@@ -55,8 +55,16 @@ executable karmator
                      , time
                      , old-time
 
+                     -- Config stuff
+                     , ConfigFile
+
+                     -- Karmator
+                     , utf8-string
+                     , parsec
+                     , aeson
+
 executable migration
-  main-is:             Plugins/Karma/Migration.hs
+  main-is:             Migration.hs
   default-language:    Haskell2010
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts
   hs-source-dirs:      src

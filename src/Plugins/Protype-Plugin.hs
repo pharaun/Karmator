@@ -29,6 +29,24 @@ import qualified Control.Monad.Trans.Free as F
 
 import Text.PrettyPrint.HughesPJ (Doc, (<+>), ($+$), (<>), char, doubleQuotes, nest, space, text, vcat, empty)
 
+--
+-- TODO:
+--  * Regular plugin interface
+--      - Handle/filter - a way to specify exactly what the plugin is interested in listening for
+--      - Init - A way to initalize any state/stored state
+--      - config/state - backing store of some form for configuration store and state store if possible
+--      - handler - A way to match on a filter rule then invoke the plugin to handle it
+--      - shutdown - A way to gracefully shut down the plugin and store any config/state as needed
+--
+--  * AUTH plugin
+--      - Should be able to provide plugin for handling auth because there's several ways to auth to a network
+--
+--  * Additional
+--      - Some form of state backing store, probably sqlite of some form, should be able to key in new config/state to be persisted
+--          to disk ala xmonad extensiable state model
+--      - Should be able to in theory have multiple plugins running independently and the plugin should not care how its being ran
+--      - Should be a way to support separate plugin that can maybe use the same shared backing store (ala karmator)
+
 
 -- TEMPLATE HASKELL
 import Language.Haskell.TH hiding (match, Match)
