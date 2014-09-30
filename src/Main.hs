@@ -1,6 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import System.Time
+import Control.Monad.IO.Class
+import Database.Persist.Sql hiding (get)
+import Database.Persist.Sqlite
+import Control.Monad.Logger
 
 import Karmator.Bot
 import Karmator.Route
@@ -9,14 +13,15 @@ import Karmator.Types
 -- Plugins
 import Plugins.Generic
 import Plugins.Karma
+import Plugins.Karma.Database
 
 
 testConfig :: ServerConfig
 testConfig = ServerConfig "chat.freenode.net" 6697 ["levchius"] "Ghost Bot" Nothing True ["#gamelost"] "test.log"
 
 -- TODO: clean up types, needs a better way to get ClockTime into uptime than this
-commandRoute :: ClockTime -> Route [CmdHandler]
-commandRoute t = choice
+commandRoute :: ConnectionPool -> ClockTime -> Route [CmdHandler]
+commandRoute p t = choice
     [ do
         match pingMatch
         debug "pingMatch"
@@ -33,13 +38,22 @@ commandRoute t = choice
     -- Karma handlers
     -- Need to "create a database connection" then pass it into all karma handlers
     , do
-        match karmaMatch
-        debug "karmaMatch"
-        handler "karma" () karma
+        match rawKarmaMatch
+        debug "rawKarmaMatch"
+        handler "rawKarma" p rawKarma
     ]
 
 
 main :: IO ()
-main = do
-    t <- getClockTime
-    runBot [(True, testConfig)] (commandRoute t)
+main = runStderrLoggingT $ withSqlitePool ":memory:" 1 (\pool -> liftIO $ do
+        -- Migrate the db
+        flip runSqlPool pool $ (do
+            runMigration migrateAll
+            )
+
+        -- Run the bot
+        t <- getClockTime
+        runBot [(True, testConfig)] (commandRoute pool t)
+
+        return ()
+        )

@@ -9,6 +9,8 @@ module Plugins.Karma.Database
     , topNSideVotesDenormalized
     , sideVotesRankingDenormalized
 
+    -- Test database migration
+    , migrateAll
     ) where
 
 import qualified Database.Persist as P
@@ -25,7 +27,7 @@ import Control.Monad.IO.Class
 import Data.Int
 
 -- Current Schema
-P.share [P.mkPersist P.sqlSettings] [P.persistLowerCase|
+P.share [P.mkPersist P.sqlSettings, P.mkMigrate "migrateAll"] [P.persistLowerCase|
 Votes
     votedAt UTCTime
     byWhomName Text

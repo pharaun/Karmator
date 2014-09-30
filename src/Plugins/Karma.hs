@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Plugins.Karma
-    ( karmaMatch
-    , karma
+    ( rawKarmaMatch
+    , rawKarma
 
     ) where
 
@@ -36,20 +36,31 @@ import System.IO.UTF8 (readFile)
 import Prelude hiding (readFile)
 import System.Environment.UTF8 (getArgs)
 
-
-
 import Karmator.Types
 import Karmator.Filter
 import qualified Network.IRC as IRC
 
+import Database.Persist.Sql hiding (get)
 
-karmaMatch :: BotEvent -> Bool
-karmaMatch = exactCommand "PING"
+--uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!uptime")
+-- TODO
+--  Support these handles:
+--      - !karma
+--      - !karma foo bar
+--      - !karma "foo bar" "coo"
+--      - !karmagivers
+--      - !sidevotes
+--      - !karmatorjoin
+--      - !karmatorleave
+--      - !IRC_INVITE (invite command)
 
--- TODO: Unsafe head
-karma :: (MonadIO m) => a -> BotEvent -> m (Maybe BotCommand)
-karma _ (EMessage m) = return $ Just $ CMessage $ IRC.pong $ head $ IRC.msg_params m
-karma _ _ = return Nothing
+
+-- This takes care of sulping all irc messages to stuff into the karma parser
+rawKarmaMatch :: BotEvent -> Bool
+rawKarmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (not . prefixMessage "!")
+
+rawKarma :: (MonadIO m) => ConnectionPool -> BotEvent -> m (Maybe BotCommand)
+rawKarma _ _ = return Nothing
 
 
 
