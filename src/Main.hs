@@ -14,14 +14,15 @@ import Karmator.Types
 import Plugins.Generic
 import Plugins.Karma
 import Plugins.Karma.Database
+import Plugins.Karma.Types (Config)
 
 
 testConfig :: ServerConfig
 testConfig = ServerConfig "chat.freenode.net" 6697 ["levchius"] "Ghost Bot" Nothing True ["#gamelost"] "test.log"
 
 -- TODO: clean up types, needs a better way to get ClockTime into uptime than this
-commandRoute :: ConnectionPool -> ClockTime -> Route [CmdHandler]
-commandRoute p t = choice
+commandRoute :: Config -> ConnectionPool -> ClockTime -> Route [CmdHandler]
+commandRoute c p t = choice
     [ do
         match pingMatch
         debug "pingMatch"
@@ -40,7 +41,7 @@ commandRoute p t = choice
     , do
         match rawKarmaMatch
         debug "rawKarmaMatch"
-        handler "rawKarma" p rawKarma
+        handler "rawKarma" p (rawKarma c)
     ]
 
 
@@ -53,7 +54,8 @@ main = runStderrLoggingT $ withSqlitePool ":memory:" 1 (\pool -> liftIO $ do
 
         -- Run the bot
         t <- getClockTime
-        runBot [(True, testConfig)] (commandRoute pool t)
+        c <- getKarmaConfig "src/Plugins/Karma/parser.cfg"
+        runBot [(True, testConfig)] (commandRoute c pool t)
 
         return ()
         )

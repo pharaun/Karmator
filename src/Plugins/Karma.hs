@@ -3,6 +3,7 @@ module Plugins.Karma
     ( rawKarmaMatch
     , rawKarma
 
+    , getKarmaConfig
     ) where
 
 import Control.Monad.Error
@@ -13,11 +14,6 @@ import qualified Data.ByteString.Char8 as C8
 import System.IO (stdin, stdout, stderr, hSetBuffering, BufferMode(..), hPrint, hIsEOF, Handle, hSetEncoding, utf8)
 import Control.Monad (mzero, unless, liftM)
 
--- Json parsing
-import Control.Applicative ((<$>), (<*>), pure)
-import Data.Aeson
-
-import Data.ByteString.UTF8 (fromString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
@@ -32,15 +28,15 @@ import Plugins.Karma.Types
 
 -- Configuration
 import Data.ConfigFile
-import System.IO.UTF8 (readFile)
 import Prelude hiding (readFile)
-import System.Environment.UTF8 (getArgs)
 
 import Karmator.Types
 import Karmator.Filter
 import qualified Network.IRC as IRC
 
 import Database.Persist.Sql hiding (get)
+
+import Data.Text.Encoding
 
 --uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!uptime")
 -- TODO
@@ -59,87 +55,50 @@ import Database.Persist.Sql hiding (get)
 rawKarmaMatch :: BotEvent -> Bool
 rawKarmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (not . prefixMessage "!")
 
-rawKarma :: (MonadIO m) => ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-rawKarma _ _ = return Nothing
+rawKarma :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
+rawKarma conf pool m@(EMessage _) = do
+    -- ByteString -> utf8
+    -- TODO: error handling
+    let msg   = decodeUtf8 $ messageContent m
+    let nick  = decodeUtf8 $ nickContent m
+    let karma = parseInput conf nick msg
+
+    liftIO $ print karma
+
+    return $ Nothing
+
+rawKarma _ _ _ = return Nothing
 
 
+parseInput :: Config -> T.Text -> T.Text -> KarmaReply
+parseInput config jnick jinput = do
+    -- Raw input, no json needed
+    if filterBot config $ jnick
+    then KarmaReply (Just jnick) Nothing Nothing
+    else do
+        -- Clean up the nick
+        let nick = case parse nickDeFuzzifier "(stdin)" $ jnick of
+                (Left _)  -> jnick
+                (Right n) -> n
 
+        -- Parse the message
+        let karma = parse (karmaParse config) "(stdin)" $ jinput
 
+        case karma of
+            (Left _)  -> KarmaReply (Just nick) Nothing Nothing -- Failed to find a karma entry
+            (Right k) -> do
+                -- Scan the extracted karma expression for the nick
+                let filteredKarma = filterKarma [nick, jnick] k
 
-
-
-
-
-
-
-
-
-
-foo :: IO ()
-foo = do
-    hSetBuffering stdin LineBuffering
-    -- Apparently popen in python can't handle linebuffering
-    hSetBuffering stdout NoBuffering
-
-    -- Force the encoding to utf8, this is only communicating with a wrapping program which
-    -- emits and digests strings in utf8 format.
-    hSetEncoding stdin utf8
-    hSetEncoding stdout utf8
-
-    configFile <- parseArgs `fmap` getArgs
-
-    case configFile of
-        Just x  -> do
-            config <- getConfig x
-            parsingLoop stdin stdout config
-        Nothing -> putStrLn "Please provide one parser config file."
-
-    where
-        parseArgs :: [String] -> Maybe String
-        parseArgs [x] = Just x
-        parseArgs _   = Nothing
-
-        parsingLoop :: Handle -> Handle -> Config -> IO ()
-        parsingLoop i o c = do
-            done <- hIsEOF i
-            unless done $ (sendReply o . parseInput c =<< B.hGetLine i) >> parsingLoop i o c
-
-        parseInput :: Config -> B.ByteString -> KarmaReply
-        parseInput config input = do
-            -- Aeson process the json
-            let parsed = eitherDecode (BL.fromChunks [input]) :: Either String IrcMessage
-
-            case parsed of
-                (Left e)  -> KarmaReply Nothing Nothing (Just e)
-                (Right j) ->
-                    if filterBot config $ ircNick j
-                    then KarmaReply (Just $ ircNick j) Nothing Nothing
-                    else do
-                        -- Clean up the nick
-                        let nick = case parse nickDeFuzzifier "(stdin)" $ ircNick j of
-                                (Left _)  -> ircNick j
-                                (Right n) -> n
-
-                        -- Parse the message
-                        let karma = parse (karmaParse config) "(stdin)" $ ircMessage j
-
-                        case karma of
-                            (Left _)  -> KarmaReply (Just nick) Nothing Nothing -- Failed to find a karma entry
-                            (Right k) -> do
-                                -- Scan the extracted karma expression for the nick
-                                let filteredKarma = filterKarma [nick, ircNick j] k
-
-                                KarmaReply (Just nick) (Just filteredKarma) Nothing
-
-sendReply :: Handle -> KarmaReply -> IO ()
-sendReply o r = B.hPut o $ B.concat $ (BL.toChunks $ encode r) ++ [fromString "\n"]
+                KarmaReply (Just nick) (Just filteredKarma) Nothing
 
 filterKarma :: [T.Text] -> [Karma] -> [Karma]
 filterKarma n = filter (\Karma{kMessage=msg} -> msg `DL.notElem` n)
 
+
 -- Load the config
-getConfig :: FilePath -> IO Config
-getConfig conf = do
+getKarmaConfig :: FilePath -> IO Config
+getKarmaConfig conf = do
     config <- runErrorT (do
         c <- join $ liftIO $ readfile emptyCP conf
 

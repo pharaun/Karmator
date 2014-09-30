@@ -59,9 +59,8 @@ executable karmator
                      , ConfigFile
 
                      -- Karmator
-                     , utf8-string
                      , parsec
-                     , aeson
+                     , monad-logger
 
 executable migration
   main-is:             Migration.hs

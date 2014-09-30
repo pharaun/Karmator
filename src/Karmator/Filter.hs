@@ -3,6 +3,8 @@ module Karmator.Filter
     ( exactCommand
     , prefixMessage
     , whichChannel
+    , messageContent
+    , nickContent
     ) where
 
 import qualified Data.ByteString as BS
@@ -24,3 +26,11 @@ prefixMessage _ _            = False
 whichChannel :: BotEvent -> BS.ByteString
 whichChannel (EMessage m) = head $ IRC.msg_params m -- TODO: unsafe head, and does not support multi-channel privmsg
 whichChannel _            = ""
+
+messageContent :: BotEvent -> BS.ByteString
+messageContent (EMessage m) = head $ tail $ IRC.msg_params m -- TODO: unsafe head/tail, and does not support multi-channel privmsg
+messageContent _            = ""
+
+nickContent :: BotEvent -> BS.ByteString
+nickContent (EMessage (IRC.Message{IRC.msg_prefix=(Just (IRC.NickName n _ _))})) = n
+nickContent _                                                                    = ""

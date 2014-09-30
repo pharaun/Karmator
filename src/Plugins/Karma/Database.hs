@@ -132,9 +132,9 @@ topNDenormalizedT karmaName karmaTotal lmt ord =
 rankingDenormalizedT karmaName karmaTotal whom =
     select $ from (\v -> do
         let sub = from $ (\c -> do
-            where_ (karmaName c ==. val whom)
-            return $ karmaTotal c
-            )
+                where_ (karmaName c ==. val whom)
+                return $ karmaTotal c
+                )
         where_ (karmaTotal v >. sub_select sub)
         return $ count (karmaName v) :: SqlQuery (SqlExpr (Value Int))
         )
