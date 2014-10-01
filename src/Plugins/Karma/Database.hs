@@ -9,6 +9,8 @@ module Plugins.Karma.Database
     , topNSideVotesDenormalized
     , sideVotesRankingDenormalized
 
+    , addKarma
+
     -- Test database migration
     , migrateAll
     ) where
@@ -25,6 +27,8 @@ import Data.Time.Clock (UTCTime)
 import Control.Monad.IO.Class
 
 import Data.Int
+
+import Plugins.Karma.Types (Karma(kMessage,kType), KarmaType(..))
 
 -- Current Schema
 P.share [P.mkPersist P.sqlSettings, P.mkMigrate "migrateAll"] [P.persistLowerCase|
@@ -139,6 +143,19 @@ rankingDenormalizedT karmaName karmaTotal whom =
         return $ count (karmaName v) :: SqlQuery (SqlExpr (Value Int))
         )
 
+addKarma timestamp karmaName karmaValues =
+    insertMany_ (map (\v -> Votes timestamp karmaName (kMessage v) (typeToInt (kType v))) karmaValues)
+  where
+    typeToInt Upvote   = 1
+    typeToInt Sidevote = 0
+    typeToInt Downvote = (-1)
+
+--Votes
+--    votedAt UTCTime
+--    byWhomName Text
+--    forWhatName Text
+--    amount Int
+--    deriving Show
 
 -- @interaction
 --def add_karma(session, json_blob):

@@ -21,6 +21,9 @@ testConfig :: ServerConfig
 testConfig = ServerConfig "chat.freenode.net" 6697 ["levchius"] "Ghost Bot" Nothing True ["#gamelost"] "test.log"
 
 -- TODO: clean up types, needs a better way to get ClockTime into uptime than this
+--      - !karmatorjoin
+--      - !karmatorleave
+--      - !IRC_INVITE (invite command)
 commandRoute :: Config -> ConnectionPool -> ClockTime -> Route [CmdHandler]
 commandRoute c p t = choice
     [ do
@@ -42,11 +45,26 @@ commandRoute c p t = choice
         match rawKarmaMatch
         debug "rawKarmaMatch"
         handler "rawKarma" p (rawKarma c)
+
+    , do
+        match karmaSidevotesMatch
+        debug "karmaSidevotesMatch"
+        handler "karmaSideVotes" p (karmaSidevotes c)
+
+    , do
+        match karmaGiversMatch
+        debug "karmaGiversMatch"
+        handler "karmaGivers" p (karmaGivers c)
+
+    , do
+        match karmaMatch
+        debug "karmaMatch"
+        handler "karma" p (karma c)
     ]
 
 
 main :: IO ()
-main = runStderrLoggingT $ withSqlitePool ":memory:" 1 (\pool -> liftIO $ do
+main = runStderrLoggingT $ withSqlitePool "/tmp/test.db" 1 (\pool -> liftIO $ do
         -- Migrate the db
         flip runSqlPool pool $ (do
             runMigration migrateAll

@@ -25,6 +25,11 @@ main = do
     print =<< runTestTT filterTest
 
     putStrLn ""
+    putStrLn "command parsing tests:"
+    let commandTest = buildCommandTests commandData
+    print =<< runTestTT commandTest
+
+    putStrLn ""
     putStrLn "Testing new karma edge cases"
     let newKarmaTest = buildNewKarmaTests newKarmaData
     print =<< runTestTT newKarmaTest
@@ -79,6 +84,34 @@ botData =
     , "websphere20-websphere"
     , "websphereLA"
     , "karmator"
+    ]
+
+--
+-- Karma Command parsing
+--
+makeCommandConfig = Config [] [] [] [] '(' ')'
+buildCommandTests = TestList . map (\(str, cmd) -> TestLabel "" (commandTest str cmd))
+commandTest str cmd = TestCase (assertEqual "" (Just $ map T.pack cmd) (either (const Nothing) Just (parse (karmaCommandParse makeCommandConfig) "(stdin)" $ T.pack str)))
+
+commandData :: [(String, [String])]
+commandData =
+    [ ("!karma", [])
+    , ("!karma ", [])
+    , ("!karma foo", ["foo"])
+    , ("!karma foo bar", ["foo", "bar"])
+    , ("!karma ()", [])
+    , ("!karma (foo)", ["foo"])
+    , ("!karma (foo bar)", ["foo bar"])
+    , ("!karma (foo bar) baz", ["foo bar", "baz"])
+    , ("!karma foo (bar baz)", ["foo", "bar baz"])
+    , ("!karma foo ( bar baz)", ["foo", " bar baz"])
+    , ("!karma foo (bar baz )", ["foo", "bar baz "])
+    , ("!karma foo ( bar baz )", ["foo", " bar baz "])
+    , ("!karma ((foo))", ["(foo)"])
+    , ("!karma ( (foo))", [" (foo)"])
+    , ("!karma ( (foo) )", [" (foo) "])
+    , ("!karma ( ( foo) )", [" ( foo) "])
+    , ("!karma ( ( foo ) )", [" ( foo ) "])
     ]
 
 --

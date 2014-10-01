@@ -1,12 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Plugins.Karma
-    ( rawKarmaMatch
+    ( karmaMatch
+    , karma
+
+    , karmaSidevotesMatch
+    , karmaSidevotes
+
+    , karmaGiversMatch
+    , karmaGivers
+
+    , rawKarmaMatch
     , rawKarma
 
     , getKarmaConfig
     ) where
 
-import Control.Monad.Error
+import Control.Monad.Except
 import Control.Monad.IO.Class
 import Data.List
 import qualified Data.ByteString.Char8 as C8
@@ -25,6 +34,7 @@ import Text.Parsec
 -- Karma module
 import Plugins.Karma.Karma
 import Plugins.Karma.Types
+import Plugins.Karma.Database
 
 -- Configuration
 import Data.ConfigFile
@@ -38,17 +48,28 @@ import Database.Persist.Sql hiding (get)
 
 import Data.Text.Encoding
 
---uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!uptime")
--- TODO
---  Support these handles:
---      - !karma
---      - !karma foo bar
---      - !karma "foo bar" "coo"
---      - !karmagivers
---      - !sidevotes
---      - !karmatorjoin
---      - !karmatorleave
---      - !IRC_INVITE (invite command)
+import Data.Time.Clock
+
+
+karmaMatch :: BotEvent -> Bool
+karmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!karma")
+
+karma :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
+karma conf pool m@(EMessage _) = undefined
+
+
+karmaSidevotesMatch :: BotEvent -> Bool
+karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!sidevotes")
+
+karmaSidevotes :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
+karmaSidevotes conf pool m@(EMessage _) = undefined
+
+
+karmaGiversMatch :: BotEvent -> Bool
+karmaGiversMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!givers")
+
+karmaGivers :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
+karmaGivers conf pool m@(EMessage _) = undefined
 
 
 -- This takes care of sulping all irc messages to stuff into the karma parser
@@ -63,18 +84,19 @@ rawKarma conf pool m@(EMessage _) = do
     let nick  = decodeUtf8 $ nickContent m
     let karma = parseInput conf nick msg
 
-    liftIO $ print karma
-
-    return $ Nothing
-
+    case karma of
+        (KarmaReply n (Just k)) -> do
+            t <- liftIO $ getCurrentTime
+            liftIO $ runSqlPool (addKarma t n k) pool
+            return $ Nothing
+        otherwise -> return $ Nothing
 rawKarma _ _ _ = return Nothing
-
 
 parseInput :: Config -> T.Text -> T.Text -> KarmaReply
 parseInput config jnick jinput = do
     -- Raw input, no json needed
     if filterBot config $ jnick
-    then KarmaReply (Just jnick) Nothing Nothing
+    then KarmaReply jnick Nothing
     else do
         -- Clean up the nick
         let nick = case parse nickDeFuzzifier "(stdin)" $ jnick of
@@ -85,12 +107,14 @@ parseInput config jnick jinput = do
         let karma = parse (karmaParse config) "(stdin)" $ jinput
 
         case karma of
-            (Left _)  -> KarmaReply (Just nick) Nothing Nothing -- Failed to find a karma entry
+            (Left _)  -> KarmaReply nick Nothing -- Failed to find a karma entry
             (Right k) -> do
                 -- Scan the extracted karma expression for the nick
                 let filteredKarma = filterKarma [nick, jnick] k
 
-                KarmaReply (Just nick) (Just filteredKarma) Nothing
+                if null filteredKarma
+                then KarmaReply nick Nothing
+                else KarmaReply nick (Just filteredKarma)
 
 filterKarma :: [T.Text] -> [Karma] -> [Karma]
 filterKarma n = filter (\Karma{kMessage=msg} -> msg `DL.notElem` n)
@@ -99,7 +123,7 @@ filterKarma n = filter (\Karma{kMessage=msg} -> msg `DL.notElem` n)
 -- Load the config
 getKarmaConfig :: FilePath -> IO Config
 getKarmaConfig conf = do
-    config <- runErrorT (do
+    config <- runExceptT (do
         c <- join $ liftIO $ readfile emptyCP conf
 
         strictMatch <- get c "nick_filtering" "strict_match"

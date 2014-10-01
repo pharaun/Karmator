@@ -11,20 +11,14 @@ module Plugins.Karma.Types
 -- String
 import qualified Data.Text as T
 
-
-data KarmaReply = KarmaReply
-    { rNick :: Maybe T.Text
-    , rKarma :: Maybe [Karma]
-    , rError :: Maybe String
-    } deriving (Show)
-
+data KarmaReply = KarmaReply T.Text (Maybe [Karma])
+    deriving (Show)
 
 data KarmaType = Upvote | Downvote | Sidevote
     deriving (Show, Read, Eq)
 
 data PartialKarmaType = Up | Down | Side
     deriving (Show, Read, Eq)
-
 
 -- Final karma results
 data Karma = Karma
@@ -41,7 +35,6 @@ data KarmaCandidates = KarmaCandidate
     { kncMessage :: String
     }
     deriving (Show, Eq)
-
 
 -- Config stuff
 data Config = Config

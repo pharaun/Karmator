@@ -2,6 +2,7 @@
 module Plugins.Karma.Karma
     ( nickDeFuzzifier
     , filterBot
+    , karmaCommandParse
     , karmaParse
     , nestedKarmaParse
     ) where
@@ -39,6 +40,41 @@ nickDeFuzzifier = do
 --  - If all else fail, scan a list of prefixes to match to the nick (Simple fuzzy matching)
 filterBot :: Config -> T.Text -> Bool
 filterBot c nick = nick `elem` strictMatchList c || L.any (`T.isPrefixOf` nick) (prefixMatchList c)
+
+
+
+-- TODO: Break this out into its own module
+-- TODO: fix this cases
+--    , ("!karma ( (foo))", [" (foo)"])
+--    , ("!karma ( (foo) )", [" (foo) "])
+--    , ("!karma ( ( foo) )", [" ( foo) "])
+--    , ("!karma ( ( foo ) )", [" ( foo ) "])
+karmaCommandParse :: Config -> ParsecT T.Text u Identity [T.Text]
+karmaCommandParse conf = do
+    oneOf "!"
+    skipMany1 letter
+    optional spaces
+
+    words <- choice
+        [ brace conf
+        , simple conf
+        ] `sepEndBy` space
+    eof
+
+    return $ (map T.pack $ filter (/= "") words)
+
+simple :: Config -> ParsecT T.Text u Identity String
+simple conf = many $ noneOf [' ', openBrace conf, closeBrace conf]
+
+brace :: Config -> ParsecT T.Text u Identity String
+brace conf = do
+    before <- L.drop 1 `fmap` many1 (leftBrace conf)
+    expr <- many $ noneOf [openBrace conf, closeBrace conf]
+
+    a <- many1 $ rightBrace conf
+    let after = L.take (L.length a - 1) a
+
+    return $ before ++ expr ++ after
 
 
 
