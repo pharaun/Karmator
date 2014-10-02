@@ -61,6 +61,7 @@ executable karmator
                      -- Karmator
                      , parsec
                      , monad-logger
+                     , formatting
 
 executable migration
   main-is:             Migration.hs

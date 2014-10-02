@@ -10,7 +10,7 @@ INSERT INTO votes_backup(id,voted_at,by_whom_name,for_what_name,amount) SELECT r
 DROP TABLE votes;
 
 CREATE TABLE votes (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY NOT NULL,
     voted_at DATETIME NOT NULL,
     by_whom_name VARCHAR NOT NULL COLLATE nocase,
     for_what_name VARCHAR NOT NULL COLLATE nocase,
@@ -31,7 +31,7 @@ INSERT INTO karma_received_count_backup(id,name,up,down,side) SELECT rowid,name,
 DROP TABLE karma_received_count;
 
 CREATE TABLE karma_received_count (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY NOT NULL,
     name VARCHAR UNIQUE NOT NULL COLLATE nocase,
     up INTEGER NOT NULL,
     down INTEGER NOT NULL,
@@ -52,7 +52,7 @@ INSERT INTO karma_given_count_backup(id,name,up,down,side) SELECT rowid,name,up,
 DROP TABLE karma_given_count;
 
 CREATE TABLE karma_given_count (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY NOT NULL,
     name VARCHAR UNIQUE NOT NULL COLLATE nocase,
     up INTEGER NOT NULL,
     down INTEGER NOT NULL,
@@ -77,7 +77,7 @@ INSERT INTO oldkarma_backup(id,name,normalized,added,subtracted) SELECT id,name,
 DROP TABLE oldkarma;
 
 CREATE TABLE oldkarma (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
     normalized TEXT UNIQUE NOT NULL,
     added INT NOT NULL,
@@ -98,7 +98,7 @@ INSERT INTO oldkrc_backup(id,name,up,down,side) SELECT rowid,name,up,down,side F
 DROP TABLE oldkrc;
 
 CREATE TABLE oldkrc (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY NOT NULL,
     name VARCHAR UNIQUE NOT NULL COLLATE nocase,
     up INTEGER NOT NULL,
     down INTEGER NOT NULL,
@@ -111,22 +111,22 @@ DROP TABLE oldkrc_backup;
 /* Reinstall the triggers */
 CREATE TRIGGER increase_karma_count AFTER INSERT ON votes
   WHEN NEW.amount = 1 BEGIN
-    INSERT OR IGNORE INTO karma_given_count VALUES (NEW.by_whom_name, 0, 0, 0);
+    INSERT OR IGNORE INTO karma_given_count VALUES (NULL, NEW.by_whom_name, 0, 0, 0);
     UPDATE karma_given_count SET up = up + 1 WHERE name = NEW.by_whom_name;
-    INSERT OR IGNORE INTO karma_received_count VALUES (NEW.for_what_name, 0, 0, 0);
+    INSERT OR IGNORE INTO karma_received_count VALUES (NULL, NEW.for_what_name, 0, 0, 0);
     UPDATE karma_received_count SET up = up + 1 WHERE name = NEW.for_what_name;
   END;
 CREATE TRIGGER decrease_karma_count AFTER INSERT ON votes
   WHEN NEW.amount = -1 BEGIN
-    INSERT OR IGNORE INTO karma_given_count VALUES (NEW.by_whom_name, 0, 0, 0);
+    INSERT OR IGNORE INTO karma_given_count VALUES (NULL, NEW.by_whom_name, 0, 0, 0);
     UPDATE karma_given_count SET down = down + 1 WHERE name = NEW.by_whom_name;
-    INSERT OR IGNORE INTO karma_received_count VALUES (NEW.for_what_name, 0, 0, 0);
+    INSERT OR IGNORE INTO karma_received_count VALUES (NULL, NEW.for_what_name, 0, 0, 0);
     UPDATE karma_received_count SET down = down + 1 WHERE name = NEW.for_what_name;
   END;
 CREATE TRIGGER increase_sidevote_count AFTER INSERT ON votes
   WHEN NEW.amount = 0 BEGIN
-    INSERT OR IGNORE INTO karma_given_count VALUES (NEW.by_whom_name, 0, 0, 0);
+    INSERT OR IGNORE INTO karma_given_count VALUES (NULL, NEW.by_whom_name, 0, 0, 0);
     UPDATE karma_given_count SET side = side + 1 WHERE name = NEW.by_whom_name;
-    INSERT OR IGNORE INTO karma_received_count VALUES (NEW.for_what_name, 0, 0, 0);
+    INSERT OR IGNORE INTO karma_received_count VALUES (NULL, NEW.for_what_name, 0, 0, 0);
     UPDATE karma_received_count SET side = side + 1 WHERE name = NEW.for_what_name;
   END;

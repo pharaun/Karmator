@@ -65,11 +65,6 @@ commandRoute c p t = choice
 
 main :: IO ()
 main = runStderrLoggingT $ withSqlitePool "/tmp/test.db" 1 (\pool -> liftIO $ do
-        -- Migrate the db
-        flip runSqlPool pool $ (do
-            runMigration migrateAll
-            )
-
         -- Run the bot
         t <- getClockTime
         c <- getKarmaConfig "src/Plugins/Karma/parser.cfg"

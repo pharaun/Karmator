@@ -11,6 +11,10 @@ module Plugins.Karma.Database
 
     , addKarma
 
+    -- re-exports
+    , desc
+    , asc
+
     -- Test database migration
     , migrateAll
     ) where
@@ -25,6 +29,7 @@ import qualified Data.Text as T
 
 import Data.Time.Clock (UTCTime)
 import Control.Monad.IO.Class
+import Control.Monad
 
 import Data.Int
 
@@ -102,39 +107,45 @@ sideVotesRankingDenormalized KarmaReceived = rankingDenormalizedT karmaReceivedN
 sideVotesRankingDenormalized KarmaGiven    = rankingDenormalizedT karmaGivenName karmaGivenSide
 
 ---------------------------------------------------------------------------------------------
-allKarmaT karmaName karmaUp karmaDown karmaSide = select $ from (\v -> do
-    orderBy [desc (karmaName v)]
-    return (karmaName v, karmaUp v, karmaDown v, karmaSide v)
-    )
+allKarmaT karmaName karmaUp karmaDown karmaSide = do
+    r <- select $ from (\v -> do
+            orderBy [desc (karmaName v)]
+            return (karmaName v, karmaUp v, karmaDown v, karmaSide v)
+            )
+    return $ map (\(n, u, d, s) -> (unValue n, unValue u, unValue d, unValue s)) r
 
 -- TODO: extract the entity and fill out any non-existant entity with 0's for its values
 -- return [(name, ret.get(name, (0, 0, 0))) for name in names]
 partalKarmaT _ _ _ _ [] = return []
 partalKarmaT karmaName karmaUp karmaDown karmaSide names = do
-    select $ from (\v -> do
-        orderBy [desc (karmaName v)]
-        where_ ((karmaName v) `in_` valList names)
-        return (karmaName v, karmaUp v, karmaDown v, karmaSide v)
-        )
+    r <- select $ from (\v -> do
+            orderBy [desc (karmaName v)]
+            where_ ((karmaName v) `in_` valList names)
+            return (karmaName v, karmaUp v, karmaDown v, karmaSide v)
+            )
+    return $ map (\(n, u, d, s) -> (unValue n, unValue u, unValue d, unValue s)) r
 
-countT karmaName whom =
-    select $ from (\v -> do
-        where_ (karmaName v !=. val whom)
-        return $ count (karmaName v) +. val 1 :: SqlQuery (SqlExpr (Value Int))
-        )
+countT karmaName whom = do
+    r <- select $ from (\v -> do
+            where_ (karmaName v !=. val whom)
+            return $ count (karmaName v) +. val 1 :: SqlQuery (SqlExpr (Value Int))
+            )
+    return $ unValue $ head r -- TODO: unsafe head
 
 -- karmaTotal is also good for karmaSide
-topNDenormalizedT karmaName karmaTotal lmt ord =
-    select $ from (\v -> do
-        orderBy [ord (karmaTotal v)]
-        limit lmt
-        return (karmaName v, karmaTotal v)
-        )
+-- TODO: find a nicer way of doing the remap to unvalues
+topNDenormalizedT karmaName karmaTotal lmt ord = do
+    r <- select $ from (\v -> do
+            orderBy [ord (karmaTotal v)]
+            limit lmt
+            return (karmaName v, karmaTotal v)
+            )
+    return $ map (\(n, k) -> (unValue n, unValue k)) r
 
 -- karmaTotal is also good for karmaSide
 -- TODO: i think it needs to be a +1 here
-rankingDenormalizedT karmaName karmaTotal whom =
-    select $ from (\v -> do
+rankingDenormalizedT karmaName karmaTotal whom = do
+    r <- select $ from (\v -> do
         let sub = from $ (\c -> do
                 where_ (karmaName c ==. val whom)
                 return $ karmaTotal c
@@ -142,6 +153,7 @@ rankingDenormalizedT karmaName karmaTotal whom =
         where_ (karmaTotal v >. sub_select sub)
         return $ count (karmaName v) :: SqlQuery (SqlExpr (Value Int))
         )
+    return $ unValue $ head r -- TODO: unsafe head
 
 addKarma timestamp karmaName karmaValues =
     insertMany_ (map (\v -> Votes timestamp karmaName (kMessage v) (typeToInt (kType v))) karmaValues)
@@ -149,19 +161,3 @@ addKarma timestamp karmaName karmaValues =
     typeToInt Upvote   = 1
     typeToInt Sidevote = 0
     typeToInt Downvote = (-1)
-
---Votes
---    votedAt UTCTime
---    byWhomName Text
---    forWhatName Text
---    amount Int
---    deriving Show
-
--- @interaction
---def add_karma(session, json_blob):
---    by_whom_name = json_blob['nick']
---    for kind in json_blob['karma']:
---        q = (vote.insert()
---             .values(by_whom_name=by_whom_name, for_what_name=kind['message'],
---                     amount=vote_amount_map[kind['karma_type']]))
---        session.execute(q)
