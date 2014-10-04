@@ -60,7 +60,29 @@ karmaSidevotesMatch :: BotEvent -> Bool
 karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!sidevotes")
 
 karmaSidevotes :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karmaSidevotes conf pool m@(EMessage _) = undefined
+karmaSidevotes conf pool m@(EMessage _) = do
+    let nick     = T.decodeUtf8 $ nickContent m
+    let countMax = 3
+
+    (received, given, nHigherReceived, totalReceived, nHigherGiven, totalGiven) <- liftIO $ flip runSqlPool pool (do
+            a <- topNSideVotesDenormalized KarmaReceived countMax
+            b <- topNSideVotesDenormalized KarmaGiven countMax
+            c <- sideVotesRankingDenormalized KarmaGiven nick
+            d <- countK KarmaGiven nick
+            e <- sideVotesRankingDenormalized KarmaReceived nick
+            f <- countK KarmaReceived nick
+            return (a, b, c, d, e, f)
+        )
+    return $ Just $ CMessage $ IRC.privmsg (whichChannel m) $ BL.toStrict $ TL.encodeUtf8 (
+        format (stext % ", most sidevotes received: " % stext % ". most sidevotes given: " % stext % ". your rank is " % int % " of " % int % " in giving and " % int % " of " % int % " in receiving.")
+               nick
+               (T.intercalate "; " $ map (\(n, k) -> T.concat [n, " (", T.pack $ show k, ")"]) received)
+               (T.intercalate "; " $ map (\(n, k) -> T.concat [n, " (", T.pack $ show k, ")"]) given)
+               (nHigherReceived + 1)
+               totalReceived
+               (nHigherGiven + 1)
+               totalGiven
+        )
 karmaSidevotes _ _ _ = return Nothing
 
 
@@ -68,20 +90,19 @@ karmaMatch :: BotEvent -> Bool
 karmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!karma")
 
 karma :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karma conf pool m = karmaStats conf pool KarmaReceived 3 m
+karma conf pool m = karmaStats conf pool KarmaReceived 3 False m
 
 
 karmaGiversMatch :: BotEvent -> Bool
 karmaGiversMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!givers")
 
--- TODO: return '%s, most positive: %s. most negative: %s. your rank is %d of %d in positivity.'
 karmaGivers :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karmaGivers conf pool m = karmaStats conf pool KarmaGiven 3 m
+karmaGivers conf pool m = karmaStats conf pool KarmaGiven 3 True m
 
 
 -- TODO: different formatting string for the general case
-karmaStats :: (MonadIO m) => Config -> ConnectionPool -> KarmaTable -> Int64 -> BotEvent -> m (Maybe BotCommand)
-karmaStats conf pool karmaType countMax m@(EMessage _) =
+karmaStats :: (MonadIO m) => Config -> ConnectionPool -> KarmaTable -> Int64 -> Bool -> BotEvent -> m (Maybe BotCommand)
+karmaStats conf pool karmaType countMax givers m@(EMessage _) =
     case (parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m) of
         (Left _)   -> return $ Just $ CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"
         (Right []) -> do
@@ -94,7 +115,9 @@ karmaStats conf pool karmaType countMax m@(EMessage _) =
                     return (a, b, c, d)
                 )
             return $ Just $ CMessage $ IRC.privmsg (whichChannel m) $ BL.toStrict $ TL.encodeUtf8 (
-                format (stext % ", highest karma: " % stext % ". lowest karma: " % stext % ". your rank is " % int % " of " % int % ".")
+                format (if givers
+                        then (stext % ", most positive: " % stext % ". most negative: " % stext % ". your rank is " % int % " of " % int % " in positivity.")
+                        else (stext % ", highest karma: " % stext % ". lowest karma: " % stext % ". your rank is " % int % " of " % int % "."))
                        nick
                        (T.intercalate "; " $ map (\(n, k) -> T.concat [n, " (", T.pack $ show k, ")"]) topNDesc)
                        (T.intercalate "; " $ map (\(n, k) -> T.concat [n, " (", T.pack $ show k, ")"]) topNAsc)
@@ -110,7 +133,7 @@ karmaStats conf pool karmaType countMax m@(EMessage _) =
                     nick
                     (TL.intercalate "; " $ map (\(name, p, n, s) -> format (stext % ", " % int % " (" % int % "++/" % int % "--/" % int % "+-)") name (p-n) p n s) count)
                 )
-karmaStats _ _ _ _ _ = return Nothing
+karmaStats _ _ _ _ _ _ = return Nothing
 
 
 
