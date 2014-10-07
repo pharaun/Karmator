@@ -25,6 +25,7 @@ executable karmator
                      , mtl
                      , text
                      , transformers >=0.4 && <0.5
+                     , mtl
                      , free
                      , pretty
                      , async
