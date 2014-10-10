@@ -19,15 +19,14 @@ import Karmator.Route
 import Karmator.Server
 
 
--- TODO: Nice to move TLS config into ServerConfig, Also perhaps nuke ServerPersisitentState
-runBot :: [(Bool, ServerConfig)] -> Route [CmdHandler] -> IO ()
+runBot :: [ServerConfig] -> Route [CmdHandler] -> IO ()
 runBot s r = do
     -- Start up the bot command + route
     q <- newTQueueIO
     bot <- async (runCommand q [r])
 
     -- Give the input to each server thread and spawn them
-    servers <- mapM (\(tls, sc) -> async (runServer tls sc q)) s
+    servers <- mapM (\sc -> async (runServer sc q)) s
 
     -- TODO: more sophsicated logic here, we exit upon shutdown of any
     -- server/bot async

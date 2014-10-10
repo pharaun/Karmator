@@ -22,9 +22,10 @@ import Control.Concurrent.STM
 import Control.Monad.Trans.Free
 import Text.Show.Functions()
 
-
 import qualified Data.ByteString as BS
 import qualified Network.IRC as IRC
+import qualified Network.TLS as TLS
+
 
 -- Per server config for the bot
 data ServerConfig = ServerConfig
@@ -33,6 +34,8 @@ data ServerConfig = ServerConfig
     , nicks :: [BS.ByteString] -- First one then alternatives in descending order
     , userName :: BS.ByteString
     , serverPassword :: Maybe BS.ByteString
+
+    , tlsSettings :: Maybe TLS.ClientParams
 
     -- TODO
     , reconnect :: Bool

@@ -1,9 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Karmator.Server
-    ( establishTLS
-    , establish
-
-    , runServer
+    ( runServer
     ) where
 
 import Data.List
@@ -36,86 +33,43 @@ import qualified Network.TLS as TLS
 import Karmator.Types
 import Network.IRC.Patch
 
-
--- TODO: This needs some way of interfacing with the currently existing server stuff
--- TODO: Merge these two and add in ssl configuration
-runServer :: Bool -> ServerConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
-runServer tls sc queue =
-    if tls
-    then establishTLS sc queue
-    else establish sc queue
-
 --
--- Establish TLS connection
+-- Establish and run a server connection (tls/plain)
 --
-establishTLS :: ServerConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
-establishTLS sc q = PNT.withSocketsDo $
+runServer :: ServerConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
+runServer sc queue = PNT.withSocketsDo $
     -- Establish the logfile
     withFile (logfile sc) AppendMode (\l -> do
+        -- Set log to be unbuffered for testing
+        hSetBuffering l NoBuffering
 
-        -- Establish the client configuration
-        params <- TLS.makeClientSettings Nothing (server sc) (show $ port sc) True <$> TLS.getSystemCertificateStore
+        -- Server queue
+        sq <- newTQueueIO
+        let ss = ServerState sc l queue sq
 
-        -- Workaround with a bug about connecting to sockets with domain name with ipv6 bridge up
-        let params' = params
-                { TLS.clientServerIdentification = ("chat.freenode.net", C8.pack $ show $ port sc)
-                , TLS.clientHooks = (TLS.clientHooks params)
-                    { TLS.onCertificateRequest = \_ -> return Nothing
-                    }
-                }
+        -- Establish tls/norm connection
+        -- TODO: dedup this further
+        -- TODO: add in reconnect support
+        case (tlsSettings sc) of
+            Nothing  -> PNT.connect (server sc) (show $ port sc) (\(sock, _) -> do
+                    -- Emit connection established here
+                    atomically $ writeTQueue queue (ConnectionEstablished, sq)
 
-        -- Stablish connection
-        TLS.connect params' (server sc) (show $ port sc) (\(context, _) -> do
+                    -- Normal irc stuff
+                    handleIRC (PNT.fromSocket sock 8192 >-> log l) (log l >-> PNT.toSocket sock) ss
+                )
 
-            -- Set log to be unbuffered for testing
-            hSetBuffering l NoBuffering
+            Just tls -> TLS.connect tls (server sc) (show $ port sc) (\(context, _) -> do
+                    -- Emit connection established here
+                    atomically $ writeTQueue queue (ConnectionEstablished, sq)
 
-            -- Server queue
-            sq <- newTQueueIO
+                    -- Normal irc stuff
+                    handleIRC (TLS.fromContext context >-> log l) (log l >-> TLS.toContext context) ss
+                )
 
-            let ss = ServerState sc l q sq
-
-            -- Emit connection established here
-            atomically $ writeTQueue q (ConnectionEstablished, sq)
-
-            -- Normal irc stuff
-            handleIRC (TLS.fromContext context >-> log l) (log l >-> TLS.toContext context) ss
-
-            -- Emit connection lost here
-            atomically $ writeTQueue q (ConnectionLost, sq)
-            )
+        -- Emit connection lost here
+        atomically $ writeTQueue queue (ConnectionLost, sq)
         )
-
---
--- Establish an irc session with this server
---
-establish :: ServerConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
-establish sc q = PNT.withSocketsDo $
-    -- Establish the logfile
-    withFile (logfile sc) AppendMode (\l ->
-        -- TODO: do some form of dns lookup and prefer either v6 or v4
-
-        -- Establish stocket
-        PNT.connect (server sc) (show $ port sc) (\(sock, _) -> do
-
-            -- Set log to be unbuffered for testing
-            hSetBuffering l NoBuffering
-
-            -- Server queue
-            sq <- newTQueueIO
-
-            let ss = ServerState sc l q sq
-
-            -- Emit connection established here
-            atomically $ writeTQueue q (ConnectionEstablished, sq)
-
-            -- Normal irc stuff
-            handleIRC (PNT.fromSocket sock 8192 >-> log l) (log l >-> PNT.toSocket sock) ss
-
-            -- Emit connection lost here
-            atomically $ writeTQueue q (ConnectionLost, sq)
-        )
-    )
 
 
 --
