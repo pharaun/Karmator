@@ -106,7 +106,7 @@ data BotCommand
     = Disconnect
     | Die
     | CMessage IRC.Message
-    deriving (Show)
+    deriving (Show,Eq)
 
 -- Routing
 data Segment m i o n
