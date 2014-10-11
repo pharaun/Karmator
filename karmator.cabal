@@ -1,89 +1,104 @@
 name:                karmator
-version:             0.1.0.0
-synopsis:            An IRC bot written in Haskell
--- description:
-homepage:            https://github.com/pharaun/Karmator
-license:             BSD3
-license-file:        LICENSE
 author:              Anja Berens
 maintainer:          pharaun666@gmail.com
--- copyright:
-category:            Network
+copyright:           (c) Anja Berens
+version:             0.1.0.0
+license:             BSD3
+license-file:        LICENSE
 build-type:          Simple
-extra-source-files:  README.rst
 cabal-version:       >=1.10
+category:            Network
+synopsis:            An IRC bot written in Haskell
+homepage:            https://github.com/pharaun/Karmator
+-- description:
+extra-source-files:  README.rst
+                     karmator-bot/Plugins/Karma/parser.cfg
+                     schema/*.sql
 
-executable karmator
-  main-is:             Main.hs
+source-repository head
+  type:     git
+  location: https://github.com/pharaun/Karmator.git
+  branch:   master
+
+library
+  exposed-modules:     Karmator.Bot
+                       Karmator.Filter
+                       Karmator.Route
+                       Karmator.Server
+                       Karmator.Types
+                       Network.IRC.Patch
   default-language:    Haskell2010
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts
   hs-source-dirs:      src
   extra-libraries:     pthread
   build-depends:       base >=4.5 && <4.8
+                     , async
                      , attoparsec
                      , bytestring >= 0.10
-                     , mtl
                      , text
                      , transformers >=0.4 && <0.5
                      , mtl
                      , free
-                     , pretty
-                     , async
-                     , stm
-                     -- Irc
                      , irc >= 0.6
-                     -- Pipes
+                     , mtl
+                     , network >= 2.5
+                     , network-simple-tls >= 0.3
                      , pipes
                      , pipes-attoparsec >= 0.4.0
                      , pipes-network
                      , pipes-network-tls >= 0.3
-                     -- Network/TLS
-                     , network >= 2.5
-                     , network-simple-tls >= 0.3
+                     , pretty
+                     , stm
                      , tls >= 1.2.2
+                     , transformers >=0.4 && <0.5
                      , x509-system
 
-                     -- Persistent
-                     , scientific
-                     , esqueleto
-                     , persistent
-                     , persistent-template
-                     , persistent-sqlite
+executable karmator
+  other-modules:       Plugins.Generic
+                       Plugins.Karma
+                       Plugins.Karma.Database
+                       Plugins.Karma.Karma
+                       Plugins.Karma.Types
+  main-is:             Main.hs
+  default-language:    Haskell2010
+  ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts
+  hs-source-dirs:      karmator-bot
+  extra-libraries:     pthread
+  build-depends:       base >=4.5 && <4.8
+                     , karmator
 
-                     -- Timezone updates
-                     , timezone-olson
-                     , timezone-series
-                     , time
-                     , old-time
-
-                     -- Config stuff
                      , ConfigFile
-
-                     -- Karmator
-                     , parsec
-                     , monad-logger
+                     , bytestring >= 0.10
+                     , esqueleto
                      , formatting
+                     , irc >= 0.6
+                     , monad-logger
+                     , mtl
+                     , network >= 2.5
+                     , network-simple-tls >= 0.3
+                     , old-time
+                     , parsec
+                     , persistent
+                     , persistent-sqlite
+                     , persistent-template
+                     , text
+                     , time
+                     , tls >= 1.2.2
+                     , transformers >=0.4 && <0.5
+                     , x509-system
 
 executable migration
   main-is:             Migration.hs
   default-language:    Haskell2010
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts
-  hs-source-dirs:      src
+  hs-source-dirs:      karmator-migration
   extra-libraries:     pthread
   build-depends:       base >=4.5 && <4.8
-                     , bytestring >= 0.10
-                     , transformers >=0.4 && <0.5
-                     , text
-
-                     -- Persistent
-                     , scientific
-                     , esqueleto
+                     , conduit
                      , persistent
                      , persistent-sqlite
                      , persistent-template
-                     , conduit
-
-                     -- Timezone updates
+                     , text
                      , timezone-olson
                      , timezone-series
-                     , time
+                     , transformers >=0.4 && <0.5

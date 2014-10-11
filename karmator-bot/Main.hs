@@ -9,7 +9,6 @@ import Control.Applicative
 import Network
 
 import qualified Data.ByteString.Char8 as C8
-import qualified Pipes.Network.TCP.TLS as TLS
 import qualified Network.Simple.TCP.TLS as TLS
 import qualified System.X509.Unix as TLS
 import qualified Network.TLS as TLS
