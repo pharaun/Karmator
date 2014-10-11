@@ -1,4 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
+module Tests.KarmaParser
+    ( nickNameTests
+    , botFilteringTests
+    , commandParsingTests
+    , newKarmaEdgeCaseTests
+    , karmaEdgeCaseTests
+    ) where
+
 import Test.HUnit
 import Test.QuickCheck
 
@@ -9,35 +17,18 @@ import Data.Maybe (catMaybes)
 
 import Text.Parsec
 
-
 import Plugins.Karma.Karma
 import Plugins.Karma.Types
 
-main :: IO ()
-main = do
-    putStrLn "Nickname tests:"
-    let nickTest = buildNickTests nickData
-    print =<< runTestTT nickTest
+--
+-- Test Case exports
+--
+nickNameTests           = TestLabel "Nickname Tests" (buildNickTests nickData)
+botFilteringTests       = TestLabel "Bot Filtering Tests" (buildFilterTests botData)
+commandParsingTests     = TestLabel "Command Parsing Tests" (buildCommandTests commandData)
+newKarmaEdgeCaseTests   = TestLabel "New Karma Edge Case Tests" (buildNewKarmaTests newKarmaData)
+karmaEdgeCaseTests      = TestLabel "Karma Edge Case Tests" (buildKarmaTests karmaData)
 
-    putStrLn ""
-    putStrLn "Bot Filtering tests:"
-    let filterTest = buildFilterTests botData
-    print =<< runTestTT filterTest
-
-    putStrLn ""
-    putStrLn "command parsing tests:"
-    let commandTest = buildCommandTests commandData
-    print =<< runTestTT commandTest
-
-    putStrLn ""
-    putStrLn "Testing new karma edge cases"
-    let newKarmaTest = buildNewKarmaTests newKarmaData
-    print =<< runTestTT newKarmaTest
-
-    putStrLn ""
-    putStrLn "Karma Edge case tests:"
-    let karmaTest = buildKarmaTests karmaData
-    print =<< runTestTT karmaTest
 
 --
 -- Nick name Defuzzifier tests
@@ -61,21 +52,21 @@ nickData =
     , ("Nick^", "Nick")
 
     -- Acknowledged failures
-    , ("Nick0", "Nick") -- Should be: Nick0
-    , ("Nicktron", "Nicktron") -- Should be: Nick
-    , ("ghost_of_Nick", "ghost") -- Should be: Nick
-    , ("iNick4S", "iNick") -- Should be: Nick
-    , ("pharaun", "pharaun") -- Should be: Nick
-    , ("push-Nick", "push") -- Should be: Nick
-    , ("interview^Nick", "interview") -- Should be: Nick
+    , ("Nick0", "Nick0")
+    , ("Nicktron", "Nick")
+    , ("ghost_of_Nick", "Nick")
+    , ("iNick4S", "Nick")
+    , ("pharaun", "Nick")
+    , ("push-Nick", "Nick")
+    , ("interview^Nick", "Nick")
     ]
 
 --
 -- Identifying bots and filtering
 --
 makeConfig = Config ["karmator"] ["websphere"] [] [] '(' ')'
-buildFilterTests = TestList . map (\bot  -> TestLabel bot (botFilterTest bot))
-botFilterTest bot = TestCase (assertEqual ("Filters out: " ++ bot) True (filterBot makeConfig $ T.pack bot))
+buildFilterTests = TestList . map (\bot  -> TestLabel ("Filters out " ++ bot) (botFilterTest bot))
+botFilterTest bot = TestCase (assertEqual "" True (filterBot makeConfig $ T.pack bot))
 
 botData :: [String]
 botData =
@@ -90,7 +81,7 @@ botData =
 -- Karma Command parsing
 --
 makeCommandConfig = Config [] [] [] [] '(' ')'
-buildCommandTests = TestList . map (\(str, cmd) -> TestLabel "" (commandTest str cmd))
+buildCommandTests = TestList . map (\(str, cmd) -> TestLabel str (commandTest str cmd))
 commandTest str cmd = TestCase (assertEqual "" (Just $ map T.pack cmd) (either (const Nothing) Just (parse (karmaCommandParse makeCommandConfig) "(stdin)" $ T.pack str)))
 
 commandData :: [(String, [String])]
@@ -118,7 +109,7 @@ commandData =
 -- NewKarmaType test cases
 --
 makeKarmaConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)] '(' ')'
-buildNewKarmaTests = TestList . map (\(str, karma) -> TestLabel "" (newKarmaTest str karma))
+buildNewKarmaTests = TestList . map (\(str, karma) -> TestLabel str (newKarmaTest str karma))
 newKarmaTest str karma = TestCase (assertEqual "" (Just karma) (either (const Nothing) Just (parse (nestedKarmaParse makeKarmaConfig) "(stdin)" $ T.pack str)))
 
 newKarmaData :: [(String, [KarmaCandidates])]
@@ -208,7 +199,7 @@ newKarmaData =
 -- Karma Parsing tests
 --
 makeKarmaParseConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)] '(' ')'
-buildKarmaTests = TestList . map (\(src, dst) -> TestLabel "" (karmaTest src dst))
+buildKarmaTests = TestList . map (\(src, dst) -> TestLabel src (karmaTest src dst))
 karmaTest str result = TestCase (assertEqual "" result (either (const []) id (parse (karmaParse makeKarmaParseConfig) "(stdin)" $ T.pack str)))
 
 

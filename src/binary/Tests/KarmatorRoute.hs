@@ -1,4 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
+module Tests.KarmatorRoute
+    ( routingTests
+    ) where
 import Test.HUnit
 
 import Control.Monad.IO.Class
@@ -8,16 +11,14 @@ import qualified Network.IRC as IRC
 import Karmator.Types
 import Karmator.Route
 
+--
+-- Test Case exports
+--
+routingTests = TestLabel "Routing Tests" (buildRouteTests routeData)
 
 --
--- Execute some tests
+-- Tests
 --
-main :: IO ()
-main = do
-    putStrLn "Routing tests"
-    let routeTest = buildRouteTests routeData
-    print =<< runTestTT routeTest
-
 buildRouteTests = TestList . map (\(input, result) -> TestLabel (show input ++ " -> " ++ show result) (routeTest input result))
 
 -- TODO: non-ideal to compare the output of an handle but it'll do for now
