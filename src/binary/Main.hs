@@ -1,13 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import System.Time
-import Control.Monad.IO.Class
-import Database.Persist.Sql hiding (get)
-import Database.Persist.Sqlite
-import Control.Monad.Logger
 import Control.Applicative
+import Control.Monad
+import Control.Monad.Except
+import Control.Monad.IO.Class
+import Control.Monad.Logger
+import Data.ConfigFile
+import Database.Persist.Sql hiding (get)
+import Database.Persist.Sqlite hiding (get)
 import Network
+import System.Time
 
+import qualified Data.Text as T
 import qualified Data.ByteString.Char8 as C8
 import qualified Network.Simple.TCP.TLS as TLS
 import qualified System.X509.Unix as TLS
@@ -22,33 +26,6 @@ import Plugins.Generic
 import Plugins.Karma
 import Plugins.Karma.Database
 import Plugins.Karma.Types (Config)
-
-
---
--- Server configuration
---
-freenodeConfig :: IO ServerConfig
-freenodeConfig = do
-    let host    = "weber.freenode.net"
-    let tlsHost = "chat.freenode.net"
-    let port    = 6697
-    let channel = ["#gamelost"]
-    let nicks   = ["levchius"]
-    let user    = "Ghost Bot"
-    let pass    = Nothing
-    let reconn  = True
-    let logfile = "test.log"
-
-    -- Setup the TLS configuration
-    tls <- TLS.makeClientSettings Nothing host (show port) True <$> TLS.getSystemCertificateStore
-    let tls' = tls
-            { TLS.clientServerIdentification = (tlsHost, C8.pack $ show port)
-            , TLS.clientHooks = (TLS.clientHooks tls)
-                { TLS.onCertificateRequest = \_ -> return Nothing
-                }
-            }
-
-    return $ ServerConfig host port nicks user pass (Just tls') reconn channel logfile
 
 --
 -- Routes configuration
@@ -97,13 +74,58 @@ commandRoute c p t = choice
 
 
 main :: IO ()
-main = runStderrLoggingT $ withSqlitePool "/tmp/test.db" 1 (\pool -> liftIO $ do
+main = do
+    (database, karmaConf, servers) <- getBotConfig "src/binary/bot.cfg"
+    runStderrLoggingT $ withSqlitePool database 1 (\pool -> liftIO $ do
         -- Run the bot
         t <- getClockTime
-        c <- getKarmaConfig "src/Plugins/Karma/parser.cfg"
-        n <- freenodeConfig
+        c <- getKarmaConfig karmaConf
 
-        runBot [n] (commandRoute c pool t)
+        runBot servers (commandRoute c pool t)
 
         return ()
         )
+
+-- Load the bot config
+getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig])
+getBotConfig conf = do
+    config <- runExceptT (do
+        c <- join $ liftIO $ readfile emptyCP conf
+
+        -- Bot config
+        database  <- get c "bot" "database"
+        karmaConf <- get c "bot" "karma_config"
+
+        -- Get a list of section, each is a server config
+        servers <- mapM (getServerConfig c) $ filter ((/=) "bot") $ sections c
+
+        return (database, karmaConf, servers))
+
+    case config of
+        Left cperr   -> error $ show cperr
+        Right config -> return config
+  where
+    getServerConfig c s = do
+        host    <- get c s "host"
+        port    <- get c s "port"
+        nicks   <- get c s "nicks"
+        user    <- get c s "user"
+        pass    <- get c s "pass"
+        channel <- get c s "channel"
+        tlsHost <- get c s "tls_host"
+        logfile <- get c s "logfile"
+        reconn  <- get c s "reconn"
+
+        tls <- case tlsHost of
+            Nothing -> return Nothing
+            Just th -> do
+                -- Setup the TLS configuration
+                tls <- liftIO $ TLS.makeClientSettings Nothing host (show port) True <$> TLS.getSystemCertificateStore
+                return $ Just $ tls
+                        { TLS.clientServerIdentification = (th, C8.pack $ show port)
+                        , TLS.clientHooks = (TLS.clientHooks tls)
+                            { TLS.onCertificateRequest = \_ -> return Nothing
+                            }
+                        }
+
+        return $ ServerConfig host (fromInteger port) nicks user pass tls reconn channel logfile

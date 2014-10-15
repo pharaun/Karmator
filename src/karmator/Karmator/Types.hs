@@ -73,6 +73,7 @@ data ServerConfig = ServerConfig
     --  modes
     --
     }
+    deriving (Show)
 
 -- Ephemeral State:
 data ServerState = ServerState
