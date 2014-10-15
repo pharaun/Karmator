@@ -75,6 +75,7 @@ commandRoute c p t = choice
 
 main :: IO ()
 main = do
+    -- Externalize/argv the botconfig filepath
     (database, karmaConf, servers) <- getBotConfig "src/binary/bot.cfg"
     runStderrLoggingT $ withSqlitePool database 1 (\pool -> liftIO $ do
         -- Run the bot
@@ -115,6 +116,7 @@ getBotConfig conf = do
         tlsHost <- get c s "tls_host"
         logfile <- get c s "logfile"
         reconn  <- get c s "reconn"
+        reWait  <- get c s "reconn_wait" -- In seconds
 
         tls <- case tlsHost of
             Nothing -> return Nothing
@@ -128,4 +130,4 @@ getBotConfig conf = do
                             }
                         }
 
-        return $ ServerConfig host (fromInteger port) nicks user pass tls reconn channel logfile
+        return $ ServerConfig host (fromInteger port) nicks user pass tls reconn (reWait * 1000000) channel logfile

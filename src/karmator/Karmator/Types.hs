@@ -37,8 +37,8 @@ data ServerConfig = ServerConfig
 
     , tlsSettings :: Maybe TLS.ClientParams
 
-    -- TODO
     , reconnect :: Bool
+    , reconnectWait :: Int -- Microseconds
 
     -- Default set of channels to always join
     , channels :: [BS.ByteString]

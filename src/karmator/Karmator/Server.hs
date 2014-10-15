@@ -8,6 +8,7 @@ import System.IO
 import Control.Monad.Reader
 import Control.Monad.Trans.State.Strict
 import Prelude hiding (log)
+import Control.Concurrent hiding (yield)
 import Control.Concurrent.STM
 import Control.Concurrent.Async
 
@@ -48,29 +49,31 @@ runServer sc queue = PNT.withSocketsDo $
         let ss = ServerState sc l queue sq
 
         -- Establish tls/norm connection
-        -- TODO: dedup this further
-        -- TODO: add in reconnect support
-        case (tlsSettings sc) of
-            Nothing  -> PNT.connect (server sc) (show $ port sc) (\(sock, _) -> do
-                    -- Emit connection established here
-                    atomically $ writeTQueue queue (ConnectionEstablished, sq)
+        forever $ do
+            -- TODO: dedup this further
+            case (tlsSettings sc) of
+                Nothing  -> PNT.connect (server sc) (show $ port sc) (\(sock, _) -> do
+                        -- Emit connection established here
+                        atomically $ writeTQueue queue (ConnectionEstablished, sq)
 
-                    -- Normal irc stuff
-                    handleIRC (PNT.fromSocket sock 8192 >-> log l) (log l >-> PNT.toSocket sock) ss
-                )
+                        -- Normal irc stuff
+                        handleIRC (PNT.fromSocket sock 8192 >-> log l) (log l >-> PNT.toSocket sock) ss
+                    )
 
-            Just tls -> TLS.connect tls (server sc) (show $ port sc) (\(context, _) -> do
-                    -- Emit connection established here
-                    atomically $ writeTQueue queue (ConnectionEstablished, sq)
+                Just tls -> TLS.connect tls (server sc) (show $ port sc) (\(context, _) -> do
+                        -- Emit connection established here
+                        atomically $ writeTQueue queue (ConnectionEstablished, sq)
 
-                    -- Normal irc stuff
-                    handleIRC (TLS.fromContext context >-> log l) (log l >-> TLS.toContext context) ss
-                )
+                        -- Normal irc stuff
+                        handleIRC (TLS.fromContext context >-> log l) (log l >-> TLS.toContext context) ss
+                    )
 
-        -- Emit connection lost here
-        atomically $ writeTQueue queue (ConnectionLost, sq)
+            -- Emit connection lost here
+            atomically $ writeTQueue queue (ConnectionLost, sq)
+
+            -- Wait for a bit before retrying
+            threadDelay $ reconnectWait sc
         )
-
 
 --
 -- Parses incoming irc messages and emits any errors to a log and keep going
