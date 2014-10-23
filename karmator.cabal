@@ -52,6 +52,8 @@ library
                      , tls >= 1.2.2
                      , transformers >=0.4 && <0.5
                      , x509-system
+                     , errors >= 1.4.0
+                     , safe >= 0.3
 
 executable karmator
   other-modules:       Plugins.Generic
@@ -69,7 +71,7 @@ executable karmator
 
                      , ConfigFile
                      , bytestring >= 0.10
-                     , esqueleto
+                     , esqueleto >= 2.0.0
                      , formatting
                      , irc >= 0.6
                      , monad-logger
@@ -78,10 +80,10 @@ executable karmator
                      , network-simple-tls >= 0.3
                      , old-time
                      , parsec
-                     , persistent
-                     , persistent-sqlite
-                     , persistent-template
-                     , text
+                     , persistent >= 2.0.0
+                     , persistent-sqlite >= 2.0.0
+                     , persistent-template >= 2.0
+                     , text >= 1.2.0.0
                      , time
                      , tls >= 1.2.2
                      , transformers >=0.4 && <0.5

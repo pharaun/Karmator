@@ -11,7 +11,6 @@ module Karmator.Route
     , Route
     , CmdHandler
 
-    , executeCmdRef
     ) where
 
 import Control.Applicative
@@ -20,10 +19,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Free
 import Text.PrettyPrint.HughesPJ
 import Text.Show.Functions()
-
-
--- TODO: bad
-import qualified Data.ByteString.Char8 as C8
 
 import qualified Network.IRC as IRC
 import Karmator.Types
@@ -88,7 +83,3 @@ debugRoute f m = do
     showPrettyList (h:tl) = char '[' <+> h $+$ vcat (map showTail tl) $+$ char ']'
       where
         showTail x = char ',' <+> x
-
--- TODO: find better home for this
-executeCmdRef :: [CmdHandler] -> BotEvent -> IO [Maybe BotCommand]
-executeCmdRef cs m = mapM (\(CmdRef _ st h) -> h st m) cs

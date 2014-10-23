@@ -10,7 +10,7 @@ module Plugins.Karma.Karma
 import qualified Data.Text as T
 
 -- Parsec
-import Text.Parsec
+import Text.Parsec hiding (Parser)
 import Text.Parsec.Text (Parser)
 import Data.Functor.Identity (Identity)
 

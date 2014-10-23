@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Karmator.Bot
     ( runBot
+    , executeCmdRef
     ) where
 
 import System.IO
@@ -41,3 +42,7 @@ runCommand q routes = forever $ do
     results <- executeCmdRef cmdRefs msg
 
     mapM (atomically . writeTQueue reply) (catMaybes results)
+
+
+executeCmdRef :: [CmdHandler] -> BotEvent -> IO [Maybe BotCommand]
+executeCmdRef cs m = mapM (\(CmdRef _ st h) -> h st m) cs

@@ -3,16 +3,20 @@ module Karmator.Server
     ( runServer
     ) where
 
-import Data.List
-import System.IO
+import Safe
+import Control.Error
 import Control.Monad.Reader
 import Control.Monad.Trans.State.Strict
-import Prelude hiding (log)
+import Data.List hiding (head, tail)
+import Prelude hiding (log, head, tail)
+import System.IO
 import Control.Concurrent hiding (yield)
 import Control.Concurrent.STM
 import Control.Concurrent.Async
 
 import qualified Data.ByteString as BS
+
+-- TODO: kill this here
 import qualified Data.ByteString.Char8 as C8
 
 import qualified Pipes.Network.TCP as PNT
@@ -50,22 +54,38 @@ runServer sc queue = PNT.withSocketsDo $
 
         -- Establish tls/norm connection
         forever $ do
-            -- TODO: dedup this further
-            case (tlsSettings sc) of
+            case tlsSettings sc of
+                -- TODO: error handling to handle failure of connection
                 Nothing  -> PNT.connect (server sc) (show $ port sc) (\(sock, _) -> do
-                        -- Emit connection established here
-                        atomically $ writeTQueue queue (ConnectionEstablished, sq)
+                    -- Emit connection established here
+                    atomically $ writeTQueue queue (ConnectionEstablished, sq)
 
-                        -- Normal irc stuff
-                        handleIRC (PNT.fromSocket sock 8192 >-> log l) (log l >-> PNT.toSocket sock) ss
+                    let recv = PNT.fromSocket sock 8192
+                    let send = PNT.toSocket sock
+
+                    -- Log irc messages in/out?
+                    let recv' = if logIrc sc then recv >-> log l else recv
+                    let send' = if logIrc sc then log l >-> send else send
+
+                    -- TODO: error handling to handle parsing failure/etc,
+                    -- but that should be mostly handled inside handleIRC
+                    -- itself
+                    handleIRC recv' send' ss
                     )
-
+                -- TODO: error handling to handle failure of connection
                 Just tls -> TLS.connect tls (server sc) (show $ port sc) (\(context, _) -> do
-                        -- Emit connection established here
-                        atomically $ writeTQueue queue (ConnectionEstablished, sq)
+                    -- Emit connection established here
+                    atomically $ writeTQueue queue (ConnectionEstablished, sq)
 
-                        -- Normal irc stuff
-                        handleIRC (TLS.fromContext context >-> log l) (log l >-> TLS.toContext context) ss
+                    let recv = TLS.fromContext context
+                    let send = TLS.toContext context
+
+                    -- Log irc messages in/out?
+                    let recv' = if logIrc sc then recv >-> log l else recv
+                    let send' = if logIrc sc then log l >-> send else send
+
+                    -- Normal irc stuff
+                    handleIRC recv' send' ss
                     )
 
             -- Emit connection lost here
@@ -82,6 +102,9 @@ ircParserErrorLogging :: MonadIO m => Handle -> Producer BS.ByteString m () -> P
 ircParserErrorLogging l producer = do
     (result, rest) <- lift $ runStateT (PA.parse message) producer
 
+    -- TODO: kill this here
+    -- TODO: we probably want to handle parsing errors (ie log to file then
+    -- keep going), but if pipe is exhausted, probably should exit the loop
     case result of
         Nothing -> liftIO $ BS.hPutStr l "Pipe is exhausted for irc parser\n"
         Just y  ->
@@ -137,8 +160,8 @@ handshake :: Monad m => ServerState -> Producer IRC.Message m ()
 handshake ss = do
     let sc  = config ss
 
-    let nick = head $ nicks sc -- TODO: unsafe head
-    let chan = head $ channels sc -- TODO: unsafe head
+    let nick = headNote "Server.hs: handshake - please set atleast one nickname" $ nicks sc
+    let chan = headNote "Server.hs: handshake - please set atleast one channel" $ channels sc
     let user = userName sc
     let pasw = serverPassword sc
 
@@ -176,7 +199,7 @@ handleIRC recv send ss = do
 
     -- Regular irc streaming
     race_
-        (runEffect ((ircParserErrorLogging (logStream ss) recv) >-> messagePump ss))
+        (runEffect (ircParserErrorLogging (logStream ss) recv >-> messagePump ss))
         (runEffect (messageVacuum ss >-> onlyMessages >-> showMessage >-> send))
 
 --
@@ -191,6 +214,4 @@ messagePump ss = forever $ do
 -- Vacuum, fetch replies and send to network
 --
 messageVacuum :: (Monad m, MonadIO m) => ServerState -> Producer BotCommand m ()
-messageVacuum ss = forever $ do
-    msg <- liftIO $ atomically $ readTQueue (replyQueue ss)
-    yield msg
+messageVacuum ss = forever ((liftIO $ atomically $ readTQueue (replyQueue ss)) >>= yield)

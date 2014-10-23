@@ -40,6 +40,9 @@ commandRoute c p t = choice
         match pingMatch
         debug "pingMatch"
         handler "ping" () (\_ i -> return $ ping i)
+
+    -- TODO: this seems non-functional, should roll it into the autojoin
+    -- logic
     , do
         match motdMatch
         debug "motdMatch"
@@ -115,6 +118,7 @@ getBotConfig conf = do
         channel <- get c s "channel"
         tlsHost <- get c s "tls_host"
         logfile <- get c s "logfile"
+        logirc  <- get c s "logirc"
         reconn  <- get c s "reconn"
         reWait  <- get c s "reconn_wait" -- In seconds
 
@@ -130,4 +134,4 @@ getBotConfig conf = do
                             }
                         }
 
-        return $ ServerConfig host (fromInteger port) nicks user pass tls reconn (reWait * 1000000) channel logfile
+        return $ ServerConfig host (fromInteger port) nicks user pass tls reconn (reWait * 1000000) channel logfile logirc

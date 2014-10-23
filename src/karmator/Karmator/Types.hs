@@ -43,17 +43,20 @@ data ServerConfig = ServerConfig
     -- Default set of channels to always join
     , channels :: [BS.ByteString]
 
-    , logfile :: String -- logfile
+    -- TODO: make this optional/replaced by a logging infrastructure
+    , logfile :: String
+    , logIrc :: Bool
 
     -- Function for default encoding and decoding
---    , defaultEncoding :: BS.ByteString -> T.Text
---    , defaultDecoding :: T.Text -> BS.ByteString
-
+    -- defaultEncoding :: BS.ByteString -> T.Text
+    -- defaultDecoding :: T.Text -> BS.ByteString
+    --
     -- Rates:
     --  messages_per_seconds, server_queue_size
     --
     -- Messages:
     --  message_split_start, message_split_end, max_messages, encoding
+    --  modes
     --
     -- Timeouts:
     --  read - 240s
@@ -63,15 +66,8 @@ data ServerConfig = ServerConfig
     --  delay_joins
     --
     -- Security:
-    --  ssl {use, verify, client_cert, ca_path}
     --  sasl {username, password}
     --  serverauth {username, password}
-    --
-    -- Misc Server:
-    --  log-level
-    --  realname
-    --  modes
-    --
     }
     deriving (Show)
 

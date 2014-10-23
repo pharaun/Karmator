@@ -10,6 +10,7 @@ import qualified Network.IRC as IRC
 
 import Karmator.Types
 import Karmator.Route
+import Karmator.Bot
 
 --
 -- Test Case exports
