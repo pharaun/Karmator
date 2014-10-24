@@ -43,6 +43,14 @@ runCommand q routes = forever $ do
 
     mapM (atomically . writeTQueue reply) (catMaybes results)
 
-
+--
+-- Execute the list of commands
+--
+-- TODO: Improve error handling here. CmdHandler can crash (its running
+-- external code), so should be able to capture these:
+-- https://www.fpcomplete.com/user/snoyberg/general-haskell/exceptions/catching-all-exceptions
+--
+-- Also should eventually parallelize and other improvement on this region.
+--
 executeCmdRef :: [CmdHandler] -> BotEvent -> IO [Maybe BotCommand]
 executeCmdRef cs m = mapM (\(CmdRef _ st h) -> h st m) cs

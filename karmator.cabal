@@ -54,6 +54,7 @@ library
                      , x509-system
                      , errors >= 1.4.0
                      , safe >= 0.3
+                     , exceptions >= 0.6
 
 executable karmator
   other-modules:       Plugins.Generic
