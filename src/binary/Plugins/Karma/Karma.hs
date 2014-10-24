@@ -10,8 +10,7 @@ module Plugins.Karma.Karma
 import qualified Data.Text as T
 
 -- Parsec
-import Text.Parsec hiding (Parser)
-import Text.Parsec.Text (Parser)
+import Text.Parsec
 import Data.Functor.Identity (Identity)
 
 import qualified Data.List as L
@@ -147,6 +146,7 @@ karmaParse conf = catMaybes `fmap` processCandidates conf `fmap` nestedKarmaPars
         mergeKarma :: KarmaCandidates -> KarmaCandidates -> KarmaCandidates
         mergeKarma KarmaNonCandidate{kncMessage=msg} KarmaCandidate{kcMessage=msg', kcKarma=karma} = KarmaCandidate (msg ++ msg') karma
         mergeKarma KarmaCandidate{kcMessage=msg, kcKarma=karma} KarmaCandidate{kcMessage=msg', kcKarma=karma'} = KarmaCandidate (msg ++ karma ++ msg') karma'
+        mergeKarma kc@KarmaCandidate{} KarmaNonCandidate{} = kc
 
 
 

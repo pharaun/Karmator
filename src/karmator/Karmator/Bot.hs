@@ -4,20 +4,16 @@ module Karmator.Bot
     , executeCmdRef
     ) where
 
-import System.IO
-import Control.Monad.Reader
-import Prelude hiding (log)
-import Data.Maybe
-import Control.Concurrent.STM
 import Control.Concurrent.Async
-
--- IRC Parser
-import qualified Network.IRC as IRC
+import Control.Concurrent.STM
+import Control.Monad.Reader
+import Data.Maybe
+import Prelude hiding (log)
 
 -- Karmator Stuff
-import Karmator.Types
 import Karmator.Route
 import Karmator.Server
+import Karmator.Types
 
 
 runBot :: [ServerConfig] -> Route [CmdHandler] -> IO ()

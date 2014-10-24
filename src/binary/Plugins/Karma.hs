@@ -16,51 +16,39 @@ module Plugins.Karma
     ) where
 
 import Control.Monad.Except
-import Control.Monad.IO.Class
-import Data.List
-
-import System.IO (stdin, stdout, stderr, hSetBuffering, BufferMode(..), hPrint, hIsEOF, Handle, hSetEncoding, utf8)
-import Control.Monad (mzero, unless, liftM)
 import Data.Int
-
-import qualified Data.ByteString as B
+import Data.List
+import Data.Time.Clock
+import Database.Persist.Sql hiding (get)
+import Formatting
+import Text.Parsec
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.List as DL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
-import qualified Data.List as DL
-
-import Data.Text.Lazy.Builder (Builder)
-import Formatting
-
--- Parsec
-import Text.Parsec
 
 -- Karma module
 import Plugins.Karma.Karma
 import Plugins.Karma.Types
 import Plugins.Karma.Database
 
--- Configuration
-import Data.ConfigFile
-import Prelude hiding (readFile)
-
+-- Karmator
 import Karmator.Types
 import Karmator.Filter
 import qualified Network.IRC as IRC
 
-import Database.Persist.Sql hiding (get)
-
-
-import Data.Time.Clock
+-- Configuration
+import Data.ConfigFile
+import Prelude hiding (readFile)
 
 
 karmaSidevotesMatch :: BotEvent -> Bool
 karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!sidevotes")
 
 karmaSidevotes :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karmaSidevotes conf pool m@(EMessage _) = do
+karmaSidevotes _ pool m@(EMessage _) = do
     let nick     = T.decodeUtf8 $ nickContent m
     let countMax = 3
 
@@ -154,7 +142,7 @@ rawKarma conf pool m@(EMessage _) = do
             t <- liftIO $ getCurrentTime
             liftIO $ runSqlPool (addKarma t n k) pool
             return $ Nothing
-        otherwise -> return $ Nothing
+        _                       -> return $ Nothing
 rawKarma _ _ _ = return Nothing
 
 parseInput :: Config -> T.Text -> T.Text -> KarmaReply

@@ -1,22 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
-
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Except
-import Control.Monad.IO.Class
 import Control.Monad.Logger
 import Data.ConfigFile
 import Database.Persist.Sql hiding (get)
 import Database.Persist.Sqlite hiding (get)
-import Network
 import System.Time
-
 import qualified Data.Text as T
-import qualified Data.ByteString.Char8 as C8
-import qualified Network.Simple.TCP.TLS as TLS
-import qualified System.X509.Unix as TLS
-import qualified Network.TLS as TLS
 
+import qualified Data.ByteString.Char8 as C8
+
+import qualified Network.Simple.TCP.TLS as TLS
+import qualified Network.TLS as TLS
+import qualified System.X509.Unix as TLS
+
+-- Karmator
 import Karmator.Bot
 import Karmator.Route
 import Karmator.Types
@@ -24,7 +23,6 @@ import Karmator.Types
 -- Plugins
 import Plugins.Generic
 import Plugins.Karma
-import Plugins.Karma.Database
 import Plugins.Karma.Types (Config)
 
 --

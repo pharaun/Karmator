@@ -19,21 +19,13 @@ module Plugins.Karma.Database
     , migrateAll
     ) where
 
-import qualified Database.Persist as P
-import qualified Database.Persist.Sqlite as P
-import qualified Database.Persist.TH as P
-import Database.Esqueleto
-
-import Data.Text (Text)
-import qualified Data.Text as T
-
 import Data.Time.Clock (UTCTime)
-import Control.Monad.IO.Class
-import Control.Monad
-
-import Data.Int
+import Database.Esqueleto
+import Data.Text (Text)
+import qualified Database.Persist.TH as P
 
 import Plugins.Karma.Types (Karma(kMessage,kType), KarmaType(..))
+
 
 -- Current Schema
 P.share [P.mkPersist P.sqlSettings, P.mkMigrate "migrateAll"] [P.persistLowerCase|

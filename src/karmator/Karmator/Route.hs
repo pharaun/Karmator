@@ -20,7 +20,6 @@ import Control.Monad.Trans.Free
 import Text.PrettyPrint.HughesPJ
 import Text.Show.Functions()
 
-import qualified Network.IRC as IRC
 import Karmator.Types
 
 

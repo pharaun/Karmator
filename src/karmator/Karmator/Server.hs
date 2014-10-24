@@ -5,14 +5,12 @@ module Karmator.Server
 
 import Safe
 import System.IO
-import Control.Applicative
 import Control.Concurrent hiding (yield)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Error
 import Control.Monad.Reader
 import Control.Monad.Trans.State.Strict
-import Data.List hiding (head, tail)
 import Data.Typeable
 import Prelude hiding (log, head, tail)
 import qualified Control.Monad.Catch as C
@@ -31,8 +29,6 @@ import qualified Network.IRC as IRC hiding (message)
 import qualified Network.IRC.Patch as IRC
 
 -- TLS
-import qualified Network.TLS as TLS
-import qualified System.X509.Unix as TLS
 import qualified Pipes.Network.TCP.TLS as TLS
 import qualified Network.Simple.TCP.TLS as TLS
 
@@ -74,7 +70,7 @@ runServer sc queue = PNT.withSocketsDo $
 -- Establish the connection
 --
 establishConnection :: ServerState -> IO ()
-establishConnection ss@ServerState{config=sc, logStream=l} =
+establishConnection ss@ServerState{config=sc} =
     case tlsSettings sc of
         Nothing  -> PNT.connect (server sc) (show $ port sc) $ \(sock, _)        -> handleIRC (PNT.fromSocket sock 8192) (PNT.toSocket sock) ss
         Just tls -> TLS.connect tls (server sc) (show $ port sc) $ \(context, _) -> handleIRC (TLS.fromContext context) (TLS.toContext context) ss
@@ -160,7 +156,7 @@ onlyMessages = forever $ do
     c <- await
     case c of
         CMessage m -> yield m
-        otherwise  -> return ()
+        _          -> return ()
 
 --
 -- Pump Message into Bot Queue
