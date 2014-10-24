@@ -13,6 +13,7 @@ import System.IO
 import Control.Concurrent hiding (yield)
 import Control.Concurrent.STM
 import Control.Concurrent.Async
+import qualified Control.Monad.Catch as C
 
 import qualified Data.ByteString as BS
 
@@ -44,56 +45,52 @@ import Network.IRC.Patch
 runServer :: ServerConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
 runServer sc queue = PNT.withSocketsDo $
     -- Establish the logfile
-    withFile (logfile sc) AppendMode (\l -> do
+    withFile (logfile sc) AppendMode $ \l -> do
         -- Set log to be unbuffered for testing
         hSetBuffering l NoBuffering
 
         -- Server queue
         sq <- newTQueueIO
-        let ss = ServerState sc l queue sq
+        suc <- newTVarIO False
+        let ss = ServerState sc l queue sq suc
 
         -- Establish tls/norm connection
         forever $ do
-            case tlsSettings sc of
-                -- TODO: error handling to handle failure of connection
-                Nothing  -> PNT.connect (server sc) (show $ port sc) (\(sock, _) -> do
-                    -- Emit connection established here
-                    atomically $ writeTQueue queue (ConnectionEstablished, sq)
+            -- Upon exit of the establishConnection we ensure we always emit ConnectionLost
+            errors <- runEitherT $ syncIO $ C.finally (establishConnection ss) (emitConnectionLoss ss)
 
-                    let recv = PNT.fromSocket sock 8192
-                    let send = PNT.toSocket sock
-
-                    -- Log irc messages in/out?
-                    let recv' = if logIrc sc then recv >-> log l else recv
-                    let send' = if logIrc sc then log l >-> send else send
-
-                    -- TODO: error handling to handle parsing failure/etc,
-                    -- but that should be mostly handled inside handleIRC
-                    -- itself
-                    handleIRC recv' send' ss
-                    )
-                -- TODO: error handling to handle failure of connection
-                Just tls -> TLS.connect tls (server sc) (show $ port sc) (\(context, _) -> do
-                    -- Emit connection established here
-                    atomically $ writeTQueue queue (ConnectionEstablished, sq)
-
-                    let recv = TLS.fromContext context
-                    let send = TLS.toContext context
-
-                    -- Log irc messages in/out?
-                    let recv' = if logIrc sc then recv >-> log l else recv
-                    let send' = if logIrc sc then log l >-> send else send
-
-                    -- Normal irc stuff
-                    handleIRC recv' send' ss
-                    )
-
-            -- Emit connection lost here
-            atomically $ writeTQueue queue (ConnectionLost, sq)
+            -- TODO: good place for tallying the number of failure and
+            -- shutting the server connection off if it exceeds some
+            -- threshold.
+            case errors of
+                Right _ -> return ()
+                -- TODO: Need to identify the type of error and allow some to propagate upward - IE don't just catch all.
+                Left x  -> logError l x
 
             -- Wait for a bit before retrying
             threadDelay $ reconnectWait sc
-        )
+
+--
+-- Establish the connection
+--
+establishConnection :: ServerState -> IO ()
+establishConnection ss@ServerState{config=sc, logStream=l} =
+    case tlsSettings sc of
+        Nothing  -> PNT.connect (server sc) (show $ port sc) $ \(sock, _)        -> handleIRC (PNT.fromSocket sock 8192) (PNT.toSocket sock) ss
+        Just tls -> TLS.connect tls (server sc) (show $ port sc) $ \(context, _) -> handleIRC (TLS.fromContext context) (TLS.toContext context) ss
+
+emitConnectionEstablished :: ServerState -> IO ()
+emitConnectionEstablished ServerState{botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $
+    writeTQueue queue (ConnectionEstablished, sq) >> writeTVar suc True
+
+emitConnectionLoss :: ServerState -> IO ()
+emitConnectionLoss ServerState{botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $ do
+    success <- readTVar suc
+    when success (writeTQueue queue (ConnectionLost, sq) >> writeTVar suc False)
+
+
+
+
 
 --
 -- Parses incoming irc messages and emits any errors to a log and keep going
@@ -102,22 +99,30 @@ ircParserErrorLogging :: MonadIO m => Handle -> Producer BS.ByteString m () -> P
 ircParserErrorLogging l producer = do
     (result, rest) <- lift $ runStateT (PA.parse message) producer
 
+    -- TODO: error handling to handle parsing failure/etc,
+    -- but that should be mostly handled inside handleIRC
+    -- itself
     -- TODO: kill this here
     -- TODO: we probably want to handle parsing errors (ie log to file then
     -- keep going), but if pipe is exhausted, probably should exit the loop
     case result of
-        Nothing -> liftIO $ BS.hPutStr l "Pipe is exhausted for irc parser\n"
+        Nothing -> liftIO $ logError l "Pipe is exhausted for irc parser\n"
         Just y  ->
             case y of
                 Right x -> yield (EMessage x)
-                Left x  -> liftIO $ BS.hPutStr l $ BS.concat
-                    [ "===========\n"
-                    , "\n"
-                    , C8.pack $ show x -- TODO: Ascii packing
-                    , "\n"
-                    , "===========\n"
-                    ]
+                Left x  -> liftIO $ logError l x
     ircParserErrorLogging l rest
+
+--
+-- Log error
+--
+logError :: (Show a) => Handle -> a -> IO ()
+logError h e = BS.hPutStr h $ BS.concat
+    [ "===========\n"
+    , C8.pack $ show e -- TODO: Ascii packing
+    , "\n"
+    , "===========\n"
+    ]
 
 --
 -- Format outbound IRC messages
@@ -192,15 +197,22 @@ log h = forever $ do
 -- The IRC handler and protocol
 --
 handleIRC :: Producer BS.ByteString IO () -> Consumer BS.ByteString IO () -> ServerState -> IO ()
-handleIRC recv send ss = do
+handleIRC recv send ss@ServerState{config=sc, logStream=l} = do
+    -- Emit connection established here
+    emitConnectionEstablished ss
+
+    -- Log irc messages in/out?
+    let recv' = if logIrc sc then recv >-> log l else recv
+    let send' = if logIrc sc then log l >-> send else send
+
     -- Initial connection
     -- TODO: Improve error handling if auth has failed
-    runEffect (handshake ss >-> showMessage >-> send)
+    runEffect (handshake ss >-> showMessage >-> send')
 
     -- Regular irc streaming
     race_
-        (runEffect (ircParserErrorLogging (logStream ss) recv >-> messagePump ss))
-        (runEffect (messageVacuum ss >-> onlyMessages >-> showMessage >-> send))
+        (runEffect (ircParserErrorLogging (logStream ss) recv' >-> messagePump ss))
+        (runEffect (messageVacuum ss >-> onlyMessages >-> showMessage >-> send'))
 
 --
 -- Pump Message into Bot Queue

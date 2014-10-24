@@ -78,6 +78,8 @@ data ServerState = ServerState
 
     , botQueue :: TQueue (BotEvent, TQueue BotCommand)
     , replyQueue :: TQueue BotCommand
+
+    , connectionSuccess :: TVar Bool
     }
 
 -- Bot/Server Events
