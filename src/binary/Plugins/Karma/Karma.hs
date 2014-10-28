@@ -67,13 +67,19 @@ simple conf = many $ noneOf [' ', openBrace conf, closeBrace conf]
 
 brace :: Config -> ParsecT T.Text u Identity String
 brace conf = do
-    before <- L.drop 1 `fmap` many1 (leftBrace conf)
-    expr <- many $ noneOf [openBrace conf, closeBrace conf]
+    before <- L.drop 1 `fmap` many1 (commandLeftBrace conf)
+    expr <- many $ noneOf [commandOpenBrace conf, commandCloseBrace conf]
 
-    a <- many1 $ rightBrace conf
+    a <- many1 $ commandRightBrace conf
     let after = L.take (L.length a - 1) a
 
     return $ before ++ expr ++ after
+
+commandLeftBrace :: Config -> ParsecT T.Text u Identity Char
+commandLeftBrace = char . commandOpenBrace
+
+commandRightBrace :: Config -> ParsecT T.Text u Identity Char
+commandRightBrace = char . commandCloseBrace
 
 
 

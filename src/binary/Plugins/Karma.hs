@@ -272,7 +272,11 @@ getKarmaConfig conf = do
         open <- get c "karma_parsing" "open_brace"
         close <- get c "karma_parsing" "close_brace"
 
-        return $ Config strictMatch prefixMatch partialKarma totalKarma open close)
+        -- Braces
+        commandOpen <- get c "command_parsing" "open_brace"
+        commandClose <- get c "command_parsing" "close_brace"
+
+        return $ Config strictMatch prefixMatch partialKarma totalKarma open close commandOpen commandClose)
 
     case config of
         Left cperr   -> error $ show cperr

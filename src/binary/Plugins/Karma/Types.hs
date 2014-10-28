@@ -47,4 +47,7 @@ data Config = Config
     , openBrace :: Char
     , closeBrace :: Char
 
+    , commandOpenBrace :: Char
+    , commandCloseBrace :: Char
+
     } deriving (Show)
