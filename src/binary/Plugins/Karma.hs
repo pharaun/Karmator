@@ -11,6 +11,13 @@ module Plugins.Karma
     , karmaGiversMatch
     , karmaGivers
 
+    -- Ranking
+    , karmaRankMatch
+    , karmaRank
+
+    , karmaSidevotesRankMatch
+    , karmaSidevotesRank
+
     , rawKarmaMatch
     , rawKarma
 
@@ -128,6 +135,75 @@ karmaStats conf pool karmaType countMax givers m@(EMessage _) =
                     (renderAllKarma count)
                 )
 karmaStats _ _ _ _ _ _ = return Nothing
+
+
+
+karmaRankMatch :: BotEvent -> Bool
+karmaRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!rank")
+
+--
+-- Design:
+--  * !rank -> your rank
+--  * !rank a b -> rank of a and b
+--
+--  * Rank is - Rank for recieving (upvote - downvote) and Rank for giving (upvote - downvote).
+--
+--  * Sample formatting
+--      > doe, No ranking available.
+--      > doe, Your rank is 11 of 22 in receiving.
+--      > doe, Your rank is 23 of 90 in giving.
+--      > doe, Your rank is 11 of 22 in receiving and 3 of 98 in giving.
+--
+--  * !sidevotesrank -> your rank
+--  * !sidevotesrank a b ->  rank of a and b
+--  * Formatting is same but for sidevote given and recieved
+--
+--                   -- TODO: logic
+--                   --   if total is zero, you can't have a ranking at all
+--                   --   if your ranking is zero
+karmaRank :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
+karmaRank _ pool m@(EMessage _) = return Nothing
+-- KARMA & KARMARECIEVER RANK STUFF
+--
+--    case (parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m) of
+--            (ranking, total) <- liftIO $ flip runSqlPool pool (do
+--                    c <- rankingDenormalized karmaType nick
+--                    d <- countK karmaType nick
+--                    return (c, d)
+--                )
+--                   -- Ranking
+--                   (format (if givers
+--                            then ("Your rank is " % int % " of " % int % " in positivity.")
+--                            else ("Your rank is " % int % " of " % int % "."))
+--                   (ranking) -- TODO: broken for non-existant ranking
+--                   total
+--                    )
+
+
+karmaSidevotesRankMatch :: BotEvent -> Bool
+karmaSidevotesRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!sidevotesrank")
+
+karmaSidevotesRank :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
+karmaSidevotesRank _ pool m@(EMessage _) = return Nothing
+--
+-- SIDE VOTE RANKING STUFF
+--
+--    (nHigherReceived, totalReceived, nHigherGiven, totalGiven) <- liftIO $ flip runSqlPool pool (do
+--            c <- sideVotesRankingDenormalized KarmaGiven nick
+--            d <- countK KarmaGiven nick
+--            e <- sideVotesRankingDenormalized KarmaReceived nick
+--            f <- countK KarmaReceived nick
+--            return (c, d, e, f)
+--
+--                -- Ranking
+--               (format ("Your rank is " % int % " of " % int % " in giving and " % int % " of " % int % " in receiving.")
+--                   nHigherGiven -- TODO: broken for non-existant ranking
+--                   totalGiven
+--                   nHigherReceived -- TODO: broken for non-existant ranking
+--                   totalReceived
+--                )
+--
+--
 
 
 

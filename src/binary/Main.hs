@@ -73,6 +73,16 @@ commandRoute c p t = choice
         handler "karmaGivers" p (karmaGivers c)
 
     , do
+        match karmaRankMatch
+        debug "karmaRankMatch"
+        handler "karmaRank" p (karmaRank c)
+
+    , do
+        match karmaSidevotesRankMatch
+        debug "karmaSidevotesRankMatch"
+        handler "karmaSidevotesRank" p (karmaSidevotesRank c)
+
+    , do
         match karmaMatch
         debug "karmaMatch"
         handler "karma" p (karma c)
