@@ -6,6 +6,9 @@ module Plugins.Generic
     , motdMatch
     , motdJoin
 
+    , inviteMatch
+    , inviteJoin
+
     , uptimeMatch
     , uptime
     ) where
@@ -39,6 +42,13 @@ ping _ = Nothing
 --
 motdMatch  = exactCommand "700"
 motdJoin _ = Just $ CMessage $ IRC.joinChan "#gamelost" -- TODO: Need to take list of channels to join
+
+
+--
+-- Invite
+--
+inviteMatch             = exactCommand "INVITE"
+inviteJoin (EMessage m) = Just $ CMessage $ IRC.joinChan $ head $ tail $ IRC.msg_params m
 
 
 --

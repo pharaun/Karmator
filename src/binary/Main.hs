@@ -50,6 +50,11 @@ commandRoute c p t = choice
         debug "uptimeMatch"
         handler "uptime" t uptime
 
+    , do
+        match inviteMatch
+        debug "inviteMatch"
+        handler "invite" () (\_ i -> return $ inviteJoin i)
+
     -- Karma handlers
     -- Need to "create a database connection" then pass it into all karma handlers
     , do

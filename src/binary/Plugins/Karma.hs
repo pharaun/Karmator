@@ -1,11 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Plugins.Karma
-    ( karmaMatch
-    , karma
-
-    , karmaSidevotesMatch
+    ( karmaSidevotesMatch
     , karmaSidevotes
 
+    -- Recievers
+    , karmaMatch
+    , karma
+
+    -- Givers
     , karmaGiversMatch
     , karmaGivers
 
@@ -44,6 +46,16 @@ import Data.ConfigFile
 import Prelude hiding (readFile)
 
 
+--
+-- Karma list of unit rendering
+--
+renderAllKarma :: [(T.Text, Int, Int, Int)] -> TL.Text
+renderAllKarma xs = TL.intercalate "; " $ map (\(name, p, n, s) -> format (stext % ", " % int % " (" % int % "++/" % int % "--/" % int % "+-)") name (p-n) p n s) xs
+
+renderTotalKarma :: [(T.Text, Int)] -> TL.Text
+renderTotalKarma xs = TL.intercalate "; " $ map (\(n, t) -> format (stext % " (" % int % ")") n t) xs
+
+
 karmaSidevotesMatch :: BotEvent -> Bool
 karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!sidevotes")
 
@@ -52,24 +64,20 @@ karmaSidevotes _ pool m@(EMessage _) = do
     let nick     = T.decodeUtf8 $ nickContent m
     let countMax = 3
 
-    (received, given, nHigherReceived, totalReceived, nHigherGiven, totalGiven) <- liftIO $ flip runSqlPool pool (do
+    (received, given) <- liftIO $ flip runSqlPool pool (do
             a <- topNSideVotesDenormalized KarmaReceived countMax
             b <- topNSideVotesDenormalized KarmaGiven countMax
-            c <- sideVotesRankingDenormalized KarmaGiven nick
-            d <- countK KarmaGiven nick
-            e <- sideVotesRankingDenormalized KarmaReceived nick
-            f <- countK KarmaReceived nick
-            return (a, b, c, d, e, f)
+            return (a, b)
         )
-    return $ Just $ CMessage $ IRC.privmsg (whichChannel m) $ BL.toStrict $ TL.encodeUtf8 (
-        format (stext % ", most sidevotes received: " % stext % ". most sidevotes given: " % stext % ". your rank is " % int % " of " % int % " in giving and " % int % " of " % int % " in receiving.")
-               nick
-               (T.intercalate "; " $ map (\(n, k) -> T.concat [n, " (", T.pack $ show k, ")"]) received)
-               (T.intercalate "; " $ map (\(n, k) -> T.concat [n, " (", T.pack $ show k, ")"]) given)
-               (nHigherReceived + 1)
-               totalReceived
-               (nHigherGiven + 1)
-               totalGiven
+    return $ Just $ CMessage $ IRC.privmsg (whichChannel m) (
+        if null received || null given
+        then "There is no karma values recorded in the database!"
+        else BL.toStrict $ TL.encodeUtf8 (
+            format (stext % ", most sidevotes received: " % text % ". most sidevotes given: " % text % ". ")
+                   nick
+                   (renderTotalKarma received)
+                   (renderTotalKarma given)
+            )
         )
 karmaSidevotes _ _ _ = return Nothing
 
@@ -88,38 +96,36 @@ karmaGivers :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe B
 karmaGivers conf pool m = karmaStats conf pool KarmaGiven 3 True m
 
 
--- TODO: different formatting string for the general case
 karmaStats :: (MonadIO m) => Config -> ConnectionPool -> KarmaTable -> Int64 -> Bool -> BotEvent -> m (Maybe BotCommand)
 karmaStats conf pool karmaType countMax givers m@(EMessage _) =
     case (parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m) of
         (Left _)   -> return $ Just $ CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"
         (Right []) -> do
             let nick  = T.decodeUtf8 $ nickContent m
-            (topNDesc, topNAsc, ranking, total) <- liftIO $ flip runSqlPool pool (do
+            (topNDesc, topNAsc) <- liftIO $ flip runSqlPool pool (do
                     a <- topNDenormalized karmaType countMax desc
                     b <- topNDenormalized karmaType countMax asc
-                    c <- rankingDenormalized karmaType nick
-                    d <- countK KarmaGiven nick
-                    return (a, b, c, d)
+                    return (a, b)
                 )
-            return $ Just $ CMessage $ IRC.privmsg (whichChannel m) $ BL.toStrict $ TL.encodeUtf8 (
-                format (if givers
-                        then (stext % ", most positive: " % stext % ". most negative: " % stext % ". your rank is " % int % " of " % int % " in positivity.")
-                        else (stext % ", highest karma: " % stext % ". lowest karma: " % stext % ". your rank is " % int % " of " % int % "."))
-                       nick
-                       (T.intercalate "; " $ map (\(n, k) -> T.concat [n, " (", T.pack $ show k, ")"]) topNDesc)
-                       (T.intercalate "; " $ map (\(n, k) -> T.concat [n, " (", T.pack $ show k, ")"]) topNAsc)
-                       (ranking + 1) -- TODO: ranking isn't right
-                       total
+            return $ Just $ CMessage $ IRC.privmsg (whichChannel m) (
+                if null topNDesc || null topNAsc
+                then "There is no karma values recorded in the database!"
+                else BL.toStrict $ TL.encodeUtf8 (
+                    format (if givers
+                            then (stext % ", most positive: " % text % ". most negative: " % text % ".")
+                            else (stext % ", highest karma: " % text % ". lowest karma: " % text % "."))
+                           nick
+                           (renderTotalKarma topNDesc)
+                           (renderTotalKarma topNAsc)
+                    )
                 )
         (Right x)  -> do
-            -- TODO: have this fill in zeros for values that are not returned
             let nick  = T.decodeUtf8 $ nickContent m
             count <- liftIO $ runSqlPool (partalKarma karmaType x) pool
             return $ Just $ CMessage $ IRC.privmsg (whichChannel m) $ BL.toStrict $ TL.encodeUtf8 (
                 format (stext % ": " % text)
                     nick
-                    (TL.intercalate "; " $ map (\(name, p, n, s) -> format (stext % ", " % int % " (" % int % "++/" % int % "--/" % int % "+-)") name (p-n) p n s) count)
+                    (renderAllKarma count)
                 )
 karmaStats _ _ _ _ _ _ = return Nothing
 

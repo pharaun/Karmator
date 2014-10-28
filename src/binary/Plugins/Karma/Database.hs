@@ -19,6 +19,7 @@ module Plugins.Karma.Database
     , migrateAll
     ) where
 
+import Data.List (unionBy)
 import Data.Time.Clock (UTCTime)
 import Database.Esqueleto
 import Data.Text (Text)
@@ -106,8 +107,6 @@ allKarmaT karmaName karmaUp karmaDown karmaSide = do
             )
     return $ map (\(n, u, d, s) -> (unValue n, unValue u, unValue d, unValue s)) r
 
--- TODO: extract the entity and fill out any non-existant entity with 0's for its values
--- return [(name, ret.get(name, (0, 0, 0))) for name in names]
 partalKarmaT _ _ _ _ [] = return []
 partalKarmaT karmaName karmaUp karmaDown karmaSide names = do
     r <- select $ from (\v -> do
@@ -115,17 +114,16 @@ partalKarmaT karmaName karmaUp karmaDown karmaSide names = do
             where_ ((karmaName v) `in_` valList names)
             return (karmaName v, karmaUp v, karmaDown v, karmaSide v)
             )
-    return $ map (\(n, u, d, s) -> (unValue n, unValue u, unValue d, unValue s)) r
+    return $ unionBy (\(a, _, _, _) (b, _, _, _) -> a == b) (map (\(n, u, d, s) -> (unValue n, unValue u, unValue d, unValue s)) r) (map (\n -> (n, 0, 0, 0)) names)
 
 countT karmaName whom = do
     r <- select $ from (\v -> do
             where_ (karmaName v !=. val whom)
-            return $ count (karmaName v) +. val 1 :: SqlQuery (SqlExpr (Value Int))
+            return $ count (karmaName v) :: SqlQuery (SqlExpr (Value Int))
             )
     return $ unValue $ head r -- TODO: unsafe head
 
 -- karmaTotal is also good for karmaSide
--- TODO: find a nicer way of doing the remap to unvalues
 topNDenormalizedT karmaName karmaTotal lmt ord = do
     r <- select $ from (\v -> do
             orderBy [ord (karmaTotal v)]
@@ -135,7 +133,6 @@ topNDenormalizedT karmaName karmaTotal lmt ord = do
     return $ map (\(n, k) -> (unValue n, unValue k)) r
 
 -- karmaTotal is also good for karmaSide
--- TODO: i think it needs to be a +1 here
 rankingDenormalizedT karmaName karmaTotal whom = do
     r <- select $ from (\v -> do
         let sub = from $ (\c -> do
