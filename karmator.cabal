@@ -89,6 +89,7 @@ executable karmator
                      , tls >= 1.2.2
                      , transformers >=0.4 && <0.5
                      , x509-system
+                     , optparse-applicative
 
 executable migration
   main-is:             Migration.hs

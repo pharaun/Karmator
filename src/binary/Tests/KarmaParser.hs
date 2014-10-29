@@ -8,12 +8,8 @@ module Tests.KarmaParser
     ) where
 
 import Test.HUnit
-import Test.QuickCheck
 
 import qualified Data.Text as T
-import qualified Data.List as L
-
-import Data.Maybe (catMaybes)
 
 import Text.Parsec
 
@@ -64,7 +60,7 @@ nickData =
 --
 -- Identifying bots and filtering
 --
-makeConfig = Config ["karmator"] ["websphere"] [] [] '(' ')'
+makeConfig = Config ["karmator"] ["websphere"] [] [] '(' ')' '(' ')'
 buildFilterTests = TestList . map (\bot  -> TestLabel ("Filters out " ++ bot) (botFilterTest bot))
 botFilterTest bot = TestCase (assertEqual "" True (filterBot makeConfig $ T.pack bot))
 
@@ -80,7 +76,7 @@ botData =
 --
 -- Karma Command parsing
 --
-makeCommandConfig = Config [] [] [] [] '(' ')'
+makeCommandConfig = Config [] [] [] [] '(' ')' '(' ')'
 buildCommandTests = TestList . map (\(str, cmd) -> TestLabel str (commandTest str cmd))
 commandTest str cmd = TestCase (assertEqual "" (Just $ map T.pack cmd) (either (const Nothing) Just (parse (karmaCommandParse makeCommandConfig) "(stdin)" $ T.pack str)))
 
@@ -108,7 +104,7 @@ commandData =
 --
 -- NewKarmaType test cases
 --
-makeKarmaConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)] '(' ')'
+makeKarmaConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)] '(' ')' '(' ')'
 buildNewKarmaTests = TestList . map (\(str, karma) -> TestLabel str (newKarmaTest str karma))
 newKarmaTest str karma = TestCase (assertEqual "" (Just karma) (either (const Nothing) Just (parse (nestedKarmaParse makeKarmaConfig) "(stdin)" $ T.pack str)))
 
@@ -198,7 +194,7 @@ newKarmaData =
 --
 -- Karma Parsing tests
 --
-makeKarmaParseConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)] '(' ')'
+makeKarmaParseConfig = Config [] [] [('+', Up), ('-', Down)] [('±', Sidevote), ('∓', Sidevote)] '(' ')' '(' ')'
 buildKarmaTests = TestList . map (\(src, dst) -> TestLabel src (karmaTest src dst))
 karmaTest str result = TestCase (assertEqual "" result (either (const []) id (parse (karmaParse makeKarmaParseConfig) "(stdin)" $ T.pack str)))
 

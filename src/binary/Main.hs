@@ -7,6 +7,7 @@ import Data.ConfigFile
 import Database.Persist.Sql hiding (get)
 import Database.Persist.Sqlite hiding (get)
 import System.Time
+import Options.Applicative
 import qualified Data.Text as T
 
 import qualified Data.ByteString.Char8 as C8
@@ -91,8 +92,8 @@ commandRoute c p t = choice
 
 main :: IO ()
 main = do
-    -- Externalize/argv the botconfig filepath
-    (database, karmaConf, servers) <- getBotConfig "src/binary/bot.cfg"
+    botConf <- getArgs
+    (database, karmaConf, servers) <- getBotConfig botConf
     runStderrLoggingT $ withSqlitePool database 1 (\pool -> liftIO $ do
         -- Run the bot
         t <- getClockTime
@@ -101,6 +102,20 @@ main = do
         runBot servers (commandRoute c pool t)
 
         return ()
+        )
+
+-- CLI options
+getArgs :: IO FilePath
+getArgs = execParser opts
+  where
+    opts = info (helper <*> config)
+        (  fullDesc
+        <> progDesc "Run the 'Karmator' irc bot."
+        <> header "karmator - An ircbot for handling karma" )
+    config = argument auto
+        (  metavar "CONFIG"
+        <> help "The bot configuration"
+        <> value "src/binary/bot.cfg"
         )
 
 -- Load the bot config
