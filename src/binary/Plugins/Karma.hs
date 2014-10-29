@@ -31,6 +31,7 @@ import Data.Time.Clock
 import Database.Persist.Sql hiding (get)
 import Formatting
 import Text.Parsec
+import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.List as DL
 import qualified Data.Text as T
@@ -137,74 +138,73 @@ karmaStats conf pool karmaType countMax givers m@(EMessage _) =
 karmaStats _ _ _ _ _ _ = return Nothing
 
 
-
 karmaRankMatch :: BotEvent -> Bool
-karmaRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!rank")
+karmaRankMatch = liftM2 (&&) (liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!rank")) (not . prefixMessage "!ranksidevote")
 
---
--- Design:
---  * !rank -> your rank
---  * !rank a b -> rank of a and b
---
---  * Rank is - Rank for recieving (upvote - downvote) and Rank for giving (upvote - downvote).
---
---  * Sample formatting
---      > doe, No ranking available.
---      > doe, Your rank is 11 of 22 in receiving.
---      > doe, Your rank is 23 of 90 in giving.
---      > doe, Your rank is 11 of 22 in receiving and 3 of 98 in giving.
---
---  * !sidevotesrank -> your rank
---  * !sidevotesrank a b ->  rank of a and b
---  * Formatting is same but for sidevote given and recieved
---
---                   -- TODO: logic
---                   --   if total is zero, you can't have a ranking at all
---                   --   if your ranking is zero
+
 karmaRank :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karmaRank _ pool m@(EMessage _) = return Nothing
--- KARMA & KARMARECIEVER RANK STUFF
---
---    case (parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m) of
---            (ranking, total) <- liftIO $ flip runSqlPool pool (do
---                    c <- rankingDenormalized karmaType nick
---                    d <- countK karmaType nick
---                    return (c, d)
---                )
---                   -- Ranking
---                   (format (if givers
---                            then ("Your rank is " % int % " of " % int % " in positivity.")
---                            else ("Your rank is " % int % " of " % int % "."))
---                   (ranking) -- TODO: broken for non-existant ranking
---                   total
---                    )
+karmaRank conf pool m@(EMessage _) =
+    case (parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m) of
+        (Left _)       -> return $ Just $ CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"
+        (Right [])     -> do
+            let nick  = T.decodeUtf8 $ nickContent m
+            msg <- renderRank pool False nick nick "Your"
+            return $ Just $ CMessage $ IRC.privmsg (whichChannel m) msg
+        (Right (x:[])) -> do
+            let nick  = T.decodeUtf8 $ nickContent m
+            msg <- renderRank pool False nick x x
+            return $ Just $ CMessage $ IRC.privmsg (whichChannel m) msg
+        (Right _)      -> return $ Just $ CMessage $ IRC.privmsg (whichChannel m) "Can only rank one karma entry at a time!"
+karmaRank _ _ _ = return Nothing
+
+
+-- TODO: probably should make this remain T.Text and move encoding else where
+renderRank :: (MonadIO m) => ConnectionPool -> Bool -> T.Text -> T.Text -> T.Text -> m B.ByteString
+renderRank pool sidevotes nick whom target = do
+    (recvRank, recvCount, giveRank, giveCount) <- liftIO $ flip runSqlPool pool (
+        if sidevotes
+        then (do
+            a <- sideVotesRankingDenormalized KarmaReceived whom
+            b <- countK KarmaReceived whom
+            c <- sideVotesRankingDenormalized KarmaGiven whom
+            d <- countK KarmaGiven whom
+            return (a, b, c, d)
+            )
+        else (do
+            a <- rankingDenormalized KarmaReceived whom
+            b <- countK KarmaReceived whom
+            c <- rankingDenormalized KarmaGiven whom
+            d <- countK KarmaGiven whom
+            return (a, b, c, d)
+            )
+        )
+
+    return $ BL.toStrict $ TL.encodeUtf8 $ format (stext % ", " % text) nick (
+        case (recvRank, giveRank) of
+            (Nothing, Nothing) -> "No ranking available"
+            (Just r,  Nothing) -> format (stext % " rank is " % int % " of " % int % " in receiving.") target r recvCount
+            (Nothing, Just g)  -> format (stext % " rank is " % int % " of " % int % " in giving.") target g giveCount
+            (Just r,  Just g)  -> format (stext % " rank is " % int % " of " % int % " in receiving and " % int % " of " % int % " in giving.") target r recvCount g giveCount
+        )
 
 
 karmaSidevotesRankMatch :: BotEvent -> Bool
-karmaSidevotesRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!sidevotesrank")
+karmaSidevotesRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!ranksidevote")
 
 karmaSidevotesRank :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karmaSidevotesRank _ pool m@(EMessage _) = return Nothing
---
--- SIDE VOTE RANKING STUFF
---
---    (nHigherReceived, totalReceived, nHigherGiven, totalGiven) <- liftIO $ flip runSqlPool pool (do
---            c <- sideVotesRankingDenormalized KarmaGiven nick
---            d <- countK KarmaGiven nick
---            e <- sideVotesRankingDenormalized KarmaReceived nick
---            f <- countK KarmaReceived nick
---            return (c, d, e, f)
---
---                -- Ranking
---               (format ("Your rank is " % int % " of " % int % " in giving and " % int % " of " % int % " in receiving.")
---                   nHigherGiven -- TODO: broken for non-existant ranking
---                   totalGiven
---                   nHigherReceived -- TODO: broken for non-existant ranking
---                   totalReceived
---                )
---
---
-
+karmaSidevotesRank conf pool m@(EMessage _) =
+    case (parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m) of
+        (Left _)       -> return $ Just $ CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"
+        (Right [])     -> do
+            let nick  = T.decodeUtf8 $ nickContent m
+            msg <- renderRank pool True nick nick "Your"
+            return $ Just $ CMessage $ IRC.privmsg (whichChannel m) msg
+        (Right (x:[])) -> do
+            let nick  = T.decodeUtf8 $ nickContent m
+            msg <- renderRank pool True nick x x
+            return $ Just $ CMessage $ IRC.privmsg (whichChannel m) msg
+        (Right _)      -> return $ Just $ CMessage $ IRC.privmsg (whichChannel m) "Can only rank one karma entry at a time!"
+karmaSidevotesRank _ _ _ = return Nothing
 
 
 -- This takes care of sulping all irc messages to stuff into the karma parser

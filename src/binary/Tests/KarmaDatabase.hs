@@ -1,14 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import qualified Database.Persist.Sqlite as P
-import Database.Esqueleto
+import Control.Monad.Logger
+import Database.Persist.Sql hiding (get)
+import Database.Persist.Sqlite hiding (get)
 import Control.Monad.IO.Class
 
 import Plugins.Karma.Database
 
 main :: IO ()
-main = P.runSqlite "test2.db" $ do
-
+main = runStderrLoggingT $ withSqlitePool "test2.db" 1 (\pool -> liftIO $ flip runSqlPool pool (do
     vote1a <- allKarma KarmaReceived
     vote1b <- allKarma KarmaGiven
 
@@ -48,3 +48,4 @@ main = P.runSqlite "test2.db" $ do
     liftIO $ print vote7b
     liftIO $ print vote8a
     liftIO $ print vote8b
+    ))

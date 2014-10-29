@@ -40,8 +40,7 @@ commandRoute c p t = choice
         debug "pingMatch"
         handler "ping" () (\_ i -> return $ ping i)
 
-    -- TODO: this seems non-functional, should roll it into the autojoin
-    -- logic
+    -- TODO: this seems non-functional, should roll it into the autojoin logic
     , do
         match motdMatch
         debug "motdMatch"

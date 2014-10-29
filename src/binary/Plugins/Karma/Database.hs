@@ -4,9 +4,9 @@ module Plugins.Karma.Database
     , allKarma
     , partalKarma
     , topNDenormalized
-    , rankingDenormalized
-    , countK
     , topNSideVotesDenormalized
+    , countK
+    , rankingDenormalized
     , sideVotesRankingDenormalized
 
     , addKarma
@@ -87,14 +87,14 @@ partalKarma KarmaGiven    = partalKarmaT karmaGivenName karmaGivenUp karmaGivenD
 topNDenormalized KarmaReceived = topNDenormalizedT karmaReceivedName karmaReceivedTotal
 topNDenormalized KarmaGiven    = topNDenormalizedT karmaGivenName karmaGivenTotal
 
-rankingDenormalized KarmaReceived = rankingDenormalizedT karmaReceivedName karmaReceivedTotal
-rankingDenormalized KarmaGiven    = rankingDenormalizedT karmaGivenName karmaGivenTotal
+topNSideVotesDenormalized KarmaReceived lmt = topNDenormalizedT karmaReceivedName karmaReceivedSide lmt desc
+topNSideVotesDenormalized KarmaGiven lmt    = topNDenormalizedT karmaGivenName karmaGivenSide lmt desc
 
 countK KarmaReceived = countT karmaReceivedName
 countK KarmaGiven    = countT karmaGivenName
 
-topNSideVotesDenormalized KarmaReceived lmt = topNDenormalizedT karmaReceivedName karmaReceivedSide lmt desc
-topNSideVotesDenormalized KarmaGiven lmt    = topNDenormalizedT karmaGivenName karmaGivenSide lmt desc
+rankingDenormalized KarmaReceived = rankingDenormalizedT karmaReceivedName karmaReceivedTotal
+rankingDenormalized KarmaGiven    = rankingDenormalizedT karmaGivenName karmaGivenTotal
 
 sideVotesRankingDenormalized KarmaReceived = rankingDenormalizedT karmaReceivedName karmaReceivedSide
 sideVotesRankingDenormalized KarmaGiven    = rankingDenormalizedT karmaGivenName karmaGivenSide
@@ -116,13 +116,6 @@ partalKarmaT karmaName karmaUp karmaDown karmaSide names = do
             )
     return $ unionBy (\(a, _, _, _) (b, _, _, _) -> a == b) (map (\(n, u, d, s) -> (unValue n, unValue u, unValue d, unValue s)) r) (map (\n -> (n, 0, 0, 0)) names)
 
-countT karmaName whom = do
-    r <- select $ from (\v -> do
-            where_ (karmaName v !=. val whom)
-            return $ count (karmaName v) :: SqlQuery (SqlExpr (Value Int))
-            )
-    return $ unValue $ head r -- TODO: unsafe head
-
 -- karmaTotal is also good for karmaSide
 topNDenormalizedT karmaName karmaTotal lmt ord = do
     r <- select $ from (\v -> do
@@ -132,17 +125,33 @@ topNDenormalizedT karmaName karmaTotal lmt ord = do
             )
     return $ map (\(n, k) -> (unValue n, unValue k)) r
 
+countT karmaName whom = do
+    r <- select $ from (\v -> do
+--            where_ (karmaName v !=. val whom)
+            return $ count (karmaName v) :: SqlQuery (SqlExpr (Value Int))
+            )
+    return $ unValue $ head r -- TODO: unsafe head
+
 -- karmaTotal is also good for karmaSide
 rankingDenormalizedT karmaName karmaTotal whom = do
-    r <- select $ from (\v -> do
-        let sub = from $ (\c -> do
-                where_ (karmaName c ==. val whom)
-                return $ karmaTotal c
-                )
-        where_ (karmaTotal v >. sub_select sub)
-        return $ count (karmaName v) :: SqlQuery (SqlExpr (Value Int))
+    e <- select $ from (\v -> do
+            where_ (karmaName v ==. val whom)
+            return (karmaName v)
+            )
+
+    if null e
+    then return Nothing
+    else (do
+        r <- select $ from (\v -> do
+            let sub = from $ (\c -> do
+                    where_ (karmaName c ==. val whom)
+                    return $ karmaTotal c
+                    )
+            where_ (karmaTotal v >. sub_select sub)
+            return $ count (karmaName v) +. val 1 :: SqlQuery (SqlExpr (Value Int))
+            )
+        return $ Just $ unValue $ head r -- TODO: unsafe head
         )
-    return $ unValue $ head r -- TODO: unsafe head
 
 addKarma timestamp karmaName karmaValues =
     insertMany_ (map (\v -> Votes timestamp karmaName (kMessage v) (typeToInt (kType v))) karmaValues)
