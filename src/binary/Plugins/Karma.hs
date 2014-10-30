@@ -68,7 +68,7 @@ karmaSidevotesMatch :: BotEvent -> Bool
 karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!sidevotes")
 
 karmaSidevotes :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karmaSidevotes _ pool m@(EMessage _) = do
+karmaSidevotes _ pool m@(EMessage _ _) = do
     let nick     = T.decodeUtf8 $ nickContent m
     let countMax = 3
 
@@ -105,7 +105,7 @@ karmaGivers conf pool m = karmaStats conf pool KarmaGiven 3 True m
 
 
 karmaStats :: (MonadIO m) => Config -> ConnectionPool -> KarmaTable -> Int64 -> Bool -> BotEvent -> m (Maybe BotCommand)
-karmaStats conf pool karmaType countMax givers m@(EMessage _) =
+karmaStats conf pool karmaType countMax givers m@(EMessage _ _) =
     case (parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m) of
         (Left _)   -> return $ Just $ CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"
         (Right []) -> do
@@ -143,7 +143,7 @@ karmaRankMatch = liftM2 (&&) (liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessag
 
 
 karmaRank :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karmaRank conf pool m@(EMessage _) =
+karmaRank conf pool m@(EMessage _ _) =
     case (parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m) of
         (Left _)       -> return $ Just $ CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"
         (Right [])     -> do
@@ -192,7 +192,7 @@ karmaSidevotesRankMatch :: BotEvent -> Bool
 karmaSidevotesRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!ranksidevote")
 
 karmaSidevotesRank :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karmaSidevotesRank conf pool m@(EMessage _) =
+karmaSidevotesRank conf pool m@(EMessage _ _) =
     case (parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m) of
         (Left _)       -> return $ Just $ CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"
         (Right [])     -> do
@@ -212,7 +212,7 @@ rawKarmaMatch :: BotEvent -> Bool
 rawKarmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (not . prefixMessage "!")
 
 rawKarma :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-rawKarma conf pool m@(EMessage _) = do
+rawKarma conf pool m@(EMessage _ _) = do
     -- ByteString -> utf8
     -- TODO: error handling
     let msg   = T.decodeUtf8 $ messageContent m

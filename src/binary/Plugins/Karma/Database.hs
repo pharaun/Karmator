@@ -22,7 +22,7 @@ module Plugins.Karma.Database
 import Data.List (unionBy)
 import Data.Time.Clock (UTCTime)
 import Database.Esqueleto
-import Data.Text (Text)
+import Data.Text (Text, toCaseFold)
 import qualified Database.Persist.TH as P
 
 import Plugins.Karma.Types (Karma(kMessage,kType), KarmaType(..))
@@ -114,7 +114,8 @@ partalKarmaT karmaName karmaUp karmaDown karmaSide names = do
             where_ ((karmaName v) `in_` valList names)
             return (karmaName v, karmaUp v, karmaDown v, karmaSide v)
             )
-    return $ unionBy (\(a, _, _, _) (b, _, _, _) -> a == b) (map (\(n, u, d, s) -> (unValue n, unValue u, unValue d, unValue s)) r) (map (\n -> (n, 0, 0, 0)) names)
+    -- TODO: should return it in the same order that the names were yielded
+    return $ unionBy (\(a, _, _, _) (b, _, _, _) -> toCaseFold a == toCaseFold b) (map (\(n, u, d, s) -> (unValue n, unValue u, unValue d, unValue s)) r) (map (\n -> (n, 0, 0, 0)) names)
 
 -- karmaTotal is also good for karmaSide
 topNDenormalizedT karmaName karmaTotal lmt ord = do

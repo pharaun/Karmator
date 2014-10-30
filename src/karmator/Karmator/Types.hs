@@ -29,7 +29,8 @@ import qualified Network.TLS as TLS
 
 -- Per server config for the bot
 data ServerConfig = ServerConfig
-    { server :: String
+    { network :: String
+    , server :: String
     , port :: PortNumber
     , nicks :: [BS.ByteString] -- First one then alternatives in descending order
     , userName :: BS.ByteString
@@ -39,9 +40,6 @@ data ServerConfig = ServerConfig
 
     , reconnect :: Bool
     , reconnectWait :: Int -- Microseconds
-
-    -- Default set of channels to always join
-    , channels :: [BS.ByteString]
 
     -- TODO: make this optional/replaced by a logging infrastructure
     , logfile :: String
@@ -94,7 +92,7 @@ data ServerState = ServerState
 data BotEvent
     = ConnectionEstablished
     | ConnectionLost
-    | EMessage IRC.Message
+    | EMessage String IRC.Message
     deriving (Show)
 
 -- Bot/Server Commands

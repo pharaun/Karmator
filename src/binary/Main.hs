@@ -10,6 +10,7 @@ import System.Time
 import Options.Applicative
 import qualified Data.Text as T
 
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 
 import qualified Network.Simple.TCP.TLS as TLS
@@ -29,22 +30,13 @@ import Plugins.Karma.Types (Config)
 --
 -- Routes configuration
 --
--- TODO: clean up types, needs a better way to get ClockTime into uptime than this
---      - !karmatorjoin
---      - !karmatorleave
---      - !IRC_INVITE (invite command)
-commandRoute :: Config -> ConnectionPool -> ClockTime -> Route [CmdHandler]
-commandRoute c p t = choice
+commandRoute :: Config -> ConnectionPool -> ClockTime -> [(String, [BS.ByteString])] -> Route [CmdHandler]
+commandRoute c p t nc = choice (
     [ do
         match pingMatch
         debug "pingMatch"
         handler "ping" () (\_ i -> return $ ping i)
 
-    -- TODO: this seems non-functional, should roll it into the autojoin logic
-    , do
-        match motdMatch
-        debug "motdMatch"
-        handler "match" () (\_ i -> return $ motdJoin i)
     , do
         match uptimeMatch
         debug "uptimeMatch"
@@ -86,19 +78,25 @@ commandRoute c p t = choice
         match karmaMatch
         debug "karmaMatch"
         handler "karma" p (karma c)
-    ]
+
+    -- Per network MOTD join
+    ] ++ map (\(n, cs) -> do
+        match (motdMatch n)
+        debug ("motdMatch - " ++ n)
+        handler ("motd - " ++ n) () (\_ i -> return $ motdJoin cs i)
+        ) nc)
 
 
 main :: IO ()
 main = do
     botConf <- getArgs
-    (database, karmaConf, servers) <- getBotConfig botConf
+    (database, karmaConf, servers, networkChannels) <- getBotConfig botConf
     runStderrLoggingT $ withSqlitePool database 1 (\pool -> liftIO $ do
         -- Run the bot
         t <- getClockTime
         c <- getKarmaConfig karmaConf
 
-        runBot servers (commandRoute c pool t)
+        runBot servers (commandRoute c pool t networkChannels)
 
         return ()
         )
@@ -118,7 +116,7 @@ getArgs = execParser opts
         )
 
 -- Load the bot config
-getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig])
+getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig], [(String, [BS.ByteString])])
 getBotConfig conf = do
     config <- runExceptT (do
         c <- join $ liftIO $ readfile emptyCP conf
@@ -128,21 +126,22 @@ getBotConfig conf = do
         karmaConf <- get c "bot" "karma_config"
 
         -- Get a list of section, each is a server config
-        servers <- mapM (getServerConfig c) $ filter ((/=) "bot") $ sections c
+        (servers, networkChannels) <- liftM splitConf $ mapM (getServerConfig c) $ filter ((/=) "bot") $ sections c
 
-        return (database, karmaConf, servers))
+        return (database, karmaConf, servers, networkChannels))
 
     case config of
         Left cperr   -> error $ show cperr
         Right config -> return config
   where
+    splitConf xs = (map fst xs, map snd xs)
     getServerConfig c s = do
         host    <- get c s "host"
         port    <- get c s "port"
         nicks   <- get c s "nicks"
         user    <- get c s "user"
         pass    <- get c s "pass"
-        channel <- get c s "channel"
+        channel <- get c s "channel" :: ExceptT CPError IO [BS.ByteString]
         tlsHost <- get c s "tls_host"
         logfile <- get c s "logfile"
         logirc  <- get c s "logirc"
@@ -161,4 +160,4 @@ getBotConfig conf = do
                             }
                         }
 
-        return $ ServerConfig host (fromInteger port) nicks user pass tls reconn (reWait * 1000000) channel logfile logirc
+        return (ServerConfig s host (fromInteger port) nicks user pass tls reconn (reWait * 1000000) logfile logirc, (s, channel))

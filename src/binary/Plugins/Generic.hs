@@ -16,6 +16,7 @@ module Plugins.Generic
 import Data.List
 import System.Time
 import Control.Monad.Reader
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 
 import Karmator.Types
@@ -32,23 +33,27 @@ pingMatch = exactCommand "PING"
 
 -- TODO: Unsafe head
 ping :: BotEvent -> Maybe BotCommand
-ping (EMessage m) = Just $ CMessage $ IRC.pong $ head $ IRC.msg_params m
+ping (EMessage _ m) = Just $ CMessage $ IRC.pong $ head $ IRC.msg_params m
 ping _ = Nothing
 
 
 --
 -- Motd Join
--- TODO: improve this (Such as list of channels to join)
+-- TODO: add support for "auth ping/pong" before registering/joining channels
+-- TODO: too many channels will cause this to be too long and truncated.
+-- Need to split it and emit multiple joins as needed
 --
-motdMatch  = exactCommand "700"
-motdJoin _ = Just $ CMessage $ IRC.joinChan "#gamelost" -- TODO: Need to take list of channels to join
+motdMatch n m = exactCommand "004" m && networkMatch n m
+motdJoin cs _ = Just $ CMessage $ IRC.joinChan $ BS.intercalate "," cs
+
+
 
 
 --
 -- Invite
 --
 inviteMatch             = exactCommand "INVITE"
-inviteJoin (EMessage m) = Just $ CMessage $ IRC.joinChan $ head $ tail $ IRC.msg_params m
+inviteJoin (EMessage _ m) = Just $ CMessage $ IRC.joinChan $ head $ tail $ IRC.msg_params m
 
 
 --

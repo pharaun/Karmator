@@ -144,7 +144,7 @@ karmaParse conf = catMaybes `fmap` processCandidates conf `fmap` nestedKarmaPars
         evalKarma c KarmaCandidate{kcMessage=msg, kcKarma=karma} =
             case evalulateKarma c karma of
                 (e, Just k)  ->
-                    let msg' = (T.strip $ T.toLower $ T.pack msg) `T.append` T.pack e
+                    let msg' = (T.strip $ T.pack msg) `T.append` T.pack e
                     in if T.null msg' then Nothing else Just (Karma k msg')
                 (_, Nothing) -> Nothing
 
