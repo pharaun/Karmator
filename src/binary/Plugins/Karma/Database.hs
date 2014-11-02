@@ -135,24 +135,22 @@ countT karmaName whom = do
 
 -- karmaTotal is also good for karmaSide
 rankingDenormalizedT karmaName karmaTotal whom = do
-    e <- select $ from (\v -> do
-            where_ (karmaName v ==. val whom)
-            return (karmaName v)
-            )
-
-    if null e
-    then return Nothing
-    else (do
-        r <- select $ from (\v -> do
-            let sub = from $ (\c -> do
-                    where_ (karmaName c ==. val whom)
-                    return $ karmaTotal c
-                    )
-            where_ (karmaTotal v >. sub_select sub)
-            return $ count (karmaName v) +. val 1 :: SqlQuery (SqlExpr (Value Int))
-            )
-        return $ Just $ unValue $ head r -- TODO: unsafe head
-        )
+    r <- select $
+            return $
+                case_
+                    [ when_
+                        (exists $ from $ \v -> where_ (karmaName v ==. val whom))
+                      then_
+                        (sub_select $ from $ \v -> do
+                            let sub =
+                                    from $ \c -> do
+                                    where_ (karmaName c ==. val whom)
+                                    return $ karmaTotal c
+                            where_ (karmaTotal v >. sub_select sub)
+                            return $ just (count (karmaName v) +. val 1) :: SqlQuery (SqlExpr (Value (Maybe Int)))
+                            ) ]
+                    (else_ $ nothing)
+    return $ unValue $ head r -- TODO: unsafe head
 
 addKarma timestamp karmaName karmaValues =
     insertMany_ (map (\v -> Votes timestamp karmaName (kMessage v) (typeToInt (kType v))) karmaValues)
