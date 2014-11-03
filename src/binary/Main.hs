@@ -109,7 +109,7 @@ getArgs = execParser opts
         (  fullDesc
         <> progDesc "Run the 'Karmator' irc bot."
         <> header "karmator - An ircbot for handling karma" )
-    config = argument auto
+    config = strArgument
         (  metavar "CONFIG"
         <> help "The bot configuration"
         <> value "src/binary/bot.cfg"

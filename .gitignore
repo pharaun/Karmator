@@ -10,3 +10,4 @@ cabal.sandbox.config
 TestData/
 dist/
 libs/
+bot.cfg
