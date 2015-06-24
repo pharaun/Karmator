@@ -53,7 +53,7 @@ runServer sc queue = PNT.withSocketsDo $
         -- Establish tls/norm connection
         forever $ do
             -- Upon exit of the establishConnection we ensure we always emit ConnectionLost
-            errors <- runEitherT $ syncIO $ C.finally (establishConnection ss) (emitConnectionLoss ss)
+            errors <- runExceptT $ syncIO $ C.finally (establishConnection ss) (emitConnectionLoss ss)
 
             -- TODO: good place for tallying the number of failure and
             -- shutting the server connection off if it exceeds some
