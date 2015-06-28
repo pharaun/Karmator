@@ -12,10 +12,12 @@ import qualified Data.Text as T
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
+import qualified Data.ByteString.Base16 as B16
 
 import qualified Network.Simple.TCP.TLS as TLS
 import qualified Network.TLS as TLS
 import qualified System.X509.Unix as TLS
+import qualified Data.X509.Validation as TLS
 
 -- Karmator
 import Karmator.Bot
@@ -143,6 +145,7 @@ getBotConfig conf = do
         pass    <- get c s "pass"
         channel <- get c s "channel" :: ExceptT CPError IO [BS.ByteString]
         tlsHost <- get c s "tls_host"
+        tlsHash <- get c s "tls_fingerprint" -- Hex sha256
         logfile <- get c s "logfile"
         logirc  <- get c s "logirc"
         reconn  <- get c s "reconn"
@@ -153,11 +156,25 @@ getBotConfig conf = do
             Just th -> do
                 -- Setup the TLS configuration
                 tls <- liftIO $ TLS.makeClientSettings Nothing host (show port) True <$> TLS.getSystemCertificateStore
-                return $ Just $ tls
+                let tls' = tls
                         { TLS.clientServerIdentification = (th, C8.pack $ show port)
                         , TLS.clientHooks = (TLS.clientHooks tls)
                             { TLS.onCertificateRequest = \_ -> return Nothing
                             }
                         }
+
+                case tlsHash of
+                    Nothing    -> return $ Just tls'
+                    Just thash -> do
+                        -- Setup hash
+                        let unpackedHash = fst $ B16.decode $ C8.pack thash
+                        let sid = (th, C8.pack $ show port)
+                        let cache = TLS.exceptionValidationCache [(sid, TLS.Fingerprint unpackedHash)]
+
+                        return $ Just $ tls'
+                            { TLS.clientShared = (TLS.clientShared tls')
+                                { TLS.sharedValidationCache = cache
+                                }
+                            }
 
         return (ServerConfig s host (fromInteger port) nicks user pass tls reconn (reWait * 1000000) logfile logirc, (s, channel))
