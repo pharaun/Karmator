@@ -52,41 +52,35 @@ showSerialize = fromString . show
 readDeserialize :: Read a => ByteString -> a -- TODO: should be (Maybe a)
 readDeserialize = read . toString
 
---getState :: Read a => Text -> (ByteString -> a) -> Text -> Maybe a
-getState m d k = do
-    let k' = keyFromValues [PersistText m, PersistText k]
-    case k' of
-        Left _    -> return Nothing
-        Right k'' -> do
-            a <- get (k'' :: Key SimpleState)
-            case a of
-                Nothing -> return Nothing
-                Just (SimpleState _ _ s) -> return $ Just $ d s
+getState :: (MonadIO m) => Text -> (ByteString -> a) -> Text -> SqlPersistT m (Maybe a)
+getState m d k = either
+    (\_  -> return Nothing)
+    (\k' -> return . maybe Nothing (\(SimpleState _ _ s) -> Just $ d s) =<< get k')
+    (keyFromValues [PersistText m, PersistText k])
 
---setState :: Show a => Text -> (a -> ByteString) -> Text -> a -> ()
-setState m d k v = insert_ $ SimpleState m k $ d v
-
-
-test :: IO ()
-test = runSqlite ":memory:" $ do
-    runMigration migrateSimpleState
-
-    setState "a" showSerialize "b" "c"
-    setState "a" showSerialize "c" "d"
-
-    a <- getState "a" readDeserialize "b"
-    b <- getState "a" readDeserialize "c"
-
-    liftIO $ print (a :: Maybe String)
-    liftIO $ print (b :: Maybe String)
+-- This overwrites the already set state
+setState :: (MonadIO m) => Text -> (a -> ByteString) -> Text -> a -> SqlPersistT m ()
+setState m d k v = either
+    (\_  -> return ())
+    (\k' -> do
+        -- TODO: workaround till `repsert` and by proxy `insertKey` is fixed
+        a <- get (k' :: Key SimpleState)
+        case a of
+            Nothing -> insert_ (SimpleState m k $ d v)
+            Just _  -> replace k' (SimpleState m k $ d v)
+        )
+    (keyFromValues [PersistText m, PersistText k])
 
 
---  a <- getState deserialize '(moduleName) "channelList"           <- Maybe a ?
---  setState serialize '(moduleName) "channelList" "foo,bar,baz"
+
+
+-- TODO: Do we want to always do a query upon each get/set/modify or do we
+-- want to pre-fetch all related entries and put it into a cached state and
+-- then update after the plugin is ran?
 --
--- Do we want to wrap these state stuff into StateT and let plugin
--- access/write that way? or do we just want to expose it as a plain
--- highlevel api?
+-- TODO: It should be possible to hide/bind the plugin name and maybe even
+-- the (de)serialization functions and then the user only needs to present
+-- the key/value
 --
 -- Also we probably want to find a way to separate persist from
 -- non-persistent state (probably just via api access) (ie persistent state
@@ -96,6 +90,22 @@ test = runSqlite ":memory:" $ do
 -- "updates, set, delete, etc"
 --  - https://hackage.haskell.org/package/ircbot-0.6.4/docs/src/Network-IRC-Bot-BotMonad.html#BotPartT
 --  - Or a freeT Monad for a nicer AST/interface to handle various bits.
+
+test :: IO ()
+test = runSqlite ":memory:" $ do
+    runMigration migrateSimpleState
+
+    setState "a" showSerialize "b" "c"
+    setState "a" showSerialize "b" "d"
+    setState "a" showSerialize "c" "e"
+
+    a <- getState "a" readDeserialize "b"
+    b <- getState "a" readDeserialize "c"
+
+    liftIO $ print (a :: Maybe String)
+    liftIO $ print (b :: Maybe String)
+
+
 
 
 
