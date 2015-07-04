@@ -1,6 +1,12 @@
 {-# LANGUAGE GADTs, OverloadedStrings, QuasiQuotes, TemplateHaskell, TypeFamilies, DeriveGeneric, FlexibleInstances #-}
 module Karmator.State
-    ( test
+    ( SimpleState(..)
+    , migrateSimpleState
+    , showSerialize
+    , readDeserialize
+    , getState
+    , setState
+    , modifyState
     ) where
 
 import Control.Monad.Except
@@ -11,7 +17,6 @@ import Data.ByteString.UTF8 (fromString, toString)
 -- Sql stuff
 import qualified Database.Persist.TH as P
 import Database.Persist.Sql
-import Database.Persist.Sqlite hiding (get)
 
 --
 -- Notes: Interface stuff
@@ -71,7 +76,18 @@ setState m d k v = either
         )
     (keyFromValues [PersistText m, PersistText k])
 
+-- TODO: clean up the case with a maybe
+modifyState :: (MonadIO m) => Text -> (ByteString -> a) -> (b -> ByteString) -> Text -> (a -> b) -> SqlPersistT m (Maybe b)
+modifyState m d s k f = do
+    a <- getState m d k
+    case a of
+        Nothing -> return Nothing
+        Just a' -> do
+            let b = f a'
+            setState m s k b
+            return $ Just b
 
+-- TODO: needs to have a delete
 
 
 -- TODO: Do we want to always do a query upon each get/set/modify or do we
@@ -90,23 +106,6 @@ setState m d k v = either
 -- "updates, set, delete, etc"
 --  - https://hackage.haskell.org/package/ircbot-0.6.4/docs/src/Network-IRC-Bot-BotMonad.html#BotPartT
 --  - Or a freeT Monad for a nicer AST/interface to handle various bits.
-
-test :: IO ()
-test = runSqlite ":memory:" $ do
-    runMigration migrateSimpleState
-
-    setState "a" showSerialize "b" "c"
-    setState "a" showSerialize "b" "d"
-    setState "a" showSerialize "c" "e"
-
-    a <- getState "a" readDeserialize "b"
-    b <- getState "a" readDeserialize "c"
-
-    liftIO $ print (a :: Maybe String)
-    liftIO $ print (b :: Maybe String)
-
-
-
 
 
 

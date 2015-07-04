@@ -6,9 +6,6 @@ module Plugins.Generic
     , motdMatch
     , motdJoin
 
-    , inviteMatch
-    , inviteJoin
-
     , uptimeMatch
     , uptime
     ) where
@@ -45,15 +42,6 @@ ping _ = Nothing
 --
 motdMatch n m = exactCommand "004" m && networkMatch n m
 motdJoin cs _ = Just $ CMessage $ IRC.joinChan $ BS.intercalate "," cs
-
-
-
-
---
--- Invite
---
-inviteMatch             = exactCommand "INVITE"
-inviteJoin (EMessage _ m) = Just $ CMessage $ IRC.joinChan $ head $ tail $ IRC.msg_params m
 
 
 --

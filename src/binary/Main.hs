@@ -26,14 +26,16 @@ import Karmator.Types
 
 -- Plugins
 import Plugins.Generic
+import Plugins.Channels
 import Plugins.Karma
+import Karmator.State
 import Plugins.Karma.Types (Config)
 
 --
 -- Routes configuration
 --
-commandRoute :: Config -> ConnectionPool -> ClockTime -> [(String, [BS.ByteString])] -> Route [CmdHandler]
-commandRoute c p t nc = choice (
+commandRoute :: Config -> ConnectionPool -> ConnectionPool -> ClockTime -> [(String, [BS.ByteString])] -> Route [CmdHandler]
+commandRoute c p p' t nc = choice (
     [ do
         match pingMatch
         debug "pingMatch"
@@ -44,10 +46,27 @@ commandRoute c p t nc = choice (
         debug "uptimeMatch"
         handler "uptime" t uptime
 
+    -- Channel handlers
+    -- TODO: do a pre-load command to pre-init/add the forced channel to list of channel to join or something
     , do
         match inviteMatch
         debug "inviteMatch"
-        handler "invite" () (\_ i -> return $ inviteJoin i)
+        handler "invite" p' (sqlWrapper inviteJoin)
+
+    , do
+        match partMatch
+        debug "partMatch"
+        handler "part" p' (sqlWrapper partLeave)
+
+    , do
+        match kickMatch
+        debug "kickMatch"
+        handler "kick" p' (sqlWrapper kickLeave)
+
+    , do
+        match listMatch
+        debug "listMatch"
+        handler "list" p' (sqlWrapper listChannel)
 
     -- Karma handlers
     -- Need to "create a database connection" then pass it into all karma handlers
@@ -98,7 +117,11 @@ main = do
         t <- getClockTime
         c <- getKarmaConfig karmaConf
 
-        runBot servers (commandRoute c pool t networkChannels)
+        -- TODO: externalize/load the db stuff as well
+        runStderrLoggingT $ withSqlitePool "state.db" 1 (\pool' -> liftIO $ do
+            runSqlPool (runMigration migrateSimpleState) pool'
+            runBot servers (commandRoute c pool pool' t networkChannels)
+            )
 
         return ()
         )
@@ -143,7 +166,7 @@ getBotConfig conf = do
         nicks   <- get c s "nicks"
         user    <- get c s "user"
         pass    <- get c s "pass"
-        channel <- get c s "channel" :: ExceptT CPError IO [BS.ByteString]
+        channel <- get c s "channel" :: ExceptT CPError IO [BS.ByteString] -- Mandatory channels per host
         tlsHost <- get c s "tls_host"
         tlsHash <- get c s "tls_fingerprint" -- Hex sha256
         logfile <- get c s "logfile"

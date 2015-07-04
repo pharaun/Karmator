@@ -26,6 +26,7 @@ library
                        Karmator.Route
                        Karmator.Server
                        Karmator.Types
+                       Karmator.State
                        Network.IRC.Patch
   default-language:    Haskell2010
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts -threaded
@@ -37,9 +38,8 @@ library
                      , async
                      , attoparsec
                      , bytestring >= 0.10
-                     , text
-                     , transformers >=0.4 && <0.5
-                     , mtl
+                     , utf8-string
+                     , text >= 1.2.0.0
                      , free
                      , irc >= 0.6
                      , mtl
@@ -57,9 +57,14 @@ library
                      , errors >= 1.4.0
                      , safe >= 0.3
                      , exceptions >= 0.6
+                     -- Stateful management stuff
+                     , persistent >=2.1.1.7 && <2.2
+                     , persistent-sqlite < 2.2
+                     , persistent-template >= 2.0
 
 executable karmator
   other-modules:       Plugins.Generic
+                       Plugins.Channels
                        Plugins.Karma
                        Plugins.Karma.Database
                        Plugins.Karma.Karma
@@ -74,6 +79,8 @@ executable karmator
 
                      , ConfigFile
                      , bytestring >= 0.10
+                     , utf8-string
+                     , containers
                      , esqueleto >= 2.2.4
                      , formatting
                      , irc >= 0.6
