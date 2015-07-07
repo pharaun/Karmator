@@ -10,7 +10,6 @@ module Plugins.Generic
 import Data.List
 import System.Time
 import Control.Monad.Reader
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 
 import Karmator.Types
@@ -35,7 +34,7 @@ ping _ = Nothing
 -- Uptime
 --
 uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!uptime")
-uptime t _ m  = do
+uptime t m  = do
     now <- liftIO $ getClockTime
     return $ Just $ CMessage $ IRC.privmsg (whichChannel m) (C8.pack $ pretty $ diffClockTimes now t)
 

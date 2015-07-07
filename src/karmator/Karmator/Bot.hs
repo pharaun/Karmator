@@ -27,7 +27,7 @@ runBot s r = do
 
     -- TODO: more sophsicated logic here, we exit upon shutdown of any
     -- server/bot async
-    waitAnyCancel (bot : servers)
+    _ <- waitAnyCancel (bot : servers)
     return ()
 
 runCommand :: TQueue (BotEvent, TQueue BotCommand) -> [Route [CmdHandler]] -> IO ()
@@ -49,4 +49,9 @@ runCommand q routes = forever $ do
 -- Also should eventually parallelize and other improvement on this region.
 --
 executeCmdRef :: [CmdHandler] -> BotEvent -> IO [Maybe BotCommand]
-executeCmdRef cs m = mapM (\(CmdRef _ st p h) -> h st p m) cs
+executeCmdRef cs m = mapM (mapCmdRef m) cs
+  where
+    mapCmdRef m' (CmdRef _ h)        = h m'
+    mapCmdRef m' (SCmdRef _ st h)    = h st m'
+    mapCmdRef m' (PCmdRef _ p h)     = h p m'
+    mapCmdRef m' (PSCmdRef _ p st h) = h p st m'

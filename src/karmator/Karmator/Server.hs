@@ -100,18 +100,18 @@ handleIRC recv send ss@ServerState{config=sc, logStream=l} = do
 -- Parses incoming irc messages and emits any errors to a log and keep going
 --
 ircParserErrorLogging :: MonadIO m => String -> Handle -> Producer BS.ByteString m () -> Producer BotEvent m ()
-ircParserErrorLogging network l producer = do
+ircParserErrorLogging network' l producer = do
     (result, rest) <- lift $ runStateT (PA.parse IRC.message) producer
 
     case result of
         Nothing -> liftIO $ BS.hPutStr l "Pipe is exhausted (connection was closed)\n"
         Just r  -> do
             case r of
-                Right m -> yield (EMessage network m)
+                Right m -> yield (EMessage network' m)
                 Left e  -> liftIO $ logParsingException l e
 
             -- Keep going after we've either yielded or logged the error
-            ircParserErrorLogging network l rest
+            ircParserErrorLogging network' l rest
 
 --
 -- Handshake for initial connection to the network.

@@ -21,6 +21,7 @@ import System.IO
 import Control.Concurrent.STM
 import Control.Monad.Trans.Free
 import Text.Show.Functions()
+import Database.Persist.Sql (ConnectionPool)
 
 import qualified Data.ByteString as BS
 import qualified Network.IRC as IRC
@@ -106,23 +107,30 @@ data BotCommand
     deriving (Show,Eq)
 
 -- Routing
-data Segment m i o n
+data Segment m p i o n
     = Match (i -> Bool) n
     | Choice [n]
-    | Handler (CmdRef m i o)
+    | Handler (CmdRef m p i o)
     deriving (Functor, Show)
 
-type RouteT m a = FreeT (Segment m BotEvent (Maybe BotCommand)) m a
-type Route a = RouteT IO a
+type RouteT m p a = FreeT (Segment m p BotEvent (Maybe BotCommand)) m a
+-- TODO: maybe neat to add in support for varying persistance method, but for now force one
+type Route a = RouteT IO ConnectionPool a
 
 
 -- Handler Type
 -- TODO: replace st with (MVar st)
 -- st - Ephemeral State
 -- p - Persistent State (db connection/etc)
-data CmdRef m i o = forall st p . CmdRef String st p (st -> p -> i -> m o)
+data CmdRef m p i o = CmdRef String (i -> m o)
+                    | forall st . SCmdRef String st (st -> i -> m o)
+                    | PCmdRef String p (p -> i -> m o)
+                    | forall st . PSCmdRef String p st (p -> st -> i -> m o)
 
-instance Show (CmdRef m i o) where
-    show (CmdRef n _ _ _) = "Command: " ++ show n
+instance Show (CmdRef m p i o) where
+    show (CmdRef n _)       = "Pure Command: " ++ show n
+    show (SCmdRef n _ _)    = "Stateful Command: " ++ show n
+    show (PCmdRef n _ _)    = "Persistance Command: " ++ show n
+    show (PSCmdRef n _ _ _) = "Persistance Stateful Command: " ++ show n
 
-type CmdHandler = CmdRef IO BotEvent (Maybe BotCommand)
+type CmdHandler = CmdRef IO ConnectionPool BotEvent (Maybe BotCommand)

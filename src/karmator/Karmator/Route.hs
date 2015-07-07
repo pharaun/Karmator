@@ -3,7 +3,11 @@ module Karmator.Route
     -- TODO: clean up the type export and restrict it
     ( match
     , choice
-    , handler
+    , pureHandler
+    , stateHandler
+    , persistHandler
+    , persistStateHandler
+
     , debug
     , runRoute
     , debugRoute
@@ -28,14 +32,29 @@ match :: (BotEvent -> Bool) -> Route ()
 match p = liftF (Match p ())
 
 -- | Try several routes, using all that succeeds
+-- TODO: maybe neat to add in support for varying persistance method, but for now force one
 choice :: [Route a] -> Route a
 choice a = join $ liftF (Choice a)
 
--- | Register a handler
+-- | Register a pure handler
 -- TODO: see if we can't refine the type a bit more? (esp m1 o -> m2 a)
--- TODO: implement 3 more variant (one with state, one without, one with persistent, and without)
-handler :: MonadFree (Segment m1 i o) m2 => String -> st -> p -> (st -> p -> i -> m1 o) -> m2 a
-handler n s p h = liftF (Handler $ CmdRef n s p h)
+pureHandler :: MonadFree (Segment m1 p i o) m2 => String -> (i -> m1 o) -> m2 a
+pureHandler n h = liftF (Handler $ CmdRef n h)
+
+-- | Register a stateful handler
+-- TODO: see if we can't refine the type a bit more? (esp m1 o -> m2 a)
+stateHandler :: MonadFree (Segment m1 p i o) m2 => String -> st -> (st -> i -> m1 o) -> m2 a
+stateHandler n s h = liftF (Handler $ SCmdRef n s h)
+
+-- | Register a persisting handler
+-- TODO: see if we can't refine the type a bit more? (esp m1 o -> m2 a)
+persistHandler :: MonadFree (Segment m1 p i o) m2 => String -> p -> (p -> i -> m1 o) -> m2 a
+persistHandler n p h = liftF (Handler $ PCmdRef n p h)
+
+-- | Register a persisting stateful handler
+-- TODO: see if we can't refine the type a bit more? (esp m1 o -> m2 a)
+persistStateHandler :: MonadFree (Segment m1 p i o) m2 => String -> p -> st -> (p -> st -> i -> m1 o) -> m2 a
+persistStateHandler n p s h = liftF (Handler $ PSCmdRef n p s h)
 
 -- | Non-route that prints debugging info
 debug :: MonadIO m => String -> m ()
