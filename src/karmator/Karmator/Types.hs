@@ -118,9 +118,11 @@ type Route a = RouteT IO a
 
 -- Handler Type
 -- TODO: replace st with (MVar st)
-data CmdRef m i o = forall st. CmdRef String st (st -> i -> m o)
+-- st - Ephemeral State
+-- p - Persistent State (db connection/etc)
+data CmdRef m i o = forall st p . CmdRef String st p (st -> p -> i -> m o)
 
 instance Show (CmdRef m i o) where
-    show (CmdRef n _ _) = "Command: " ++ show n
+    show (CmdRef n _ _ _) = "Command: " ++ show n
 
 type CmdHandler = CmdRef IO BotEvent (Maybe BotCommand)

@@ -39,72 +39,74 @@ commandRoute c p p' t nc = choice (
     [ do
         match pingMatch
         debug "pingMatch"
-        handler "ping" () (\_ i -> return $ ping i)
+        handler "ping" () () (\_ _ i -> return $ ping i)
 
     , do
         match uptimeMatch
         debug "uptimeMatch"
-        handler "uptime" t uptime
+        handler "uptime" t () uptime
 
     -- Channel handlers
     -- TODO: do a pre-load command to pre-init/add the forced channel to list of channel to join or something
+    -- TODO: switch the p' out of the st into persist bit
     , do
         match inviteMatch
         debug "inviteMatch"
-        handler "invite" p' (sqlWrapper inviteJoin)
+        handler "invite" p' () (sqlWrapper inviteJoin)
 
     , do
         match partMatch
         debug "partMatch"
-        handler "part" p' (sqlWrapper partLeave)
+        handler "part" p' () (sqlWrapper partLeave)
 
     , do
         match kickMatch
         debug "kickMatch"
-        handler "kick" p' (sqlWrapper kickLeave)
+        handler "kick" p' () (sqlWrapper kickLeave)
 
     , do
         match listMatch
         debug "listMatch"
-        handler "list" p' (sqlWrapper listChannel)
+        handler "list" p' () (sqlWrapper listChannel)
 
     -- Karma handlers
     -- Need to "create a database connection" then pass it into all karma handlers
+    -- TODO: switch the p' out of the st into persist bit
     , do
         match rawKarmaMatch
         debug "rawKarmaMatch"
-        handler "rawKarma" p (rawKarma c)
+        handler "rawKarma" p () (rawKarma c)
 
     , do
         match karmaSidevotesMatch
         debug "karmaSidevotesMatch"
-        handler "karmaSideVotes" p (karmaSidevotes c)
+        handler "karmaSideVotes" p () (karmaSidevotes c)
 
     , do
         match karmaGiversMatch
         debug "karmaGiversMatch"
-        handler "karmaGivers" p (karmaGivers c)
+        handler "karmaGivers" p () (karmaGivers c)
 
     , do
         match karmaRankMatch
         debug "karmaRankMatch"
-        handler "karmaRank" p (karmaRank c)
+        handler "karmaRank" p () (karmaRank c)
 
     , do
         match karmaSidevotesRankMatch
         debug "karmaSidevotesRankMatch"
-        handler "karmaSidevotesRank" p (karmaSidevotesRank c)
+        handler "karmaSidevotesRank" p () (karmaSidevotesRank c)
 
     , do
         match karmaMatch
         debug "karmaMatch"
-        handler "karma" p (karma c)
+        handler "karma" p () (karma c)
 
     -- Per network MOTD join
     ] ++ map (\(n, cs) -> do
         match (motdMatch n)
         debug ("motdMatch - " ++ n)
-        handler ("motd - " ++ n) () (\_ i -> return $ motdJoin cs i)
+        handler ("motd - " ++ n) () () (\_ _ i -> return $ motdJoin cs i)
         ) nc)
 
 

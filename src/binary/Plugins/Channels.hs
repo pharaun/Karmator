@@ -13,6 +13,9 @@ module Plugins.Channels
 
     , listMatch
     , listChannel
+
+    , motdMatch
+    , motdJoin
     ) where
 
 import Data.Set (Set)
@@ -32,9 +35,10 @@ import qualified Network.IRC as IRC
 
 --
 -- Test the wrapper stuff so i don't need to modify all over
+-- TODO: update this to take in a pook rather than empherial state
 --
-sqlWrapper :: MonadIO m => (BotEvent -> ReaderT ConnectionPool m (Maybe BotCommand)) -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-sqlWrapper c pool e = runReaderT (c e) pool
+sqlWrapper :: MonadIO m => (BotEvent -> ReaderT ConnectionPool m (Maybe BotCommand)) -> ConnectionPool -> a -> BotEvent -> m (Maybe BotCommand)
+sqlWrapper c pool _ e = runReaderT (c e) pool
 
 
 
@@ -104,3 +108,15 @@ listChannel m = do
     chan <- liftIO $ flip runSqlPool pool (getState "Plugins.Channels" readDeserialize "test.auto_join_channel")
 
     return $ Just $ CMessage $ IRC.privmsg (whichChannel m) (fromString $ show (chan :: Maybe (Set String)))
+
+
+--
+-- Motd Join
+-- TODO: add support for "auth ping/pong" before registering/joining channels
+-- TODO: too many channels will cause this to be too long and truncated.
+-- Need to split it and emit multiple joins as needed
+--
+-- TODO: add the saved channels
+--
+motdMatch n m = exactCommand "004" m && networkMatch n m
+motdJoin cs _ = Just $ CMessage $ IRC.joinChan $ BS.intercalate "," cs

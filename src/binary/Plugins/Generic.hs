@@ -3,9 +3,6 @@ module Plugins.Generic
     ( pingMatch
     , ping
 
-    , motdMatch
-    , motdJoin
-
     , uptimeMatch
     , uptime
     ) where
@@ -35,20 +32,10 @@ ping _ = Nothing
 
 
 --
--- Motd Join
--- TODO: add support for "auth ping/pong" before registering/joining channels
--- TODO: too many channels will cause this to be too long and truncated.
--- Need to split it and emit multiple joins as needed
---
-motdMatch n m = exactCommand "004" m && networkMatch n m
-motdJoin cs _ = Just $ CMessage $ IRC.joinChan $ BS.intercalate "," cs
-
-
---
 -- Uptime
 --
 uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!uptime")
-uptime t m  = do
+uptime t _ m  = do
     now <- liftIO $ getClockTime
     return $ Just $ CMessage $ IRC.privmsg (whichChannel m) (C8.pack $ pretty $ diffClockTimes now t)
 

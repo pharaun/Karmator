@@ -67,8 +67,8 @@ renderTotalKarma xs = TL.intercalate "; " $ map (\(n, t) -> format (stext % " ("
 karmaSidevotesMatch :: BotEvent -> Bool
 karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!sidevotes")
 
-karmaSidevotes :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karmaSidevotes _ pool m@(EMessage _ _) = do
+karmaSidevotes :: (MonadIO m) => Config -> ConnectionPool -> a -> BotEvent -> m (Maybe BotCommand)
+karmaSidevotes _ pool _ m@(EMessage _ _) = do
     let nick     = T.decodeUtf8 $ nickContent m
     let countMax = 3
 
@@ -87,21 +87,21 @@ karmaSidevotes _ pool m@(EMessage _ _) = do
                    (renderTotalKarma given)
             )
         )
-karmaSidevotes _ _ _ = return Nothing
+karmaSidevotes _ _ _ _ = return Nothing
 
 
 karmaMatch :: BotEvent -> Bool
 karmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!karma")
 
-karma :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karma conf pool m = karmaStats conf pool KarmaReceived 3 False m
+karma :: (MonadIO m) => Config -> ConnectionPool -> a -> BotEvent -> m (Maybe BotCommand)
+karma conf pool _ m = karmaStats conf pool KarmaReceived 3 False m
 
 
 karmaGiversMatch :: BotEvent -> Bool
 karmaGiversMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!givers")
 
-karmaGivers :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karmaGivers conf pool m = karmaStats conf pool KarmaGiven 3 True m
+karmaGivers :: (MonadIO m) => Config -> ConnectionPool -> a -> BotEvent -> m (Maybe BotCommand)
+karmaGivers conf pool _ m = karmaStats conf pool KarmaGiven 3 True m
 
 
 karmaStats :: (MonadIO m) => Config -> ConnectionPool -> KarmaTable -> Int64 -> Bool -> BotEvent -> m (Maybe BotCommand)
@@ -142,8 +142,8 @@ karmaRankMatch :: BotEvent -> Bool
 karmaRankMatch = liftM2 (&&) (liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!rank")) (not . prefixMessage "!ranksidevote")
 
 
-karmaRank :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karmaRank conf pool m@(EMessage _ _) =
+karmaRank :: (MonadIO m) => Config -> ConnectionPool -> a -> BotEvent -> m (Maybe BotCommand)
+karmaRank conf pool _ m@(EMessage _ _) =
     case (parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m) of
         (Left _)       -> return $ Just $ CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"
         (Right [])     -> do
@@ -155,7 +155,7 @@ karmaRank conf pool m@(EMessage _ _) =
             msg <- renderRank pool False nick x x
             return $ Just $ CMessage $ IRC.privmsg (whichChannel m) msg
         (Right _)      -> return $ Just $ CMessage $ IRC.privmsg (whichChannel m) "Can only rank one karma entry at a time!"
-karmaRank _ _ _ = return Nothing
+karmaRank _ _ _ _ = return Nothing
 
 
 -- TODO: probably should make this remain T.Text and move encoding else where
@@ -191,8 +191,8 @@ renderRank pool sidevotes nick whom target = do
 karmaSidevotesRankMatch :: BotEvent -> Bool
 karmaSidevotesRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!ranksidevote")
 
-karmaSidevotesRank :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-karmaSidevotesRank conf pool m@(EMessage _ _) =
+karmaSidevotesRank :: (MonadIO m) => Config -> ConnectionPool -> a -> BotEvent -> m (Maybe BotCommand)
+karmaSidevotesRank conf pool _ m@(EMessage _ _) =
     case (parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m) of
         (Left _)       -> return $ Just $ CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"
         (Right [])     -> do
@@ -204,15 +204,15 @@ karmaSidevotesRank conf pool m@(EMessage _ _) =
             msg <- renderRank pool True nick x x
             return $ Just $ CMessage $ IRC.privmsg (whichChannel m) msg
         (Right _)      -> return $ Just $ CMessage $ IRC.privmsg (whichChannel m) "Can only rank one karma entry at a time!"
-karmaSidevotesRank _ _ _ = return Nothing
+karmaSidevotesRank _ _ _ _ = return Nothing
 
 
 -- This takes care of sulping all irc messages to stuff into the karma parser
 rawKarmaMatch :: BotEvent -> Bool
 rawKarmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (not . prefixMessage "!")
 
-rawKarma :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
-rawKarma conf pool m@(EMessage _ _) = do
+rawKarma :: (MonadIO m) => Config -> ConnectionPool -> a -> BotEvent -> m (Maybe BotCommand)
+rawKarma conf pool _ m@(EMessage _ _) = do
     -- ByteString -> utf8
     -- TODO: error handling
     let msg   = T.decodeUtf8 $ messageContent m
@@ -225,7 +225,7 @@ rawKarma conf pool m@(EMessage _ _) = do
             liftIO $ runSqlPool (addKarma t n k) pool
             return $ Nothing
         _                       -> return $ Nothing
-rawKarma _ _ _ = return Nothing
+rawKarma _ _ _ _ = return Nothing
 
 parseInput :: Config -> T.Text -> T.Text -> KarmaReply
 parseInput config jnick jinput = do

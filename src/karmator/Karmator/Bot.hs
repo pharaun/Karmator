@@ -49,4 +49,4 @@ runCommand q routes = forever $ do
 -- Also should eventually parallelize and other improvement on this region.
 --
 executeCmdRef :: [CmdHandler] -> BotEvent -> IO [Maybe BotCommand]
-executeCmdRef cs m = mapM (\(CmdRef _ st h) -> h st m) cs
+executeCmdRef cs m = mapM (\(CmdRef _ st p h) -> h st p m) cs

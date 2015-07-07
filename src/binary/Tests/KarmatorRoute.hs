@@ -39,11 +39,11 @@ testRoute :: Route [CmdHandler]
 testRoute = choice
     [ do
         debug "bye handler"
-        handler "bye" () (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bye"]))
+        handler "bye" () () (\_ _ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bye"]))
     , do
         match (\a -> server a == "test")
         debug "server handler"
-        handler "server" "string" (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "server"]))
+        handler "server" "string" () (\_ _ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "server"]))
     , do
         match (\a -> server a == "base")
         debug "base choice"
@@ -52,16 +52,16 @@ testRoute = choice
                 match (\a -> channel a == "target")
                 match (\a -> nick a == "never")
                 debug "never handler"
-                handler "never" 3.14 (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "never"]))
+                handler "never" 3.14 () (\_ _ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "never"]))
             , do
                 debug "base handler"
-                handler "base" 1 (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "base"]))
-            , handler "bar" 1 (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bar"]))
-            , return [CmdRef "return" 2 (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "return"]))]
+                handler "base" 1 () (\_ _ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "base"]))
+            , handler "bar" 1 () (\_ _ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bar"]))
+            , return [CmdRef "return" 2 () (\_ _ _-> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "return"]))]
             ]
     , do
         match (\a -> server a == "base")
-        handler "io" () fooIO
+        handler "io" () () fooIO
     ]
   where
     server :: BotEvent -> String
@@ -77,7 +77,7 @@ testRoute = choice
     nick (EMessage _ IRC.Message{IRC.msg_prefix=(Just (IRC.NickName n _ _))}) = C8.unpack n
     nick _ = ""
 
-    fooIO :: MonadIO m => a -> b -> m (Maybe BotCommand)
-    fooIO _ _ = do
+    fooIO :: MonadIO m => a -> b -> c -> m (Maybe BotCommand)
+    fooIO _ _ _ = do
         liftIO $ putStrLn "test"
         return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "io"]

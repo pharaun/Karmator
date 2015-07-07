@@ -33,8 +33,9 @@ choice a = join $ liftF (Choice a)
 
 -- | Register a handler
 -- TODO: see if we can't refine the type a bit more? (esp m1 o -> m2 a)
-handler :: MonadFree (Segment m1 i o) m2 => String -> st -> (st -> i -> m1 o) -> m2 a
-handler n s h = liftF (Handler $ CmdRef n s h)
+-- TODO: implement 3 more variant (one with state, one without, one with persistent, and without)
+handler :: MonadFree (Segment m1 i o) m2 => String -> st -> p -> (st -> p -> i -> m1 o) -> m2 a
+handler n s p h = liftF (Handler $ CmdRef n s p h)
 
 -- | Non-route that prints debugging info
 debug :: MonadIO m => String -> m ()
