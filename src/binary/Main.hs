@@ -39,7 +39,7 @@ commandRoute c p p' t nc = choice (
     [ do
         match pingMatch
         debug "pingMatch"
-        pureHandler "ping" (\i -> return $ ping i)
+        pureHandler "ping" (return . ping)
 
     , do
         match uptimeMatch
@@ -48,6 +48,7 @@ commandRoute c p p' t nc = choice (
 
     -- Channel handlers
     -- TODO: do a pre-load command to pre-init/add the forced channel to list of channel to join or something
+    -- TODO: maybe one possible thing is to offload all of the ConnectionPool into the bot config (since it'll be in the core)
     , do
         match inviteMatch
         debug "inviteMatch"
@@ -106,7 +107,7 @@ commandRoute c p p' t nc = choice (
     ] ++ map (\(n, cs) -> do
         match (motdMatch n)
         debug ("motdMatch - " ++ n)
-        pureHandler ("motd - " ++ n) (\i -> return $ motdJoin cs i)
+        pureHandler ("motd - " ++ n) (return . motdJoin cs)
         ) nc)
 
 
@@ -149,6 +150,7 @@ getBotConfig conf = do
         c <- join $ liftIO $ readfile emptyCP conf
 
         -- Bot config
+        -- TODO: look for a neat way to integrate handler/plugin config loaders here
         database  <- get c "bot" "database"
         karmaConf <- get c "bot" "karma_config"
 
