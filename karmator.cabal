@@ -32,9 +32,9 @@ library
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts -threaded
   hs-source-dirs:      src/karmator
   extra-libraries:     pthread
-  build-depends:       base >=4.5 && <4.8
+  build-depends:       base >=4.5 && <4.9
                      -- TODO: Working around aeson not handling something here
-                     , scientific  < 0.3.3.1
+                     --, scientific  < 0.3.3.1
                      , async
                      , attoparsec
                      , bytestring >= 0.10
@@ -58,8 +58,8 @@ library
                      , safe >= 0.3
                      , exceptions >= 0.6
                      -- Stateful management stuff
-                     , persistent >=2.1.1.7 && <2.2
-                     , persistent-sqlite < 2.2
+                     , persistent >=2.1.1.7 && <2.3
+                     , persistent-sqlite < 2.3
                      , persistent-template >= 2.0
 
 executable karmator
@@ -74,7 +74,7 @@ executable karmator
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts -threaded
   hs-source-dirs:      src/binary
   extra-libraries:     pthread
-  build-depends:       base >=4.5 && <4.8
+  build-depends:       base >=4.5 && <4.9
                      , karmator
 
                      , ConfigFile
@@ -90,8 +90,8 @@ executable karmator
                      , network-simple-tls >= 0.5
                      , old-time
                      , parsec
-                     , persistent >=2.1.1.7 && <2.2
-                     , persistent-sqlite < 2.2
+                     , persistent >=2.1.1.7 && <2.3
+                     , persistent-sqlite < 2.3
                      , persistent-template >= 2.0
                      , text >= 1.2.0.0
                      , time
@@ -108,10 +108,10 @@ executable migration
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts -threaded
   hs-source-dirs:      src/binary
   extra-libraries:     pthread
-  build-depends:       base >=4.5 && <4.8
+  build-depends:       base >=4.5 && <4.9
                      , conduit
-                     , persistent >=2.1.1.7 && <2.2
-                     , persistent-sqlite < 2.2
+                     , persistent >=2.1.1.7 && <2.3
+                     , persistent-sqlite < 2.3
                      , persistent-template >= 2.0
                      , text
                      , timezone-olson
@@ -125,7 +125,7 @@ test-suite karmator-tests
   hs-source-dirs:      src/binary
   extra-libraries:     pthread
   type:                exitcode-stdio-1.0
-  build-depends:       base >=4.5 && <4.8
+  build-depends:       base >=4.5 && <4.9
                      , karmator
                      , bytestring >= 0.10
                      , irc >= 0.6

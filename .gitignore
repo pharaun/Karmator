@@ -9,5 +9,5 @@
 cabal.sandbox.config
 TestData/
 dist/
-libs/
 bot.cfg
+.stack-work/
