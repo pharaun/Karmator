@@ -100,10 +100,12 @@ data BotEvent
 --  1. Disconnect - if sent to a server, disconnect
 --  2. Die - If emitted the bot needs to die
 --  3. Message
+--  4. Delayed Message (x second delay) (Supports Throttled Messages)
 data BotCommand
     = Disconnect
     | Die
     | CMessage IRC.Message
+    | DMessage Int IRC.Message
     deriving (Show,Eq)
 
 -- Routing
@@ -113,7 +115,7 @@ data Segment m p i o n
     | Handler (CmdRef m p i o)
     deriving (Functor, Show)
 
-type RouteT m p a = FreeT (Segment m p BotEvent (Maybe BotCommand)) m a
+type RouteT m p a = FreeT (Segment m p BotEvent [BotCommand]) m a
 -- TODO: maybe neat to add in support for varying persistance method, but for now force one
 type Route a = RouteT IO ConnectionPool a
 
@@ -133,4 +135,4 @@ instance Show (CmdRef m p i o) where
     show (PCmdRef n _ _)    = "Persistance Command: " ++ show n
     show (PSCmdRef n _ _ _) = "Persistance Stateful Command: " ++ show n
 
-type CmdHandler = CmdRef IO ConnectionPool BotEvent (Maybe BotCommand)
+type CmdHandler = CmdRef IO ConnectionPool BotEvent [BotCommand]

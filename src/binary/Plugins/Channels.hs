@@ -34,10 +34,18 @@ import qualified Network.IRC as IRC
 -- Test the wrapper stuff so i don't need to modify all over
 -- TODO: move the pool management stuff to the cmdexecute stuff
 --
-sqlWrapper :: MonadIO m => (BotEvent -> ReaderT ConnectionPool m (Maybe BotCommand)) -> ConnectionPool -> BotEvent -> m (Maybe BotCommand)
+sqlWrapper :: MonadIO m => (BotEvent -> ReaderT ConnectionPool m [BotCommand]) -> ConnectionPool -> BotEvent -> m [BotCommand]
 sqlWrapper c pool e = runReaderT (c e) pool
 
 
+--autoJoinChannel network = PersistState
+--    { plugin = 'moduleName
+--    , serialize = showSerialize
+--    , deserialize = readDeserialize
+--    , key = T.concat [network, ",", "auto_join_channel"]
+--    }
+--
+--modifyState autoJoinChannel (\a -> Set.insert (toString channel) a)
 
 --modifyState :: (MonadIO m) => Text -> (ByteString -> a) -> (b -> ByteString) -> Text -> (a -> b) -> SqlPersistT m (Maybe b)
 --showSerialize :: Show a => a -> ByteString
@@ -50,7 +58,7 @@ sqlWrapper c pool e = runReaderT (c e) pool
 inviteMatch :: BotEvent -> Bool
 inviteMatch             = exactCommand "INVITE"
 
-inviteJoin :: MonadIO m => BotEvent -> ReaderT ConnectionPool m (Maybe BotCommand)
+inviteJoin :: MonadIO m => BotEvent -> ReaderT ConnectionPool m [BotCommand]
 inviteJoin (EMessage _ m) = do
     let channel = head $ tail $ IRC.msg_params m
 
@@ -62,8 +70,8 @@ inviteJoin (EMessage _ m) = do
             Just _  -> return ()
         )
 
-    return $ Just $ CMessage $ IRC.joinChan channel
-inviteJoin _ = return Nothing
+    return [CMessage $ IRC.joinChan channel]
+inviteJoin _ = return []
 
 
 --
@@ -80,8 +88,8 @@ kickLeave (EMessage _ m) = do
             Nothing -> return () -- deleteState "Plugins.Channels" "test.auto_join_channel"
             Just _  -> return ()
         )
-    return Nothing
-kickLeave _ = return Nothing
+    return []
+kickLeave _ = return []
 
 partMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!part")
 partLeave (EMessage _ m) = do
@@ -95,8 +103,8 @@ partLeave (EMessage _ m) = do
             Just _  -> return ()
         )
 
-    return $ Just $ CMessage $ IRC.part channel
-partLeave _ = return Nothing
+    return [CMessage $ IRC.part channel]
+partLeave _ = return []
 
 --
 -- List of channels to join
@@ -106,7 +114,7 @@ listChannel m = do
     pool <- ask
     chan <- liftIO $ flip runSqlPool pool (getState "Plugins.Channels" readDeserialize "test.auto_join_channel")
 
-    return $ Just $ CMessage $ IRC.privmsg (whichChannel m) (fromString $ show (chan :: Maybe (Set String)))
+    return [CMessage $ IRC.privmsg (whichChannel m) (fromString $ show (chan :: Maybe (Set String)))]
 
 
 --
@@ -118,4 +126,4 @@ listChannel m = do
 -- TODO: add the saved channels
 --
 motdMatch n m = exactCommand "004" m && networkMatch n m
-motdJoin cs _ = Just $ CMessage $ IRC.joinChan $ BS.intercalate "," cs
+motdJoin cs _ = [CMessage $ IRC.joinChan $ BS.intercalate "," cs]

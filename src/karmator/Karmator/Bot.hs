@@ -7,7 +7,7 @@ module Karmator.Bot
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
-import Data.Maybe
+import qualified Data.List as L
 import Prelude hiding (log)
 
 -- Karmator Stuff
@@ -37,7 +37,7 @@ runCommand q routes = forever $ do
     cmdRefs <- runRoute (choice routes) msg
     results <- executeCmdRef cmdRefs msg
 
-    mapM (atomically . writeTQueue reply) (catMaybes results)
+    mapM (atomically . writeTQueue reply) (L.concat results)
 
 --
 -- Execute the list of commands
@@ -48,7 +48,7 @@ runCommand q routes = forever $ do
 --
 -- Also should eventually parallelize and other improvement on this region.
 --
-executeCmdRef :: [CmdHandler] -> BotEvent -> IO [Maybe BotCommand]
+executeCmdRef :: [CmdHandler] -> BotEvent -> IO [[BotCommand]]
 executeCmdRef cs m = mapM (mapCmdRef m) cs
   where
     mapCmdRef m' (CmdRef _ h)        = h m'

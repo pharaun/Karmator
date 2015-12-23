@@ -25,9 +25,9 @@ pingMatch :: BotEvent -> Bool
 pingMatch = exactCommand "PING"
 
 -- TODO: Unsafe head
-ping :: BotEvent -> Maybe BotCommand
-ping (EMessage _ m) = Just $ CMessage $ IRC.pong $ head $ IRC.msg_params m
-ping _ = Nothing
+ping :: BotEvent -> [BotCommand]
+ping (EMessage _ m) = [CMessage $ IRC.pong $ head $ IRC.msg_params m]
+ping _ = []
 
 
 --
@@ -36,7 +36,7 @@ ping _ = Nothing
 uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!uptime")
 uptime t m  = do
     now <- liftIO $ getClockTime
-    return $ Just $ CMessage $ IRC.privmsg (whichChannel m) (C8.pack $ pretty $ diffClockTimes now t)
+    return [CMessage $ IRC.privmsg (whichChannel m) (C8.pack $ pretty $ diffClockTimes now t)]
 
 --
 -- Pretty print the date in '1d 9h 9m 17s' format

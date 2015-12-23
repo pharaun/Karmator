@@ -28,7 +28,7 @@ routeTest input result = TestCase $ do
     assertEqual "" result run'
 
 -- TODO: build a gathering of some nice pattern for testing + output
-routeData :: [(BotEvent, [Maybe BotCommand])]
+routeData :: [(BotEvent, [[BotCommand]])]
 routeData =
     [ ( EMessage "" $ IRC.Message (Just $ IRC.NickName (C8.pack "") (Just $ C8.pack "never") (Just $ C8.pack "base")) (C8.pack "") [C8.pack "target"], [] )
     ]
@@ -78,7 +78,7 @@ testRoute = choice
     nick (EMessage _ IRC.Message{IRC.msg_prefix=(Just (IRC.NickName n _ _))}) = C8.unpack n
     nick _ = ""
 
-    fooIO :: MonadIO m => a -> m (Maybe BotCommand)
+    fooIO :: MonadIO m => a -> m [BotCommand]
     fooIO _ = do
         liftIO $ putStrLn "test"
         return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "io"]
