@@ -1,8 +1,6 @@
 {-# LANGUAGE OverloadedStrings, FlexibleContexts #-}
 module Plugins.Channels
-    ( sqlWrapper
-
-    , inviteMatch
+    ( inviteMatch
     , inviteJoin
 
     , kickMatch
@@ -24,18 +22,13 @@ import Control.Monad.Reader
 import qualified Data.ByteString as BS
 import Database.Persist.Sql
 import Data.ByteString.UTF8 (fromString, toString)
+import Data.List.Split (chunksOf)
+import Data.Maybe
 
 import Karmator.State
 import Karmator.Types
 import Karmator.Filter
 import qualified Network.IRC as IRC
-
---
--- Test the wrapper stuff so i don't need to modify all over
--- TODO: move the pool management stuff to the cmdexecute stuff
---
-sqlWrapper :: MonadIO m => (BotEvent -> ReaderT ConnectionPool m [BotCommand]) -> ConnectionPool -> BotEvent -> m [BotCommand]
-sqlWrapper c pool e = runReaderT (c e) pool
 
 
 --autoJoinChannel network = PersistState
@@ -120,10 +113,19 @@ listChannel m = do
 --
 -- Motd Join
 -- TODO: add support for "auth ping/pong" before registering/joining channels
--- TODO: too many channels will cause this to be too long and truncated.
--- Need to split it and emit multiple joins as needed
 --
--- TODO: add the saved channels
+-- TODO: make channel length + throttle be a config for now we join 3 at
+-- a time once each second
+--
+-- TODO: make network aware
 --
 motdMatch n m = exactCommand "004" m && networkMatch n m
-motdJoin cs _ = [CMessage $ IRC.joinChan $ BS.intercalate "," cs]
+
+motdJoin _ cs _ = do
+    pool <- ask
+    -- TODO: replace 'test' with n
+    chan <- liftIO $ flip runSqlPool pool (getState "Plugins.Channels" readDeserialize "test.auto_join_channel")
+    let chunks = map (BS.intercalate ",") $ chunksOf 3 (cs ++ (fromMaybe [] chan))
+
+    -- Return delayed message 0, 1, .... x seconds delayed to implement primitive throttling
+    return [DMessage t $ IRC.joinChan msg | (msg,t) <- zip chunks [0, 1..] ]

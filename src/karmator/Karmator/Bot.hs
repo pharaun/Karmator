@@ -2,18 +2,36 @@
 module Karmator.Bot
     ( runBot
     , executeCmdRef
+
+    , sqlWrapper
     ) where
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
-import qualified Data.List as L
+import qualified Data.List as DL
 import Prelude hiding (log)
+import Control.Concurrent (forkIO, threadDelay)
 
 -- Karmator Stuff
 import Karmator.Route
 import Karmator.Server
 import Karmator.Types
+
+-- Temp?
+import Database.Persist.Sql (ConnectionPool)
+
+-- | Same as '>>', but with the arguments interchanged.
+k << m      = (\_ -> k) =<< m
+{-# INLINE (<<) #-}
+
+
+--
+-- Test the wrapper stuff so i don't need to modify all over
+-- TODO: move the pool management stuff to the cmdexecute stuff
+--
+sqlWrapper :: MonadIO m => (BotEvent -> ReaderT ConnectionPool m [BotCommand]) -> ConnectionPool -> BotEvent -> m [BotCommand]
+sqlWrapper c pool e = runReaderT (c e) pool
 
 
 runBot :: [ServerConfig] -> Route [CmdHandler] -> IO ()
@@ -37,7 +55,22 @@ runCommand q routes = forever $ do
     cmdRefs <- runRoute (choice routes) msg
     results <- executeCmdRef cmdRefs msg
 
-    mapM (atomically . writeTQueue reply) (L.concat results)
+    -- TODO: filter out DMessage and deal with them specifically
+    let (deferSend, nowSend) = DL.partition delayMsg $ DL.concat results
+    mapM_ (atomically . writeTQueue reply) nowSend
+    mapM_ (sendDelayMsg reply) deferSend
+
+  where
+    delayMsg (DMessage _ _) = True
+    delayMsg _              = False
+
+    -- TODO: we probably want a nicer way of doing this but just creating
+    -- a bunch of thread and sleeping then sending seems adequate for now
+    sendDelayMsg reply (DMessage t msg) = return () << (forkIO $ do
+        threadDelay (t * 1000000)
+        atomically . writeTQueue reply $ CMessage msg)
+    sendDelayMsg _ _ = return ()
+
 
 --
 -- Execute the list of commands

@@ -107,7 +107,7 @@ commandRoute c p p' t nc = choice (
     ] ++ map (\(n, cs) -> do
         match (motdMatch n)
         debug ("motdMatch - " ++ n)
-        pureHandler ("motd - " ++ n) (return . motdJoin cs)
+        persistHandler ("motd - " ++ n) p' (sqlWrapper $ motdJoin n cs)
         ) nc)
 
 

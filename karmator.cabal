@@ -101,6 +101,7 @@ executable karmator
                      , x509-validation
                      , optparse-applicative
                      , base16-bytestring
+                     , split
 
 executable migration
   main-is:             Migration.hs
