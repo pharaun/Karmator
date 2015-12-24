@@ -3,7 +3,7 @@ module Karmator.Bot
     ( runBot
     , executeCmdRef
 
-    , sqlWrapper
+    , sqlWrapper -- TODO: pull into the cmd exec bits
     ) where
 
 import Control.Concurrent.Async
@@ -24,14 +24,6 @@ import Database.Persist.Sql (ConnectionPool)
 -- | Same as '>>', but with the arguments interchanged.
 k << m      = (\_ -> k) =<< m
 {-# INLINE (<<) #-}
-
-
---
--- Test the wrapper stuff so i don't need to modify all over
--- TODO: move the pool management stuff to the cmdexecute stuff
---
-sqlWrapper :: MonadIO m => (BotEvent -> ReaderT ConnectionPool m [BotCommand]) -> ConnectionPool -> BotEvent -> m [BotCommand]
-sqlWrapper c pool e = runReaderT (c e) pool
 
 
 runBot :: [ServerConfig] -> Route [CmdHandler] -> IO ()
@@ -88,3 +80,28 @@ executeCmdRef cs m = mapM (mapCmdRef m) cs
     mapCmdRef m' (SCmdRef _ st h)    = h st m'
     mapCmdRef m' (PCmdRef _ p h)     = h p m'
     mapCmdRef m' (PSCmdRef _ p st h) = h p st m'
+
+---- Handler Type
+---- TODO: replace st with (MVar st)
+---- st - Ephemeral State
+---- p - Persistent State (db connection/etc)
+--data CmdRef m p i o = CmdRef String (i -> m o)
+--                    | forall st . SCmdRef String st (st -> i -> m o)
+--                    | PCmdRef String p (p -> i -> m o)
+--                    | forall st . PSCmdRef String p st (p -> st -> i -> m o)
+--
+--instance Show (CmdRef m p i o) where
+--    show (CmdRef n _)       = "Pure Command: " ++ show n
+--    show (SCmdRef n _ _)    = "Stateful Command: " ++ show n
+--    show (PCmdRef n _ _)    = "Persistance Command: " ++ show n
+--    show (PSCmdRef n _ _ _) = "Persistance Stateful Command: " ++ show n
+
+
+-- inviteJoin :: MonadIO m => BotEvent -> ReaderT ConnectionPool m [BotCommand]
+
+--
+-- Test the wrapper stuff so i don't need to modify all over
+-- TODO: move the pool management stuff to the cmdexecute stuff
+--
+sqlWrapper :: MonadIO m => (BotEvent -> ReaderT ConnectionPool m [BotCommand]) -> ConnectionPool -> BotEvent -> m [BotCommand]
+sqlWrapper c pool e = runReaderT (c e) pool

@@ -34,9 +34,10 @@ import Plugins.Karma.Types (Config)
 --
 -- Routes configuration
 --
-commandRoute :: Config -> ConnectionPool -> ConnectionPool -> ClockTime -> [(String, [BS.ByteString])] -> Route [CmdHandler]
-commandRoute c p p' t nc = choice (
+commandRoute :: Config -> ConnectionPool -> ClockTime -> [(String, [BS.ByteString])] -> Route [CmdHandler]
+commandRoute c p t nc = choice (
     [ do
+        -- TODO: fix up pure needing a return here
         match pingMatch
         debug "pingMatch"
         pureHandler "ping" (return . ping)
@@ -52,62 +53,61 @@ commandRoute c p p' t nc = choice (
     , do
         match inviteMatch
         debug "inviteMatch"
-        persistHandler "invite" p' (sqlWrapper inviteJoin)
+        persistHandler "invite" p (sqlWrapper inviteJoin)
 
     , do
         match partMatch
         debug "partMatch"
-        persistHandler "part" p' (sqlWrapper partLeave)
+        persistHandler "part" p (sqlWrapper partLeave)
 
     , do
         match kickMatch
         debug "kickMatch"
-        persistHandler "kick" p' (sqlWrapper kickLeave)
+        persistHandler "kick" p (sqlWrapper kickLeave)
 
     , do
         match listMatch
         debug "listMatch"
-        persistHandler "list" p' (sqlWrapper listChannel)
+        persistHandler "list" p (sqlWrapper listChannel)
 
     -- Karma handlers
     -- Need to "create a database connection" then pass it into all karma handlers
-    -- TODO: switch from stateful to persist handler (need to fix up the types)
     -- TODO: implement some sort of table escape hatch before switching to persist
     , do
         match rawKarmaMatch
         debug "rawKarmaMatch"
-        stateHandler "rawKarma" p (rawKarma c)
+        persistHandler "rawKarma" p (sqlWrapper (rawKarma c))
 
     , do
         match karmaSidevotesMatch
         debug "karmaSidevotesMatch"
-        stateHandler "karmaSideVotes" p (karmaSidevotes c)
+        persistHandler "karmaSideVotes" p (sqlWrapper (karmaSidevotes c))
 
     , do
         match karmaGiversMatch
         debug "karmaGiversMatch"
-        stateHandler "karmaGivers" p (karmaGivers c)
+        persistHandler "karmaGivers" p (sqlWrapper (karmaGivers c))
 
     , do
         match karmaRankMatch
         debug "karmaRankMatch"
-        stateHandler "karmaRank" p (karmaRank c)
+        persistHandler "karmaRank" p (sqlWrapper (karmaRank c))
 
     , do
         match karmaSidevotesRankMatch
         debug "karmaSidevotesRankMatch"
-        stateHandler "karmaSidevotesRank" p (karmaSidevotesRank c)
+        persistHandler "karmaSidevotesRank" p (sqlWrapper (karmaSidevotesRank c))
 
     , do
         match karmaMatch
         debug "karmaMatch"
-        stateHandler "karma" p (karma c)
+        persistHandler "karma" p (sqlWrapper (karma c))
 
     -- Per network MOTD join
     ] ++ map (\(n, cs) -> do
         match (motdMatch n)
         debug ("motdMatch - " ++ n)
-        persistHandler ("motd - " ++ n) p' (sqlWrapper $ motdJoin n cs)
+        persistHandler ("motd - " ++ n) p (sqlWrapper (motdJoin n cs))
         ) nc)
 
 
@@ -120,11 +120,11 @@ main = do
         t <- getClockTime
         c <- getKarmaConfig karmaConf
 
-        -- TODO: externalize/load the db stuff as well
-        runStderrLoggingT $ withSqlitePool "state.db" 1 (\pool' -> liftIO $ do
-            runSqlPool (runMigration migrateSimpleState) pool'
-            runBot servers (commandRoute c pool pool' t networkChannels)
-            )
+        -- Do the migration bit for simple state bits (don't touch karma bits yet)
+        runSqlPool (runMigration migrateSimpleState) pool
+
+        -- Run the bot
+        runBot servers (commandRoute c pool t networkChannels)
 
         return ()
         )

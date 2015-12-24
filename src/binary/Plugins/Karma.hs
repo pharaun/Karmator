@@ -29,6 +29,7 @@ import Data.Int
 import Data.List
 import Data.Time.Clock
 import Database.Persist.Sql hiding (get)
+import Control.Monad.Reader
 import Formatting
 import Text.Parsec
 import qualified Data.ByteString as B
@@ -67,10 +68,12 @@ renderTotalKarma xs = TL.intercalate "; " $ map (\(n, t) -> format (stext % " ("
 karmaSidevotesMatch :: BotEvent -> Bool
 karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!sidevotes")
 
-karmaSidevotes :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m [BotCommand]
-karmaSidevotes _ pool m@(EMessage _ _) = do
+karmaSidevotes :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+karmaSidevotes _ m@(EMessage _ _) = do
     let nick     = T.decodeUtf8 $ nickContent m
     let countMax = 3
+
+    pool <- ask
 
     (received, given) <- liftIO $ flip runSqlPool pool (do
             a <- topNSideVotesDenormalized KarmaReceived countMax
@@ -87,21 +90,25 @@ karmaSidevotes _ pool m@(EMessage _ _) = do
                    (renderTotalKarma given)
             )
         )]
-karmaSidevotes _ _ _ = return []
+karmaSidevotes _ _ = return []
 
 
 karmaMatch :: BotEvent -> Bool
 karmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!karma")
 
-karma :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m [BotCommand]
-karma conf pool m = karmaStats conf pool KarmaReceived 3 False m
+karma :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+karma conf m = do
+    pool <- ask
+    karmaStats conf pool KarmaReceived 3 False m
 
 
 karmaGiversMatch :: BotEvent -> Bool
 karmaGiversMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!givers")
 
-karmaGivers :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m [BotCommand]
-karmaGivers conf pool m = karmaStats conf pool KarmaGiven 3 True m
+karmaGivers :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+karmaGivers conf m = do
+    pool <- ask
+    karmaStats conf pool KarmaGiven 3 True m
 
 
 karmaStats :: (MonadIO m) => Config -> ConnectionPool -> KarmaTable -> Int64 -> Bool -> BotEvent -> m [BotCommand]
@@ -142,20 +149,22 @@ karmaRankMatch :: BotEvent -> Bool
 karmaRankMatch = liftM2 (&&) (liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!rank")) (not . prefixMessage "!ranksidevote")
 
 
-karmaRank :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m [BotCommand]
-karmaRank conf pool m@(EMessage _ _) =
+karmaRank :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+karmaRank conf m@(EMessage _ _) =
     case (parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m) of
         (Left _)       -> return [CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"]
         (Right [])     -> do
             let nick  = T.decodeUtf8 $ nickContent m
+            pool <- ask
             msg <- renderRank pool False nick nick "Your"
             return [CMessage $ IRC.privmsg (whichChannel m) msg]
         (Right (x:[])) -> do
             let nick  = T.decodeUtf8 $ nickContent m
+            pool <- ask
             msg <- renderRank pool False nick x x
             return [CMessage $ IRC.privmsg (whichChannel m) msg]
         (Right _)      -> return [CMessage $ IRC.privmsg (whichChannel m) "Can only rank one karma entry at a time!"]
-karmaRank _ _ _ = return []
+karmaRank _ _ = return []
 
 
 -- TODO: probably should make this remain T.Text and move encoding else where
@@ -191,28 +200,30 @@ renderRank pool sidevotes nick whom target = do
 karmaSidevotesRankMatch :: BotEvent -> Bool
 karmaSidevotesRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!ranksidevote")
 
-karmaSidevotesRank :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m [BotCommand]
-karmaSidevotesRank conf pool m@(EMessage _ _) =
+karmaSidevotesRank :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+karmaSidevotesRank conf m@(EMessage _ _) =
     case (parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m) of
         (Left _)       -> return [CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"]
         (Right [])     -> do
             let nick  = T.decodeUtf8 $ nickContent m
+            pool <- ask
             msg <- renderRank pool True nick nick "Your"
             return [CMessage $ IRC.privmsg (whichChannel m) msg]
         (Right (x:[])) -> do
             let nick  = T.decodeUtf8 $ nickContent m
+            pool <- ask
             msg <- renderRank pool True nick x x
             return [CMessage $ IRC.privmsg (whichChannel m) msg]
         (Right _)      -> return [CMessage $ IRC.privmsg (whichChannel m) "Can only rank one karma entry at a time!"]
-karmaSidevotesRank _ _ _ = return []
+karmaSidevotesRank _ _ = return []
 
 
 -- This takes care of sulping all irc messages to stuff into the karma parser
 rawKarmaMatch :: BotEvent -> Bool
 rawKarmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (not . prefixMessage "!")
 
-rawKarma :: (MonadIO m) => Config -> ConnectionPool -> BotEvent -> m [BotCommand]
-rawKarma conf pool m@(EMessage _ _) = do
+rawKarma :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+rawKarma conf m@(EMessage _ _) = do
     -- ByteString -> utf8
     -- TODO: error handling
     let msg   = T.decodeUtf8 $ messageContent m
@@ -222,10 +233,11 @@ rawKarma conf pool m@(EMessage _ _) = do
     case karma of
         (KarmaReply n (Just k)) -> do
             t <- liftIO $ getCurrentTime
+            pool <- ask
             liftIO $ runSqlPool (addKarma t n k) pool
             return []
         _                       -> return []
-rawKarma _ _ _ = return []
+rawKarma _ _ = return []
 
 parseInput :: Config -> T.Text -> T.Text -> KarmaReply
 parseInput config jnick jinput = do
