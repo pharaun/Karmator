@@ -5,6 +5,8 @@ module Plugins.Karma.Karma
     , karmaCommandParse
     , karmaParse
     , nestedKarmaParse
+
+    , chanParse
     ) where
 
 import qualified Data.Text as T
@@ -41,6 +43,17 @@ filterBot :: Config -> T.Text -> Bool
 filterBot c nick = nick `elem` strictMatchList c || L.any (`T.isPrefixOf` nick) (prefixMatchList c)
 
 
+-- TODO: Break this out into its own module
+chanParse :: ParsecT T.Text u Identity [T.Text]
+chanParse = do
+    oneOf "!"
+    skipMany1 letter
+    optional spaces
+
+    words <- (many $ noneOf [' ']) `sepEndBy` space
+    eof
+
+    return $ (map T.pack $ filter (/= "") words)
 
 -- TODO: Break this out into its own module
 -- TODO: fix this cases

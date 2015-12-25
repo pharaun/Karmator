@@ -16,8 +16,11 @@ import qualified Data.ByteString.Base16 as B16
 
 import qualified Network.Simple.TCP.TLS as TLS
 import qualified Network.TLS as TLS
-import qualified System.X509.Unix as TLS
 import qualified Data.X509.Validation as TLS
+
+-- TODO: detect osx vs unix and get the cert store that way
+--import qualified System.X509.Unix as TLS
+import qualified System.X509.MacOS as TLS
 
 -- Karmator
 import Karmator.Bot
@@ -54,6 +57,11 @@ commandRoute c p t nc = choice (
         match inviteMatch
         debug "inviteMatch"
         persistHandler "invite" p (sqlWrapper inviteJoin)
+
+    , do
+        match joinMatch
+        debug "joinMatch"
+        persistHandler "join" p (sqlWrapper joinJoin)
 
     , do
         match partMatch
