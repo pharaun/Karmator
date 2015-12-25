@@ -54,6 +54,16 @@ data StateType = ShowRead | Json
 showSerialize :: Show a => a -> ByteString
 showSerialize = fromString . show
 
+-- TODO: Find a better way to parameterize (?) the types since it seems
+--  like even if the types is fully specified later on in the source code
+--  it doesn't seem to reach the 'read' instance somehow. For now fully
+--  specify.
+--
+-- TODO: it seems like the problem was not that we didn't fully specify the
+--  type but the fact that there was two conflicting type being pulled
+--  out of the db, and the typecheck was unable to catch this error for
+--  us. (Lesson is to specify the in/out types in full somewhere before
+--      userland code)
 readDeserialize :: Read a => ByteString -> a -- TODO: should be (Maybe a)
 readDeserialize = read . toString
 

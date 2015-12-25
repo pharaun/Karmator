@@ -56,6 +56,10 @@ import Plugins.Karma.Karma (chanParse)
 --readDeserialize :: Read a => ByteString -> a -- TODO: should be (Maybe a)
 
 
+-- Specify the type of readDeserialize
+readSet :: Read (Set [Char]) => B.ByteString -> (Set [Char])
+readSet = readDeserialize
+
 --
 -- Invite
 --
@@ -68,7 +72,7 @@ inviteJoin (EMessage _ m) = do
 
     pool <- ask
     liftIO $ flip runSqlPool pool (do
-        c <- modifyState "Plugins.Channels" readDeserialize showSerialize "test.auto_join_channel" (\a -> Set.insert (toString channel) a)
+        c <- modifyState "Plugins.Channels" readSet showSerialize "test.auto_join_channel" (\a -> Set.insert (toString channel) a)
         case c of
             Nothing -> setState "Plugins.Channels" showSerialize "test.auto_join_channel" (Set.singleton $ toString channel)
             Just _  -> return ()
@@ -86,11 +90,11 @@ joinJoin  m@(EMessage _ _) =
             pool <- ask
 
             liftIO $ flip runSqlPool pool (do
-                c <- modifyState "Plugins.Channels" readDeserialize showSerialize "test.auto_join_channel" (
-                    \a -> Set.union a (Set.fromList (map T.encodeUtf8 channel))
+                c <- modifyState "Plugins.Channels" readSet showSerialize "test.auto_join_channel" (
+                    \a -> Set.union a (Set.fromList (map T.unpack channel))
                     )
                 case c of
-                    Nothing -> setState "Plugins.Channels" showSerialize "test.auto_join_channel" (Set.fromList $ map T.encodeUtf8 channel)
+                    Nothing -> setState "Plugins.Channels" showSerialize "test.auto_join_channel" (Set.fromList $ map T.unpack channel)
                     Just _  -> return ()
                 )
 
@@ -115,7 +119,7 @@ kickLeave (EMessage _ m) = do
 
     pool <- ask
     liftIO $ flip runSqlPool pool (do
-        c <- modifyState "Plugins.Channels" readDeserialize showSerialize "test.auto_join_channel" (\a -> Set.delete (toString channel) a)
+        c <- modifyState "Plugins.Channels" readSet showSerialize "test.auto_join_channel" (\a -> Set.delete (toString channel) a)
         case c of
             Nothing -> return () -- deleteState "Plugins.Channels" "test.auto_join_channel"
             Just _  -> return ()
@@ -129,7 +133,7 @@ partLeave (EMessage _ m) = do
 
     pool <- ask
     liftIO $ flip runSqlPool pool (do
-        c <- modifyState "Plugins.Channels" readDeserialize showSerialize "test.auto_join_channel" (\a -> Set.delete (toString channel) a)
+        c <- modifyState "Plugins.Channels" readSet showSerialize "test.auto_join_channel" (\a -> Set.delete (toString channel) a)
         case c of
             Nothing -> return () -- deleteState "Plugins.Channels" "test.auto_join_channel"
             Just _  -> return ()
@@ -144,7 +148,7 @@ partLeave _ = return []
 listMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!list")
 listChannel m = do
     pool <- ask
-    chan <- liftIO $ flip runSqlPool pool (getState "Plugins.Channels" readDeserialize "test.auto_join_channel")
+    chan <- liftIO $ flip runSqlPool pool (getState "Plugins.Channels" readSet "test.auto_join_channel")
 
     return [CMessage $ IRC.privmsg (whichChannel m) (fromString $ show (chan :: Maybe (Set String)))]
 
@@ -159,12 +163,15 @@ listChannel m = do
 -- TODO: make network aware
 --
 motdMatch n m = exactCommand "004" m && networkMatch n m
-
 motdJoin _ cs _ = do
     pool <- ask
     -- TODO: replace 'test' with n
-    chan <- liftIO $ flip runSqlPool pool (getState "Plugins.Channels" readDeserialize "test.auto_join_channel")
-    let chunks = map (BS.intercalate ",") $ chunksOf 3 (cs ++ (fromMaybe [] chan))
+    chan <- liftIO $ flip runSqlPool pool (getState "Plugins.Channels" readSet "test.auto_join_channel")
 
-    -- Return delayed message 0, 1, .... x seconds delayed to implement primitive throttling
-    return [DMessage t $ IRC.joinChan msg | (msg,t) <- zip chunks [0, 1..] ]
+    case chan of
+        Nothing -> return []
+        Just x  -> do
+            let chunks = map (BS.intercalate ",") $ chunksOf 3 (cs ++ (map fromString $ Set.toList x))
+
+            -- Return delayed message 0, 1, .... x seconds delayed to implement primitive throttling
+            return [DMessage t $ IRC.joinChan msg | (msg,t) <- zip chunks [0, 1..] ]
