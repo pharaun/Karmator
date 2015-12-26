@@ -46,14 +46,12 @@ filterBot c nick = nick `elem` strictMatchList c || L.any (`T.isPrefixOf` nick) 
 -- TODO: Break this out into its own module
 chanParse :: ParsecT T.Text u Identity [T.Text]
 chanParse = do
-    oneOf "!"
-    skipMany1 letter
-    optional spaces
+    cmdParse
 
-    words <- (many $ noneOf [' ']) `sepEndBy` space
+    words <- many (noneOf [' ']) `sepEndBy` space
     eof
 
-    return $ (map T.pack $ filter (/= "") words)
+    return $ map T.pack $ filter (/= "") words
 
 -- TODO: Break this out into its own module
 -- TODO: fix this cases
@@ -63,9 +61,7 @@ chanParse = do
 --    , ("!karma ( ( foo ) )", [" ( foo ) "])
 karmaCommandParse :: Config -> ParsecT T.Text u Identity [T.Text]
 karmaCommandParse conf = do
-    oneOf "!"
-    skipMany1 letter
-    optional spaces
+    cmdParse
 
     words <- choice
         [ brace conf
@@ -73,7 +69,10 @@ karmaCommandParse conf = do
         ] `sepEndBy` space
     eof
 
-    return $ (map T.pack $ filter (/= "") words)
+    return $ map T.pack $ filter (/= "") words
+
+cmdParse :: ParsecT T.Text u Identity ()
+cmdParse = oneOf "!" >> skipMany1 letter >> optional spaces
 
 simple :: Config -> ParsecT T.Text u Identity String
 simple conf = many $ noneOf [' ', openBrace conf, closeBrace conf]
@@ -157,7 +156,7 @@ karmaParse conf = catMaybes `fmap` processCandidates conf `fmap` nestedKarmaPars
         evalKarma c KarmaCandidate{kcMessage=msg, kcKarma=karma} =
             case evalulateKarma c karma of
                 (e, Just k)  ->
-                    let msg' = (T.strip $ T.pack msg) `T.append` T.pack e
+                    let msg' = T.strip (T.pack msg) `T.append` T.pack e
                     in if T.null msg' then Nothing else Just (Karma k msg')
                 (_, Nothing) -> Nothing
 
@@ -272,8 +271,8 @@ eatKarmaInsideBracesParse conf = do
 nestedKarmaParse :: Config -> ParsecT T.Text u Identity [KarmaCandidates]
 nestedKarmaParse conf = concat `fmap` many1 (choice
         [ try (nonKarmaPreBracedKarmaParse conf)
-        , fmap pure $ try (bracedKarmaParse conf)
-        , fmap pure $ try (simpleKarmaParse conf)
+        , pure <$> try (bracedKarmaParse conf)
+        , pure <$> try (simpleKarmaParse conf)
         , try (eatKarmaInsideBracesParse conf)
         , fmap pure nonKarmaParse
         ])

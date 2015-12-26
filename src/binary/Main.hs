@@ -112,12 +112,12 @@ commandRoute c p t nc = choice (
             , do
                 match partMatch
                 debug ("partMatch - " ++ n)
-                persistHandler "part" p (sqlWrapper $ partLeave n)
+                persistHandler "part" p (sqlWrapper $ kickPartLeave n)
 
             , do
                 match kickMatch
                 debug ("kickMatch - " ++ n)
-                persistHandler "kick" p (sqlWrapper $ kickLeave n)
+                persistHandler "kick" p (sqlWrapper $ kickPartLeave n)
 
             , do
                 match listMatch

@@ -19,6 +19,7 @@ module Plugins.Karma.Database
     , migrateAll
     ) where
 
+import Control.Arrow ((***))
 import Data.List (unionBy)
 import Data.Time.Clock (UTCTime)
 import Database.Esqueleto
@@ -111,7 +112,7 @@ partalKarmaT _ _ _ _ [] = return []
 partalKarmaT karmaName karmaUp karmaDown karmaSide names = do
     r <- select $ from (\v -> do
             orderBy [desc (karmaName v)]
-            where_ ((karmaName v) `in_` valList names)
+            where_ (karmaName v `in_` valList names)
             return (karmaName v, karmaUp v, karmaDown v, karmaSide v)
             )
     -- TODO: should return it in the same order that the names were yielded
@@ -124,7 +125,7 @@ topNDenormalizedT karmaName karmaTotal lmt ord = do
             limit lmt
             return (karmaName v, karmaTotal v)
             )
-    return $ map (\(n, k) -> (unValue n, unValue k)) r
+    return $ map (unValue *** unValue) r
 
 countT karmaName whom = do
     r <- select $ from (\v -> do
@@ -149,7 +150,7 @@ rankingDenormalizedT karmaName karmaTotal whom = do
                             where_ (karmaTotal v >. sub_select sub)
                             return $ just (count (karmaName v) +. val 1) :: SqlQuery (SqlExpr (Value (Maybe Int)))
                             ) ]
-                    (else_ $ nothing)
+                    (else_ nothing)
     return $ unValue $ head r -- TODO: unsafe head
 
 addKarma timestamp karmaName karmaValues =
@@ -157,4 +158,4 @@ addKarma timestamp karmaName karmaValues =
   where
     typeToInt Upvote   = 1
     typeToInt Sidevote = 0
-    typeToInt Downvote = (-1)
+    typeToInt Downvote = -1
