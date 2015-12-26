@@ -8,7 +8,7 @@ import Control.Monad.IO.Class
 import Plugins.Karma.Database
 
 main :: IO ()
-main = runStderrLoggingT $ withSqlitePool "test2.db" 1 (\pool -> liftIO $ flip runSqlPool pool (do
+main = runStderrLoggingT $ withSqlitePool "test2.db" 1 (\pool -> liftIO $ flip runSqlPool pool $ do
     vote1a <- allKarma KarmaReceived
     vote1b <- allKarma KarmaGiven
 
@@ -48,4 +48,4 @@ main = runStderrLoggingT $ withSqlitePool "test2.db" 1 (\pool -> liftIO $ flip r
     liftIO $ print vote7b
     liftIO $ print vote8a
     liftIO $ print vote8b
-    ))
+    )

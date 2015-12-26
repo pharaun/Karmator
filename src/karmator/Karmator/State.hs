@@ -9,6 +9,7 @@ module Karmator.State
     , modifyState
     ) where
 
+import Control.Monad ((<=<))
 import Control.Monad.Except
 import Data.Text (Text)
 import Data.ByteString (ByteString)
@@ -70,7 +71,7 @@ readDeserialize = read . toString
 getState :: (MonadIO m) => Text -> (ByteString -> a) -> Text -> SqlPersistT m (Maybe a)
 getState m d k = either
     (\_  -> return Nothing)
-    (\k' -> return . maybe Nothing (\(SimpleState _ _ s) -> Just $ d s) =<< get k')
+    ((return . maybe Nothing (\(SimpleState _ _ s) -> Just $ d s)) <=< get)
     (keyFromValues [PersistText m, PersistText k])
 
 -- This overwrites the already set state

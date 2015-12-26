@@ -34,8 +34,8 @@ message  = do
     return $ IRC.Message p c ps
 
 
-mkMessage           :: BS.ByteString -> [IRC.Parameter] -> IRC.Message
-mkMessage cmd params = IRC.Message Nothing cmd params
+mkMessage :: BS.ByteString -> [IRC.Parameter] -> IRC.Message
+mkMessage = IRC.Message Nothing
 
 pass  :: IRC.Password -> IRC.Message
 pass u = mkMessage "PASS" [u]

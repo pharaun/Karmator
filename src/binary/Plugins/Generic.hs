@@ -35,7 +35,7 @@ ping _ = []
 --
 uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!uptime")
 uptime t m  = do
-    now <- liftIO $ getClockTime
+    now <- liftIO getClockTime
     return [CMessage $ IRC.privmsg (whichChannel m) (C8.pack $ pretty $ diffClockTimes now t)]
 
 --

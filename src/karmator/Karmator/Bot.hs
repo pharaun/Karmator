@@ -6,6 +6,7 @@ module Karmator.Bot
     , sqlWrapper -- TODO: pull into the cmd exec bits
     ) where
 
+import Control.Monad (void)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
@@ -20,10 +21,6 @@ import Karmator.Types
 
 -- Temp?
 import Database.Persist.Sql (ConnectionPool)
-
--- | Same as '>>', but with the arguments interchanged.
-k << m      = (\_ -> k) =<< m
-{-# INLINE (<<) #-}
 
 
 runBot :: [ServerConfig] -> Route [CmdHandler] -> IO ()
@@ -58,9 +55,9 @@ runCommand q routes = forever $ do
 
     -- TODO: we probably want a nicer way of doing this but just creating
     -- a bunch of thread and sleeping then sending seems adequate for now
-    sendDelayMsg reply (DMessage t msg) = return () << (forkIO $ do
+    sendDelayMsg reply (DMessage t msg) = void $ forkIO $ do
         threadDelay (t * 1000000)
-        atomically . writeTQueue reply $ CMessage msg)
+        atomically . writeTQueue reply $ CMessage msg
     sendDelayMsg _ _ = return ()
 
 

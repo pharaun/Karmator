@@ -171,7 +171,7 @@ getBotConfig conf = do
         karmaConf <- get c "bot" "karma_config"
 
         -- Get a list of section, each is a server config
-        (servers, networkChannels) <- liftM splitConf $ mapM (getServerConfig c) $ filter ((/=) "bot") $ sections c
+        (servers, networkChannels) <- liftM splitConf $ mapM (getServerConfig c) $ filter ("bot" /=) $ sections c
 
         return (database, karmaConf, servers, networkChannels))
 

@@ -1,5 +1,6 @@
 {-# LANGUAGE EmptyDataDecls, FlexibleContexts, GADTs, OverloadedStrings, QuasiQuotes, TemplateHaskell, TypeFamilies, GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
 
+import Control.Monad (when)
 import Control.Monad.Trans.Reader
 import Data.List as DL
 import Database.Persist
@@ -89,12 +90,10 @@ updateTime tzs (Entity {entityKey = key, entityVal=(Votes {votesVotedAt = textTi
 
     -- Error reporting, go on ahead and report any invalid/redundant
     -- entries
-    if (not valid) || redundant
-    then liftIO $ putStrLn $ DL.intercalate "," [show time, show zone, show valid, show redundant, show utct]
-    else return ()
+    when (not valid || redundant) $ liftIO $ putStrLn $ DL.intercalate "," [show time, show zone, show valid, show redundant, show utct]
 
     -- Update the row to have UTC timestamp
-    update key [VotesVotedAt =. (T.pack $ show utct)]
+    update key [VotesVotedAt =. T.pack (show utct)]
 
 
 main :: IO ()

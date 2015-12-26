@@ -39,7 +39,7 @@ testRoute :: Route [CmdHandler]
 testRoute = choice
     [ do
         debug "bye handler"
-        pureHandler "bye" (\_ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bye"]))
+        pureHandler "bye" (\_ -> return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bye"])
     , do
         match (\a -> testServer a == "test")
         debug "server handler"
