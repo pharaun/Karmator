@@ -39,11 +39,11 @@ testRoute :: Route [CmdHandler]
 testRoute = choice
     [ do
         debug "bye handler"
-        pureHandler "bye" (\_ -> return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bye"])
+        pureHandler "bye" (\_ -> return [CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bye"]])
     , do
         match (\a -> testServer a == "test")
         debug "server handler"
-        stateHandler "server" "string" (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "server"]))
+        stateHandler "server" "string" (\_ _ -> (return [CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "server"]]))
     , do
         match (\a -> testServer a == "base")
         debug "base choice"
@@ -52,12 +52,12 @@ testRoute = choice
                 match (\a -> channel a == "target")
                 match (\a -> nick a == "never")
                 debug "never handler"
-                stateHandler "never" (3.14 :: Float) (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "never"]))
+                stateHandler "never" (3.14 :: Float) (\_ _ -> (return [CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "never"]]))
             , do
                 debug "base handler"
-                stateHandler "base" (1 :: Integer) (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "base"]))
-            , stateHandler "bar" (1 :: Integer) (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bar"]))
-            , return [SCmdRef "return" (2 :: Integer) (\_ _ -> (return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "return"]))]
+                stateHandler "base" (1 :: Integer) (\_ _ -> (return [CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "base"]]))
+            , stateHandler "bar" (1 :: Integer) (\_ _ -> (return [CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "bar"]]))
+            , return [SCmdRef "return" (2 :: Integer) (\_ _ -> (return [CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "return"]]))]
             ]
     , do
         match (\a -> testServer a == "base")
@@ -81,4 +81,4 @@ testRoute = choice
     fooIO :: MonadIO m => a -> m [BotCommand]
     fooIO _ = do
         liftIO $ putStrLn "test"
-        return $ Just $ CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "io"]
+        return [CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "io"]]
