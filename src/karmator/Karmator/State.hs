@@ -7,6 +7,7 @@ module Karmator.State
     , getState
     , setState
     , modifyState
+    , deleteState
     ) where
 
 import Control.Monad ((<=<))
@@ -99,6 +100,11 @@ modifyState m d s k f = do
             return $ Just b
 
 -- TODO: needs to have a delete
+deleteState :: (MonadIO m) => Text -> Text -> SqlPersistT m ()
+deleteState m k = either
+    (\_ -> return ())
+    (\k' -> delete (k' :: Key SimpleState))
+    (keyFromValues [PersistText m, PersistText k])
 
 
 -- TODO: Do we want to always do a query upon each get/set/modify or do we

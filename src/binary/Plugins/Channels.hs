@@ -114,8 +114,14 @@ joinJoin  network chanBlacklist maxJoin m@(EMessage _ _) =
 
             -- Return delayed message 0, 1, .... x seconds delayed to implement primitive throttling
             return (
-                [CMessage $ IRC.privmsg (whichChannel m) $ fromString ("Joining: " ++ show (map toString $ Set.toList channelSet))] ++
-                [CMessage $ IRC.privmsg (whichChannel m) $ fromString ("Blacklisted: " ++ show (map toString $ Set.toList ignoredSet))] ++
+                (case Set.null channelSet of
+                    True  -> []
+                    False -> [CMessage $ IRC.privmsg (whichChannel m) $ fromString ("Joining: " ++ show (map toString $ Set.toList channelSet))]
+                ) ++
+                (case Set.null ignoredSet of
+                    True  -> []
+                    False -> [CMessage $ IRC.privmsg (whichChannel m) $ fromString ("Blacklisted: " ++ show (map toString $ Set.toList ignoredSet))]
+                ) ++
                 [DMessage t $ IRC.joinChan msg | (msg,t) <- zip chunks [0, 1..] ]
                 )
 
@@ -128,17 +134,22 @@ joinJoin _ _ _ _ = return []
 kickMatch = exactCommand "KICK"
 partMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!part")
 
-kickPartLeave network (EMessage _ m) = do
+-- TODO: part works if you are in that said channel, can't give a '!part #chan' like '!join #chan'
+-- TODO: do we want to prevent !part from working for a "mandatory" channels (in the config)?
+kickPartLeave network mm@(EMessage _ m) = do
     let channel = head $ IRC.msg_params m
 
     pool <- ask
     liftIO $ flip runSqlPool pool $ do
         c <- modifyState moduleKey readSet showSerialize (joinKey network) (Set.delete (toString channel))
         case c of
-            Nothing -> return () -- deleteState moduleKey (joinKey network)
+            -- TODO: This doesn't work quite right, because even when its
+            -- a empty set it still returns "something" thus the key never gets
+            -- deleted
+            Nothing -> deleteState moduleKey (joinKey network)
             Just _  -> return ()
 
-    return []
+    return [CMessage $ IRC.part (whichChannel mm)]
 kickPartLeave _ _ = return []
 
 
@@ -169,13 +180,12 @@ motdJoin network cs chanBlacklist maxJoin _ = do
     pool <- ask
     chan <- liftIO $ runSqlPool (getState moduleKey readSet (joinKey network)) pool
 
-    case chan of
-        Nothing -> return []
-        Just x  -> do
+    let chanList = case chan of
+            Nothing -> cs
             -- Subset of channels that aren't on the blacklist
-            let channelSet = Set.map fromString x `Set.difference` chanBlacklist
+            Just x  -> cs ++ Set.toList (Set.map fromString x `Set.difference` chanBlacklist)
 
-            let chunks = map (BS.intercalate ",") $ chunksOf maxJoin (cs ++ Set.toList channelSet)
+    let chunks = map (BS.intercalate ",") $ chunksOf maxJoin chanList
 
-            -- Return delayed message 0, 1, .... x seconds delayed to implement primitive throttling
-            return [DMessage t $ IRC.joinChan msg | (msg,t) <- zip chunks [0, 1..] ]
+    -- Return delayed message 0, 1, .... x seconds delayed to implement primitive throttling
+    return [DMessage t $ IRC.joinChan msg | (msg,t) <- zip chunks [0, 1..] ]

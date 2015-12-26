@@ -91,7 +91,6 @@ commandRoute c p t nc = choice (
     -- Per network channel supporting bits
     ] ++ map (\(n, cs, csBl, csJoin) -> do
         match (networkMatch n)
-        debug ("networkMatch - " ++ n)
         choice
             [ do
                 match motdMatch
@@ -187,7 +186,7 @@ getBotConfig conf = do
         user      <- get c s "user"
         pass      <- get c s "pass"
         channel   <- get c s "channel" :: ExceptT CPError IO [BS.ByteString] -- Mandatory channels per host
-        chan_bl   <- get c s "channel_blacklist" :: ExceptT CPError IO (Set BS.ByteString) -- Channel blacklist per host
+        chan_bl   <- get c s "channel_blacklist" :: ExceptT CPError IO [BS.ByteString] -- Channel blacklist per host
         chan_join <- get c s "channel_joins"
         tlsHost   <- get c s "tls_host"
         tlsHash   <- get c s "tls_fingerprint" -- Hex sha256
@@ -222,4 +221,4 @@ getBotConfig conf = do
                                 }
                             }
 
-        return (ServerConfig s host (fromInteger port) nicks user pass tls reconn (reWait * 1000000) logfile logirc, (s, channel, chan_bl, chan_join))
+        return (ServerConfig s host (fromInteger port) nicks user pass tls reconn (reWait * 1000000) logfile logirc, (s, channel, Set.fromList chan_bl, chan_join))
