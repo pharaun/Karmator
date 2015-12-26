@@ -60,95 +60,111 @@ import Plugins.Karma.Karma (chanParse)
 readSet :: Read (Set [Char]) => B.ByteString -> (Set [Char])
 readSet = readDeserialize
 
+-- Key
+joinKey network = T.concat [ T.pack network, ".auto_join_channel" ]
+moduleKey = "Plugins.Channels"
+
+
 --
 -- Invite
 --
 inviteMatch :: BotEvent -> Bool
 inviteMatch             = exactCommand "INVITE"
 
-inviteJoin :: MonadIO m => BotEvent -> ReaderT ConnectionPool m [BotCommand]
-inviteJoin (EMessage _ m) = do
+inviteJoin :: MonadIO m => String -> (Set B.ByteString) -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+inviteJoin network chanBlacklist mm@(EMessage _ m) = do
     let channel = head $ tail $ IRC.msg_params m
 
-    pool <- ask
-    liftIO $ flip runSqlPool pool (do
-        c <- modifyState "Plugins.Channels" readSet showSerialize "test.auto_join_channel" (\a -> Set.insert (toString channel) a)
-        case c of
-            Nothing -> setState "Plugins.Channels" showSerialize "test.auto_join_channel" (Set.singleton $ toString channel)
-            Just _  -> return ()
-        )
+    if (Set.member channel chanBlacklist)
+    then return [CMessage $ IRC.privmsg (whichChannel mm) "Channel on blacklist"]
+    else do
+        pool <- ask
+        liftIO $ flip runSqlPool pool (do
+            c <- modifyState moduleKey readSet showSerialize (joinKey network) (\a -> Set.insert (toString channel) a)
+            case c of
+                Nothing -> setState moduleKey showSerialize (joinKey network) (Set.singleton $ toString channel)
+                Just _  -> return ()
+            )
+        return [CMessage $ IRC.joinChan channel]
 
-    return [CMessage $ IRC.joinChan channel]
-inviteJoin _ = return []
+inviteJoin _ _ _ = return []
+
 
 joinMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!join")
-joinJoin  m@(EMessage _ _) =
+joinJoin  network chanBlacklist maxJoin m@(EMessage _ _) =
     case (parse chanParse "(irc)" $ T.decodeUtf8 $ messageContent m) of
         (Left _)        -> return [CMessage $ IRC.privmsg (whichChannel m) "Channel parse failed"]
         (Right [])      -> return [CMessage $ IRC.privmsg (whichChannel m) "Please specify a channel to join"]
         (Right channel) -> do
-            pool <- ask
+            -- Subset of channels that aren't on the blacklist
+            let channelSet = (Set.fromList $ map (fromString . T.unpack) channel) `Set.difference` chanBlacklist
+            let ignoredSet = (Set.fromList $ map (fromString . T.unpack) channel) `Set.intersection` chanBlacklist
 
-            liftIO $ flip runSqlPool pool (do
-                c <- modifyState "Plugins.Channels" readSet showSerialize "test.auto_join_channel" (
-                    \a -> Set.union a (Set.fromList (map T.unpack channel))
+            unless (Set.null channelSet) $ do
+                pool <- ask
+                liftIO $ flip runSqlPool pool (do
+                    c <- modifyState moduleKey readSet showSerialize (joinKey network) (
+                        \a -> Set.union a (Set.map toString channelSet)
+                        )
+                    case c of
+                        Nothing -> setState moduleKey showSerialize (joinKey network) (Set.map toString channelSet)
+                        Just _  -> return ()
                     )
-                case c of
-                    Nothing -> setState "Plugins.Channels" showSerialize "test.auto_join_channel" (Set.fromList $ map T.unpack channel)
-                    Just _  -> return ()
-                )
 
-            -- TODO: make chunks a configurable option
-            let chunks = map (T.intercalate ",") $ chunksOf 3 channel
+
+            -- Actually join these channels
+            let chunks = map (BS.intercalate ",") $ chunksOf maxJoin (Set.toList channelSet)
 
             -- Return delayed message 0, 1, .... x seconds delayed to implement primitive throttling
             return (
-                [CMessage $ IRC.privmsg (whichChannel m) $ fromString ("Joining: " ++ (show $ map T.unpack channel))] ++
-                [DMessage t $ IRC.joinChan (T.encodeUtf8 msg) | (msg,t) <- zip chunks [0, 1..] ]
+                [CMessage $ IRC.privmsg (whichChannel m) $ fromString ("Joining: " ++ (show $ map toString $ Set.toList channelSet))] ++
+                [CMessage $ IRC.privmsg (whichChannel m) $ fromString ("Blacklisted: " ++ (show $ map toString $ Set.toList ignoredSet))] ++
+                [DMessage t $ IRC.joinChan msg | (msg,t) <- zip chunks [0, 1..] ]
                 )
 
-joinJoin _ = return []
+joinJoin _ _ _ _ = return []
 
 
 --
 -- Part & Kick
 --
 kickMatch = exactCommand "KICK"
-kickLeave (EMessage _ m) = do
+kickLeave network (EMessage _ m) = do
     let channel = head $ IRC.msg_params m
 
     pool <- ask
     liftIO $ flip runSqlPool pool (do
-        c <- modifyState "Plugins.Channels" readSet showSerialize "test.auto_join_channel" (\a -> Set.delete (toString channel) a)
+        c <- modifyState moduleKey readSet showSerialize (joinKey network) (\a -> Set.delete (toString channel) a)
         case c of
-            Nothing -> return () -- deleteState "Plugins.Channels" "test.auto_join_channel"
+            Nothing -> return () -- deleteState moduleKey (joinKey network)
             Just _  -> return ()
         )
     return []
-kickLeave _ = return []
+kickLeave _ _ = return []
 
 partMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!part")
-partLeave (EMessage _ m) = do
+partLeave network (EMessage _ m) = do
     let channel = head $ IRC.msg_params m
 
     pool <- ask
     liftIO $ flip runSqlPool pool (do
-        c <- modifyState "Plugins.Channels" readSet showSerialize "test.auto_join_channel" (\a -> Set.delete (toString channel) a)
+        c <- modifyState moduleKey readSet showSerialize (joinKey network) (\a -> Set.delete (toString channel) a)
         case c of
-            Nothing -> return () -- deleteState "Plugins.Channels" "test.auto_join_channel"
+            Nothing -> return () -- deleteState moduleKey (joinKey network)
             Just _  -> return ()
         )
 
     return [CMessage $ IRC.part channel]
-partLeave _ = return []
+partLeave _ _ = return []
+
 
 --
 -- List of channels to join
 --
 listMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!list")
-listChannel m = do
+listChannel network m = do
     pool <- ask
-    chan <- liftIO $ flip runSqlPool pool (getState "Plugins.Channels" readSet "test.auto_join_channel")
+    chan <- liftIO $ flip runSqlPool pool (getState moduleKey readSet (joinKey network))
 
     return [CMessage $ IRC.privmsg (whichChannel m) (fromString $ show (chan :: Maybe (Set String)))]
 
@@ -162,16 +178,20 @@ listChannel m = do
 --
 -- TODO: make network aware
 --
-motdMatch n m = exactCommand "004" m && networkMatch n m
-motdJoin _ cs _ = do
+motdMatch m = exactCommand "004" m
+
+motdJoin :: MonadIO m => String -> [B.ByteString] -> (Set B.ByteString) -> Int -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+motdJoin network cs chanBlacklist maxJoin _ = do
     pool <- ask
-    -- TODO: replace 'test' with n
-    chan <- liftIO $ flip runSqlPool pool (getState "Plugins.Channels" readSet "test.auto_join_channel")
+    chan <- liftIO $ flip runSqlPool pool (getState moduleKey readSet (joinKey network))
 
     case chan of
         Nothing -> return []
         Just x  -> do
-            let chunks = map (BS.intercalate ",") $ chunksOf 3 (cs ++ (map fromString $ Set.toList x))
+            -- Subset of channels that aren't on the blacklist
+            let channelSet = (Set.map fromString x) `Set.difference` chanBlacklist
+
+            let chunks = map (BS.intercalate ",") $ chunksOf maxJoin (cs ++ (Set.toList channelSet))
 
             -- Return delayed message 0, 1, .... x seconds delayed to implement primitive throttling
             return [DMessage t $ IRC.joinChan msg | (msg,t) <- zip chunks [0, 1..] ]

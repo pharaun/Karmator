@@ -9,6 +9,8 @@ import Database.Persist.Sqlite hiding (get)
 import System.Time
 import Options.Applicative
 import qualified Data.Text as T
+import Data.Set (Set)
+import qualified Data.Set as Set
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
@@ -26,6 +28,7 @@ import qualified System.X509.MacOS as TLS
 import Karmator.Bot
 import Karmator.Route
 import Karmator.Types
+import Karmator.Filter
 
 -- Plugins
 import Plugins.Generic
@@ -37,7 +40,9 @@ import Plugins.Karma.Types (Config)
 --
 -- Routes configuration
 --
-commandRoute :: Config -> ConnectionPool -> ClockTime -> [(String, [BS.ByteString], [BS.ByteString], Int)] -> Route [CmdHandler]
+-- TODO: maybe one possible thing is to offload all of the ConnectionPool into the bot config (since it'll be in the core)
+--
+commandRoute :: Config -> ConnectionPool -> ClockTime -> [(String, [BS.ByteString], Set BS.ByteString, Int)] -> Route [CmdHandler]
 commandRoute c p t nc = choice (
     [ do
         -- TODO: fix up pure needing a return here
@@ -49,34 +54,6 @@ commandRoute c p t nc = choice (
         match uptimeMatch
         debug "uptimeMatch"
         stateHandler "uptime" t uptime
-
-    -- Channel handlers
-    -- TODO: do a pre-load command to pre-init/add the forced channel to list of channel to join or something
-    -- TODO: maybe one possible thing is to offload all of the ConnectionPool into the bot config (since it'll be in the core)
-    , do
-        match inviteMatch
-        debug "inviteMatch"
-        persistHandler "invite" p (sqlWrapper inviteJoin)
-
-    , do
-        match joinMatch
-        debug "joinMatch"
-        persistHandler "join" p (sqlWrapper joinJoin)
-
-    , do
-        match partMatch
-        debug "partMatch"
-        persistHandler "part" p (sqlWrapper partLeave)
-
-    , do
-        match kickMatch
-        debug "kickMatch"
-        persistHandler "kick" p (sqlWrapper kickLeave)
-
-    , do
-        match listMatch
-        debug "listMatch"
-        persistHandler "list" p (sqlWrapper listChannel)
 
     -- Karma handlers
     -- Need to "create a database connection" then pass it into all karma handlers
@@ -111,12 +88,42 @@ commandRoute c p t nc = choice (
         debug "karmaMatch"
         persistHandler "karma" p (sqlWrapper (karma c))
 
-    -- Per network MOTD join
-    -- TODO: migrate channel routes here
+    -- Per network channel supporting bits
     ] ++ map (\(n, cs, csBl, csJoin) -> do
-        match (motdMatch n)
-        debug ("motdMatch - " ++ n)
-        persistHandler ("motd - " ++ n) p (sqlWrapper (motdJoin n cs))
+        match (networkMatch n)
+        debug ("networkMatch - " ++ n)
+        choice
+            [ do
+                match motdMatch
+                debug ("motdMatch - " ++ n)
+                persistHandler ("motd - " ++ n) p (sqlWrapper $ motdJoin n cs csBl csJoin)
+
+            -- Channel handlers
+            , do
+                match inviteMatch
+                debug ("inviteMatch - " ++ n)
+                persistHandler "invite" p (sqlWrapper $ inviteJoin n csBl)
+
+            , do
+                match joinMatch
+                debug ("joinMatch - " ++ n)
+                persistHandler "join" p (sqlWrapper $ joinJoin n csBl csJoin)
+
+            , do
+                match partMatch
+                debug ("partMatch - " ++ n)
+                persistHandler "part" p (sqlWrapper $ partLeave n)
+
+            , do
+                match kickMatch
+                debug ("kickMatch - " ++ n)
+                persistHandler "kick" p (sqlWrapper $ kickLeave n)
+
+            , do
+                match listMatch
+                debug ("listMatch - " ++ n)
+                persistHandler "list" p (sqlWrapper $ listChannel n)
+            ]
         ) nc)
 
 
@@ -153,7 +160,7 @@ getArgs = execParser opts
         )
 
 -- Load the bot config
-getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig], [(String, [BS.ByteString], [BS.ByteString], Int)])
+getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig], [(String, [BS.ByteString], Set BS.ByteString, Int)])
 getBotConfig conf = do
     config <- runExceptT (do
         c <- join $ liftIO $ readfile emptyCP conf
@@ -180,7 +187,7 @@ getBotConfig conf = do
         user      <- get c s "user"
         pass      <- get c s "pass"
         channel   <- get c s "channel" :: ExceptT CPError IO [BS.ByteString] -- Mandatory channels per host
-        chan_bl   <- get c s "channel_blacklist" :: ExceptT CPError IO [BS.ByteString] -- Channel blacklist per host
+        chan_bl   <- get c s "channel_blacklist" :: ExceptT CPError IO (Set BS.ByteString) -- Channel blacklist per host
         chan_join <- get c s "channel_joins"
         tlsHost   <- get c s "tls_host"
         tlsHash   <- get c s "tls_fingerprint" -- Hex sha256
