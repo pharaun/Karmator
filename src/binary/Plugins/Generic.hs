@@ -1,14 +1,19 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, TemplateHaskell #-}
 module Plugins.Generic
     ( pingMatch
     , ping
 
     , uptimeMatch
     , uptime
+
+    , versionMatch
+    , version
+    , versionText
     ) where
 
 import Data.List
 import System.Time
+import System.Locale
 import Control.Monad.Reader
 import qualified Data.ByteString.Char8 as C8
 
@@ -16,6 +21,10 @@ import Karmator.Types
 import Karmator.Filter
 import qualified Network.IRC as IRC
 
+-- Versions out of the cabal file
+import qualified Paths_karmator as PK
+import Data.Version (showVersion)
+import Language.Haskell.TH
 
 
 --
@@ -52,3 +61,18 @@ pretty td = join . intersperse " " . filter (not . null) . map f $
     months  = days   `div` 28 ; years  = months `div` 12
     f (i,s) | i == 0    = []
             | otherwise = show i ++ s
+
+
+--
+-- Version
+--
+versionMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!version")
+version m = [CMessage $ IRC.privmsg (whichChannel m) $ C8.pack versionText]
+
+versionText = concat
+    [ "Version: "
+    , showVersion PK.version
+    , " - Build Date: "
+    -- TODO: figure out why the last character is eated here
+    , $((stringE . init) =<< (runIO ((return . (formatCalendarTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S %Z ")) =<< (toCalendarTime =<< getClockTime))))
+    ]

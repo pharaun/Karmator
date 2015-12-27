@@ -55,6 +55,11 @@ commandRoute c p t nc = choice (
         debug "uptimeMatch"
         stateHandler "uptime" t uptime
 
+    , do
+        match versionMatch
+        debug "versionMatch"
+        pureHandler "version" (return . version)
+
     -- Karma handlers
     -- Need to "create a database connection" then pass it into all karma handlers
     -- TODO: implement some sort of table escape hatch before switching to persist
@@ -128,34 +133,43 @@ commandRoute c p t nc = choice (
 
 main :: IO ()
 main = do
-    botConf <- getArgs
-    (database, karmaConf, servers, networkChannels) <- getBotConfig botConf
-    runStderrLoggingT $ withSqlitePool database 1 (\pool -> liftIO $ do
-        -- Run the bot
-        t <- getClockTime
-        c <- getKarmaConfig karmaConf
+    (botConf, version) <- getArgs
 
-        -- Do the migration bit for simple state bits (don't touch karma bits yet)
-        runSqlPool (runMigration migrateSimpleState) pool
+    if version
+    then putStrLn versionText
+    else do
+        (database, karmaConf, servers, networkChannels) <- getBotConfig botConf
+        runStderrLoggingT $ withSqlitePool database 1 (\pool -> liftIO $ do
+            -- Run the bot
+            t <- getClockTime
+            c <- getKarmaConfig karmaConf
 
-        -- Run the bot
-        runBot servers (commandRoute c pool t networkChannels)
+            -- Do the migration bit for simple state bits (don't touch karma bits yet)
+            runSqlPool (runMigration migrateSimpleState) pool
 
-        return ()
-        )
+            -- Run the bot
+            runBot servers (commandRoute c pool t networkChannels)
+
+            return ()
+            )
 
 -- CLI options
-getArgs :: IO FilePath
+getArgs :: IO (FilePath, Bool)
 getArgs = execParser opts
   where
     opts = info (helper <*> config)
         (  fullDesc
         <> progDesc "Run the 'Karmator' irc bot."
         <> header "karmator - An ircbot for handling karma" )
-    config = strArgument
+    config = (,)
+        <$> strArgument
         (  metavar "CONFIG"
         <> help "The bot configuration"
         <> value "src/binary/bot.cfg"
+        )
+        <*> switch
+        ( long "version"
+        <> help "The bot version"
         )
 
 -- Load the bot config

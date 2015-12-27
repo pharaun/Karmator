@@ -2,7 +2,7 @@ name:                karmator
 author:              Anja Berens
 maintainer:          pharaun666@gmail.com
 copyright:           (c) Anja Berens
-version:             0.1.0.0
+version:             0.3.0.0
 license:             BSD3
 license-file:        LICENSE
 build-type:          Simple
@@ -69,6 +69,7 @@ executable karmator
                        Plugins.Karma.Database
                        Plugins.Karma.Karma
                        Plugins.Karma.Types
+                       Paths_karmator
   main-is:             Main.hs
   default-language:    Haskell2010
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts -threaded
@@ -89,6 +90,7 @@ executable karmator
                      , network >= 2.5
                      , network-simple-tls >= 0.5
                      , old-time
+                     , old-locale
                      , parsec
                      , persistent >=2.1.1.7 && <2.3
                      , persistent-sqlite < 2.3
@@ -102,6 +104,7 @@ executable karmator
                      , optparse-applicative
                      , base16-bytestring
                      , split
+                     , template-haskell
 
 executable migration
   main-is:             Migration.hs
@@ -120,6 +123,10 @@ executable migration
                      , transformers >=0.4 && <0.5
 
 test-suite karmator-tests
+  other-modules:       Plugins.Karma.Karma
+                       Plugins.Karma.Types
+                       Tests.KarmaParser
+                       Tests.KarmatorRoute
   main-is:             Tests.hs
   default-language:    Haskell2010
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts -threaded
