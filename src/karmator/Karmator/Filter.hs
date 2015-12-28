@@ -7,6 +7,8 @@ module Karmator.Filter
     , whichChannel
     , messageContent
     , nickContent
+    , userNameContent
+    , hostMaskContent
     ) where
 
 import Safe
@@ -56,3 +58,10 @@ nickContent :: BotEvent -> BS.ByteString
 nickContent (EMessage _ (IRC.Message{IRC.msg_prefix=(Just (IRC.NickName n _ _))})) = n
 nickContent _                                                                      = ""
 
+userNameContent :: BotEvent -> Maybe BS.ByteString
+userNameContent (EMessage _ (IRC.Message{IRC.msg_prefix=(Just (IRC.NickName _ u _))})) = u
+userNameContent _                                                                      = Nothing
+
+hostMaskContent :: BotEvent -> Maybe BS.ByteString
+hostMaskContent (EMessage _ (IRC.Message{IRC.msg_prefix=(Just (IRC.NickName _ _ m))})) = m
+hostMaskContent _                                                                      = Nothing

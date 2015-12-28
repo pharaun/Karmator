@@ -36,6 +36,9 @@ Votes
     byWhomName Text
     forWhatName Text
     amount Int
+    fullName Text
+    username Text Maybe default=Nothing
+    hostmask Text Maybe default=Nothing
     deriving Show
 
 KarmaReceivedCount
@@ -153,8 +156,8 @@ rankingDenormalizedT karmaName karmaTotal whom = do
                     (else_ nothing)
     return $ unValue $ head r -- TODO: unsafe head
 
-addKarma timestamp karmaName karmaValues =
-    insertMany_ (map (\v -> Votes timestamp karmaName (kMessage v) (typeToInt (kType v))) karmaValues)
+addKarma timestamp karmaName fullName userName hostMask karmaValues =
+    insertMany_ (map (\v -> Votes timestamp karmaName (kMessage v) (typeToInt (kType v)) fullName userName hostMask) karmaValues)
   where
     typeToInt Upvote   = 1
     typeToInt Sidevote = 0

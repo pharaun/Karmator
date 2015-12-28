@@ -24,6 +24,7 @@ module Plugins.Karma
     , getKarmaConfig
     ) where
 
+import Control.Applicative
 import Control.Monad.Except
 import Data.Int
 import Data.List
@@ -227,13 +228,15 @@ rawKarma conf m@(EMessage _ _) = do
     -- TODO: error handling
     let msg   = T.decodeUtf8 $ messageContent m
     let nick  = T.decodeUtf8 $ nickContent m
+    let user  = T.decodeUtf8 <$> userNameContent m
+    let host  = T.decodeUtf8 <$> hostMaskContent m
     let karma = parseInput conf nick msg
 
     case karma of
         (KarmaReply n (Just k)) -> do
             t <- liftIO getCurrentTime
             pool <- ask
-            liftIO $ runSqlPool (addKarma t n k) pool
+            liftIO $ runSqlPool (addKarma t n nick user host k) pool
             return []
         _                       -> return []
 rawKarma _ _ = return []
