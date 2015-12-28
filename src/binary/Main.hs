@@ -144,9 +144,6 @@ main = do
             t <- getClockTime
             c <- getKarmaConfig karmaConf
 
-            -- Do the migration bit for simple state bits (don't touch karma bits yet)
-            runSqlPool (runMigration migrateSimpleState) pool
-
             -- Run the bot
             runBot servers (commandRoute c pool t networkChannels)
 

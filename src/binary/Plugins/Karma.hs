@@ -228,6 +228,7 @@ rawKarma conf m@(EMessage _ _) = do
     -- TODO: error handling
     let msg   = T.decodeUtf8 $ messageContent m
     let nick  = T.decodeUtf8 $ nickContent m
+    -- TODO: not for certain if we want to preserve '~' in username or not
     let user  = T.decodeUtf8 <$> userNameContent m
     let host  = T.decodeUtf8 <$> hostMaskContent m
     let karma = parseInput conf nick msg
