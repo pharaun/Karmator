@@ -66,7 +66,7 @@ renderTotalKarma xs = TL.intercalate "; " $ map (uncurry (format (stext % " (" %
 
 
 karmaSidevotesMatch :: BotEvent -> Bool
-karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!sidevotes")
+karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!sidevotes")
 
 karmaSidevotes :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
 karmaSidevotes _ m@(EMessage _ _) = do
@@ -94,7 +94,7 @@ karmaSidevotes _ _ = return []
 
 
 karmaMatch :: BotEvent -> Bool
-karmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!karma")
+karmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!karma")
 
 karma :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
 karma conf m = do
@@ -103,7 +103,7 @@ karma conf m = do
 
 
 karmaGiversMatch :: BotEvent -> Bool
-karmaGiversMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!givers")
+karmaGiversMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!givers")
 
 karmaGivers :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
 karmaGivers conf m = do
@@ -146,7 +146,7 @@ karmaStats _ _ _ _ _ _ = return []
 
 
 karmaRankMatch :: BotEvent -> Bool
-karmaRankMatch = liftM2 (&&) (liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!rank")) (not . prefixMessage "!ranksidevote")
+karmaRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!rank")
 
 
 karmaRank :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
@@ -197,7 +197,7 @@ renderRank pool sidevotes nick whom target = do
 
 
 karmaSidevotesRankMatch :: BotEvent -> Bool
-karmaSidevotesRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!ranksidevote")
+karmaSidevotesRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!ranksidevote")
 
 karmaSidevotesRank :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
 karmaSidevotesRank conf m@(EMessage _ _) =

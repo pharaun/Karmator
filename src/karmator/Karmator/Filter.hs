@@ -2,6 +2,7 @@
 module Karmator.Filter
     ( exactCommand
     , prefixMessage
+    , commandMessage
     , networkMatch
     , whichChannel
     , messageContent
@@ -20,28 +21,38 @@ import Karmator.Types
 
 exactCommand :: BS.ByteString -> BotEvent -> Bool
 exactCommand c (EMessage _ m) = c == IRC.msg_command m
-exactCommand _ _            = False
+exactCommand _ _              = False
 
 -- TODO: does not support multi-channel privmsg
 prefixMessage :: BS.ByteString -> BotEvent -> Bool
-prefixMessage c (EMessage _ m) = c `BS.isPrefixOf` headDef "" (tailSafe $ IRC.msg_params m)
-prefixMessage _ _            = False
+prefixMessage c (EMessage _ m) = c `BS.isPrefixOf` (BS.dropWhile (space ==) $ headDef "" (tailSafe $ IRC.msg_params m))
+  where
+    space = BS.head " "
+prefixMessage _ _              = False
+
+-- TODO: does not support multi-channel privmsg
+-- TODO: add in a config prefix for defining a command
+commandMessage :: BS.ByteString -> BotEvent -> Bool
+commandMessage c (EMessage _ m) = c == (BS.takeWhile (space /=) $ BS.dropWhile (space ==) $ headDef "" (tailSafe $ IRC.msg_params m))
+  where
+    space = BS.head " "
+commandMessage _ _              = False
 
 networkMatch :: String -> BotEvent -> Bool
 networkMatch n (EMessage n' _) = n == n'
-networkMatch _ _ = False
+networkMatch _ _               = False
 
 -- TODO: does not support multi-channel privmsg
 whichChannel :: BotEvent -> BS.ByteString
 whichChannel (EMessage _ m) = headDef "" $ IRC.msg_params m
-whichChannel _            = ""
+whichChannel _              = ""
 
 -- TODO: does not support multi-channel privmsg
 messageContent :: BotEvent -> BS.ByteString
 messageContent (EMessage _ m) = headDef "" $ tailSafe $ IRC.msg_params m
-messageContent _            = ""
+messageContent _              = ""
 
 nickContent :: BotEvent -> BS.ByteString
 nickContent (EMessage _ (IRC.Message{IRC.msg_prefix=(Just (IRC.NickName n _ _))})) = n
-nickContent _                                                                    = ""
+nickContent _                                                                      = ""
 

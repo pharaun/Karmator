@@ -42,7 +42,7 @@ ping _ = []
 --
 -- Uptime
 --
-uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!uptime")
+uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!uptime")
 uptime t m  = do
     now <- liftIO getClockTime
     return [CMessage $ IRC.privmsg (whichChannel m) (C8.pack $ pretty $ diffClockTimes now t)]
@@ -66,7 +66,7 @@ pretty td = join . intersperse " " . filter (not . null) . map f $
 --
 -- Version
 --
-versionMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!version")
+versionMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!version")
 version m = [CMessage $ IRC.privmsg (whichChannel m) $ C8.pack versionText]
 
 versionText = concat

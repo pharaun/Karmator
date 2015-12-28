@@ -88,7 +88,7 @@ inviteJoin network chanBlacklist mm@(EMessage _ m) = do
 inviteJoin _ _ _ = return []
 
 
-joinMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!join")
+joinMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!join")
 joinJoin  network chanBlacklist maxJoin m@(EMessage _ _) =
     case parse chanParse "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)        -> return [CMessage $ IRC.privmsg (whichChannel m) "Channel parse failed"]
@@ -132,7 +132,7 @@ joinJoin _ _ _ _ = return []
 -- Part & Kick
 --
 kickMatch = exactCommand "KICK"
-partMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!part")
+partMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!part")
 
 -- TODO: part works if you are in that said channel, can't give a '!part #chan' like '!join #chan'
 -- TODO: do we want to prevent !part from working for a "mandatory" channels (in the config)?
@@ -156,7 +156,7 @@ kickPartLeave _ _ = return []
 --
 -- List of channels to join
 --
-listMatch = liftM2 (&&) (exactCommand "PRIVMSG") (prefixMessage "!list")
+listMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!list")
 listChannel network m = do
     pool <- ask
     chan <- liftIO $ runSqlPool (getState moduleKey readSet (joinKey network)) pool
