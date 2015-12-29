@@ -27,6 +27,7 @@ library
                        Karmator.Server
                        Karmator.Types
                        Karmator.State
+                       Karmator.Config
                        Network.IRC.Patch
   default-language:    Haskell2010
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts -threaded
