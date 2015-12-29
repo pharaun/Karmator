@@ -231,13 +231,16 @@ rawKarma conf m@(EMessage _ _) = do
     -- TODO: not for certain if we want to preserve '~' in username or not
     let user  = T.decodeUtf8 <$> userNameContent m
     let host  = T.decodeUtf8 <$> hostMaskContent m
+    -- TODO: identify how this handles privmsg
+    -- TODO: identify how it handles multiple channel (Do we want list here) also is privmsg specified or Null?
+    let chan  = Just $ T.decodeUtf8 $ whichChannel m
     let karma = parseInput conf nick msg
 
     case karma of
         (KarmaReply n (Just k)) -> do
             t <- liftIO getCurrentTime
             pool <- ask
-            liftIO $ runSqlPool (addKarma t n nick user host k) pool
+            liftIO $ runSqlPool (addKarma t n nick user host chan k) pool
             return []
         _                       -> return []
 rawKarma _ _ = return []

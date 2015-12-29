@@ -17,7 +17,8 @@ CREATE TABLE votes (
     /* Metadata */
     full_name VARCHAR NOT NULL,
     username VARCHAR DEFAULT NULL,
-    hostmask VARCHAR DEFAULT NULL
+    hostmask VARCHAR DEFAULT NULL,
+    channel VARCHAR DEFAULT NULL
 );
 INSERT INTO votes(id,voted_at,by_whom_name,for_what_name,amount,full_name) SELECT id,voted_at,by_whom_name,for_what_name,amount,by_whom_name FROM votes_backup;
 DROP TABLE votes_backup;

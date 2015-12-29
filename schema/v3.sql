@@ -7,7 +7,8 @@ CREATE TABLE votes (
     /* Metadata */
     full_name VARCHAR NOT NULL,
     username VARCHAR DEFAULT NULL,
-    hostmask VARCHAR DEFAULT NULL
+    hostmask VARCHAR DEFAULT NULL,
+    channel VARCHAR DEFAULT NULL
 );
 CREATE TABLE karma_received_count (
     id INTEGER PRIMARY KEY NOT NULL,
