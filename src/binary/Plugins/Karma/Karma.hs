@@ -40,7 +40,7 @@ nickDeFuzzifier = do
 --  - First search a strictMatchList for a matching nick to ignore
 --  - If all else fail, scan a list of prefixes to match to the nick (Simple fuzzy matching)
 filterBot :: Config -> T.Text -> Bool
-filterBot c nick = nick `elem` strictMatchList c || L.any (`T.isPrefixOf` nick) (prefixMatchList c)
+filterBot c nick = nick `elem` strictMatchList c || L.any (`T.isPrefixOf` nick) (prefixMatchList c) || L.any (`T.isSuffixOf` nick) (suffixMatchList c)
 
 
 -- TODO: Break this out into its own module

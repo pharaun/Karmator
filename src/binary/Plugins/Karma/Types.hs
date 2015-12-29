@@ -40,6 +40,7 @@ data KarmaCandidates = KarmaCandidate
 data Config = Config
     { strictMatchList :: [T.Text]
     , prefixMatchList :: [T.Text]
+    , suffixMatchList :: [T.Text]
 
     , partialKarma :: [ (Char, PartialKarmaType) ]
     , totalKarma :: [ (Char, KarmaType) ]

@@ -281,6 +281,7 @@ getKarmaConfig conf = do
 
         strictMatch <- get c "nick_filtering" "strict_match"
         prefixMatch <- get c "nick_filtering" "prefix_match"
+        suffixMatch <- get c "nick_filtering" "suffix_match"
 
         -- Force the Parser to invoke Read on the Partial/KarmaTypes
         partialKarma <- get c "karma_parsing" "partial"
@@ -294,7 +295,7 @@ getKarmaConfig conf = do
         commandOpen <- get c "command_parsing" "open_brace"
         commandClose <- get c "command_parsing" "close_brace"
 
-        return $ Config strictMatch prefixMatch partialKarma totalKarma open close commandOpen commandClose)
+        return $ Config strictMatch prefixMatch suffixMatch partialKarma totalKarma open close commandOpen commandClose)
 
     case config of
         Left cperr   -> error $ show cperr
