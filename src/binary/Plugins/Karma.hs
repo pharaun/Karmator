@@ -233,6 +233,7 @@ rawKarma conf m@(EMessage _ _) = do
     let host  = T.decodeUtf8 <$> hostMaskContent m
     -- TODO: identify how this handles privmsg
     -- TODO: identify how it handles multiple channel (Do we want list here) also is privmsg specified or Null?
+    --  * It lists the bot's nick as a channel, which works for me.  !karma/etc are busted as a privmsg tho
     let chan  = Just $ T.decodeUtf8 $ whichChannel m
     let karma = parseInput conf nick msg
 
