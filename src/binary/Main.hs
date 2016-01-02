@@ -21,8 +21,8 @@ import qualified Network.TLS as TLS
 import qualified Data.X509.Validation as TLS
 
 -- TODO: detect osx vs unix and get the cert store that way
---import qualified System.X509.Unix as TLS
-import qualified System.X509.MacOS as TLS
+import qualified System.X509.Unix as TLS
+--import qualified System.X509.MacOS as TLS
 
 -- Karmator
 import Karmator.Bot
