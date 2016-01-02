@@ -1,12 +1,12 @@
 [submodule "libs/network-simple"]
 	path = libs/network-simple
-	url = git@github.com/pharaun/network-simple.git
+	url = https://github.com/pharaun/network-simple
 [submodule "libs/network-simple-tls"]
 	path = libs/network-simple-tls
-	url = git@github.com/pharaun/network-simple-tls.git
+	url = https://github.com/pharaun/network-simple-tls
 [submodule "libs/pipes-network"]
 	path = libs/pipes-network
-	url = git@github.com/pharaun/pipes-network.git
+	url = https://github.com/pharaun/pipes-network
 [submodule "libs/pipes-network-tls"]
 	path = libs/pipes-network-tls
-	url = git@github.com/pharaun/pipes-network-tls.git
+	url = https://github.com/pharaun/pipes-network-tls
