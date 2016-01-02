@@ -5,10 +5,21 @@ CREATE TABLE votes (
     for_what_name VARCHAR NOT NULL COLLATE nocase,
     amount INTEGER NOT NULL,
     /* Metadata */
+    nick_id INTEGER DEFAULT NULL,
+    chan_id INTEGER DEFAULT NULL
+);
+CREATE TABLE nick_metadata (
+    id INTEGER PRIMARY KEY NOT NULL,
+    cleaned_nick VARCHAR NOT NULL,
     full_name VARCHAR NOT NULL,
-    username VARCHAR DEFAULT NULL,
-    hostmask VARCHAR DEFAULT NULL,
-    channel VARCHAR DEFAULT NULL
+    username VARCHAR NOT NULL,
+    hostmask VARCHAR NOT NULL,
+    UNIQUE (cleaned_nick, full_name, username, hostmask)
+);
+CREATE TABLE chan_metadata (
+    id INTEGER PRIMARY KEY NOT NULL,
+    channel VARCHAR NOT NULL,
+    UNIQUE (channel)
 );
 CREATE TABLE karma_received_count (
     id INTEGER PRIMARY KEY NOT NULL,

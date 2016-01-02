@@ -14,11 +14,9 @@ module Plugins.Karma.Database
     -- re-exports
     , desc
     , asc
-
-    -- Test database migration
-    , migrateAll
     ) where
 
+import Data.Maybe (fromMaybe)
 import Control.Arrow ((***))
 import Data.List (unionBy)
 import Data.Time.Clock (UTCTime)
@@ -30,16 +28,27 @@ import Plugins.Karma.Types (Karma(kMessage,kType), KarmaType(..))
 
 
 -- Current Schema
-P.share [P.mkPersist P.sqlSettings, P.mkMigrate "migrateAll"] [P.persistLowerCase|
+P.share [P.mkPersist P.sqlSettings] [P.persistLowerCase|
 Votes
     votedAt UTCTime
     byWhomName Text
     forWhatName Text
     amount Int
+    nickId NickMetadataId Maybe default=Nothing
+    chanId ChanMetadataId Maybe default=Nothing
+    deriving Show
+
+NickMetadata
+    cleanedNick Text
     fullName Text
-    username Text Maybe default=Nothing
-    hostmask Text Maybe default=Nothing
-    channel Text Maybe default=Nothing
+    username Text
+    hostmask Text
+    UniqueNick cleanedNick fullName username hostmask
+    deriving Show
+
+ChanMetadata
+    channel Text
+    UniqueChannel channel
     deriving Show
 
 KarmaReceivedCount
@@ -157,8 +166,23 @@ rankingDenormalizedT karmaName karmaTotal whom = do
                     (else_ nothing)
     return $ unValue $ head r -- TODO: unsafe head
 
-addKarma timestamp karmaName fullName userName hostMask channel karmaValues =
-    insertMany_ (map (\v -> Votes timestamp karmaName (kMessage v) (typeToInt (kType v)) fullName userName hostMask channel) karmaValues)
+addKarma timestamp karmaName fullName userName hostMask channel karmaValues = do
+    let userName' = fromMaybe "" userName
+        hostMask' = fromMaybe "" hostMask
+        channel'  = fromMaybe "" channel
+
+    -- Identify if we have a nick and a chan metadata row
+    nickId <- getBy $ UniqueNick karmaName fullName userName' hostMask'
+    nickId' <- case nickId of
+        Nothing -> insert $ NickMetadata karmaName fullName userName' hostMask'
+        Just x  -> return $ entityKey x
+
+    chanId <- getBy $ UniqueChannel channel'
+    chanId' <- case chanId of
+        Nothing -> insert $ ChanMetadata channel'
+        Just x  -> return $ entityKey x
+
+    insertMany_ (map (\v -> Votes timestamp karmaName (kMessage v) (typeToInt (kType v)) (Just nickId') (Just chanId')) karmaValues)
   where
     typeToInt Upvote   = 1
     typeToInt Sidevote = 0
