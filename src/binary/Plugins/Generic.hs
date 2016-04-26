@@ -1,9 +1,6 @@
 {-# LANGUAGE OverloadedStrings, TemplateHaskell #-}
 module Plugins.Generic
-    ( pingMatch
-    , ping
-
-    , uptimeMatch
+    ( uptimeMatch
     , uptime
 
     , versionMatch
@@ -25,18 +22,6 @@ import qualified Network.IRC as IRC
 import qualified Paths_karmator as PK
 import Data.Version (showVersion)
 import Language.Haskell.TH
-
-
---
--- Ping
---
-pingMatch :: BotEvent -> Bool
-pingMatch = exactCommand "PING"
-
--- TODO: Unsafe head
-ping :: BotEvent -> [BotCommand]
-ping (EMessage _ m) = [CMessage $ IRC.pong $ head $ IRC.msg_params m]
-ping _ = []
 
 
 --

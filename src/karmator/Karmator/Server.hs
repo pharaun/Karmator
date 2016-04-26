@@ -59,9 +59,10 @@ runServer sc queue = PNT.withSocketsDo $
             -- shutting the server connection off if it exceeds some
             -- threshold.
             case errors of
-                Right _ -> return ()
                 -- TODO: Need to identify the type of error and allow some to propagate upward - IE don't just catch all.
-                Left e  -> logException l e
+                Left e         -> logException l e
+                Right RecvLost -> liftIO $ BS.hPutStr l "Recv was lost (closed server side)\n"
+                Right SendLost -> liftIO $ BS.hPutStr l "Send was lost (closed server side)\n"
 
             -- Wait for a bit before retrying
             threadDelay $ reconnectWait sc
@@ -69,7 +70,12 @@ runServer sc queue = PNT.withSocketsDo $
 --
 -- Establish the connection
 --
-establishConnection :: ServerState -> IO ()
+-- PNT.fromSocket - returns if the remote peer closes its side of the connection
+-- TLS.fromContext - returns if the remote peer closes its side of the connection
+--
+-- NSB.sendAll - raises an exception if there was a network error (caught by syncIO)
+--
+establishConnection :: ServerState -> IO ServerEvent
 establishConnection ss@ServerState{config=sc} =
     case tlsSettings sc of
         Nothing  -> PNT.connect (server sc) (show $ port sc) $ \(sock, _)        -> handleIRC (PNT.fromSocket sock 8192) (PNT.toSocket sock) ss
@@ -78,7 +84,7 @@ establishConnection ss@ServerState{config=sc} =
 --
 -- The IRC handler and protocol
 --
-handleIRC :: Producer BS.ByteString IO () -> Consumer BS.ByteString IO () -> ServerState -> IO ()
+handleIRC :: Producer BS.ByteString IO () -> Consumer BS.ByteString IO () -> ServerState -> IO ServerEvent
 handleIRC recv send ss@ServerState{config=sc, logStream=l} = do
     -- Emit connection established here
     emitConnectionEstablished ss
@@ -92,9 +98,14 @@ handleIRC recv send ss@ServerState{config=sc, logStream=l} = do
     runEffect (handshake ss >-> showMessage >-> send')
 
     -- Regular irc streaming
-    race_
+    loser <- race
         (runEffect (ircParserErrorLogging (network sc) (logStream ss) recv' >-> messagePump ss))
         (runEffect (messageVacuum ss >-> onlyMessages >-> showMessage >-> send'))
+
+    -- Identify who terminated first (the send or the recv)
+    return $ case loser of
+        Left _  -> RecvLost
+        Right _ -> SendLost
 
 --
 -- Parses incoming irc messages and emits any errors to a log and keep going
@@ -103,6 +114,11 @@ ircParserErrorLogging :: MonadIO m => String -> Handle -> Producer BS.ByteString
 ircParserErrorLogging network' l producer = do
     (result, rest) <- lift $ runStateT (PA.parse IRC.message) producer
 
+    -- TODO: figure out how to identify a half-closed connect (zero length return value)
+    -- Seems like both producer returns if the remote peer closes its side of the connections
+    -- Check what attoparsec does
+    --
+    -- TODO: Verify that throwing an exception is the right thing here, for re-connecting
     case result of
         Nothing -> liftIO $ BS.hPutStr l "Pipe is exhausted (connection was closed)\n"
         Just r  -> do
@@ -144,6 +160,8 @@ showMessage = PP.map encode
 
 --
 -- Filter any non Message
+--
+-- TODO: Identify if its a disconnect message and specifically disconnect
 --
 onlyMessages :: Monad m => Pipe BotCommand IRC.Message m ()
 onlyMessages = forever $ do

@@ -65,6 +65,7 @@ library
 
 executable karmator
   other-modules:       Plugins.Generic
+                       Plugins.Ping
                        Plugins.Channels
                        Plugins.Karma
                        Plugins.Karma.Database
@@ -106,6 +107,8 @@ executable karmator
                      , base16-bytestring
                      , split
                      , template-haskell
+                     , stm
+                     , stm-delay
 
 executable migration
   main-is:             Migration.hs

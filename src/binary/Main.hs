@@ -24,6 +24,8 @@ import qualified Data.X509.Validation as TLS
 import qualified System.X509.Unix as TLS
 --import qualified System.X509.MacOS as TLS
 
+import Control.Concurrent.STM.TVar (TVar)
+
 -- Karmator
 import Karmator.Bot
 import Karmator.Route
@@ -31,6 +33,7 @@ import Karmator.Types
 import Karmator.Filter
 
 -- Plugins
+import Plugins.Ping
 import Plugins.Generic
 import Plugins.Channels
 import Plugins.Karma
@@ -42,13 +45,12 @@ import Plugins.Karma.Types (Config)
 --
 -- TODO: maybe one possible thing is to offload all of the ConnectionPool into the bot config (since it'll be in the core)
 --
-commandRoute :: Config -> ConnectionPool -> ClockTime -> [(String, [BS.ByteString], Set BS.ByteString, Int)] -> Route [CmdHandler]
-commandRoute c p t nc = choice (
+commandRoute :: Config -> ConnectionPool -> ClockTime -> (TVar PingDelay) -> [(String, [BS.ByteString], Set BS.ByteString, Int)] -> Route [CmdHandler]
+commandRoute c p t pd nc = choice (
     [ do
-        -- TODO: fix up pure needing a return here
         match pingMatch
         debug "pingMatch"
-        pureHandler "ping" (return . ping)
+        stateHandler "ping" pd ping
 
     , do
         match uptimeMatch
@@ -56,6 +58,7 @@ commandRoute c p t nc = choice (
         stateHandler "uptime" t uptime
 
     , do
+        -- TODO: fix up pure needing a return here
         match versionMatch
         debug "versionMatch"
         pureHandler "version" (return . version)
@@ -143,9 +146,10 @@ main = do
             -- Run the bot
             t <- getClockTime
             c <- getKarmaConfig karmaConf
+            pd <- pingInit
 
             -- Run the bot
-            runBot servers (commandRoute c pool t networkChannels)
+            runBot servers (commandRoute c pool t pd networkChannels)
 
             return ()
             )

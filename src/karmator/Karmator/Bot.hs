@@ -22,13 +22,18 @@ import Karmator.Types
 -- Temp?
 import Database.Persist.Sql (ConnectionPool)
 
-
 runBot :: [ServerConfig] -> Route [CmdHandler] -> IO ()
 runBot s r = do
+    -- TODO: register a custom runEH command here for handling EH output
+    -- and routing to the right network
+    -- q' <- newTQueueIO
+    -- runEH q'
+
     -- Start up the bot command + route
     q <- newTQueueIO
-    bot <- async (runCommand q [r])
+    bot <- async (runCommand q [r]) -- add q' here
 
+    -- TODO: construct a mapping between network & TQueue
     -- Give the input to each server thread and spawn them
     servers <- mapM (\sc -> async (runServer sc q)) s
 
@@ -43,6 +48,8 @@ runCommand q routes = forever $ do
 
     cmdRefs <- runRoute (choice routes) msg
     results <- executeCmdRef cmdRefs msg
+
+    -- TODO: Register ExternalHandler (with the given bot queue) (from plugin/route)
 
     -- TODO: filter out DMessage and deal with them specifically
     let (deferSend, nowSend) = DL.partition delayMsg $ DL.concat results

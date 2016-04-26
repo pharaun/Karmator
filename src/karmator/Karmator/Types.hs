@@ -8,12 +8,16 @@ module Karmator.Types
     , CmdHandler
 
     -- Events
+    , ServerEvent(..)
     , BotEvent(..)
     , BotCommand(..)
 
     -- Internal
     , Segment(..)
     , CmdRef(..)
+
+    -- External Handler
+    , ExternalHandler(..)
     ) where
 
 import Network
@@ -81,6 +85,14 @@ data ServerState = ServerState
     , connectionSuccess :: TVar Bool
     }
 
+-- Server Connect Loop Events
+--  1. Connection lost
+--  2. Termination
+data ServerEvent
+    = RecvLost
+    | SendLost
+    deriving (Show)
+
 -- Bot/Server Events
 --  1. Connection established
 --  2. Connection lost
@@ -106,7 +118,8 @@ data BotCommand
     | Die
     | CMessage IRC.Message
     | DMessage Int IRC.Message
-    deriving (Show,Eq)
+    | Register ExternalHandler
+    deriving (Show)
 
 -- Routing
 data Segment m p i o n
@@ -136,3 +149,52 @@ instance Show (CmdRef m p i o) where
     show (PSCmdRef n _ _ _) = "Persistance Stateful Command: " ++ show n
 
 type CmdHandler = CmdRef IO ConnectionPool BotEvent [BotCommand]
+
+
+-- TODO: Implement ExternalHandler
+--  External Handler is a snippet of code that works via external stimulus
+--      (Network calls, timers, etc...), so an list is a list of monadic
+--      compution to be ran, I think ultimately in the end what it will be
+--      is a [list] of live external threads, that when they die, they
+--      inform the bot on if they want to be relaunched or not. Then there
+--      should be a way to register additional external handler or not
+--
+--      CmdHandler can emit an new "message" for Init+registering a new
+--      external handler
+--
+--      Alternativly an external handler can be started up at bot start
+--      time via a init list.
+--
+--      Need to identify how to handle per server stuff or what (basically
+--      sending data out)
+--
+--      Basically, upon bot start/connection established, we emit an
+--      "connection established" and then each plugin route can listen to
+--      this and then register their external handler.  Biggest question is
+--      how to handle connection loss/disconnect, probably give that
+--      message to the external handler and let them decide if they want to
+--      shut down or not.
+--
+--  TODO:
+--      1. A way to assign an external handler to a particular network connection
+--      2. A way to either only launch an EH once and have it handle reconn or a way to kill + relaunch
+--      3. A way to share state in the EH with the rest of the plugin + possibly give access to persistent data
+--      4. if a EH cares about connection lost+establish, the plugin can pass that info in
+--      5. Relaunch if the EH crashes?
+--
+--  Name, Network/any, (EH Queue)
+data ExternalHandler = ExtRef String [String] (TQueue BotCommand -> IO ()) -- TODO: io for now
+-- Open questions:
+--  - ExtRef should be able to register more extref to be launched
+--  - DMessages should get put into the delay thing like other messages
+--  - Probably needs a dedicated EH queue (so that we can handle the
+--      register, and sending it to the right network)
+--  - Implement a Network type for mapping Network. 'Network String | All'
+--      * Where String is the network name in the config (then we need to have mapping from the network to the TQueue)
+--      * Catchall 'All' for broadcasting to all network
+
+-- data NetworkType = Network String | All
+-- type NetworkQueue = Map.Map NetworkType (TQueue BotCommand)
+
+instance Show ExternalHandler where
+    show (ExtRef n _ _)       = "External Handler: " ++ show n
