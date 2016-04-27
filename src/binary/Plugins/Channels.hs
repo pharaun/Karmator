@@ -131,7 +131,11 @@ joinJoin _ _ _ _ = return []
 --
 -- Part & Kick
 --
-kickMatch = exactCommand "KICK"
+--       Command: KICK
+--       Parameters: <channel> *( "," <channel> ) <user> *( "," <user> )
+--                   [<comment>]
+--
+kickMatch nick = liftM2 (&&) (exactCommand "KICK") (nickMatch nick)
 partMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!part")
 
 -- TODO: part works if you are in that said channel, can't give a '!part #chan' like '!join #chan'

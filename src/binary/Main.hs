@@ -45,7 +45,7 @@ import Plugins.Karma.Types (Config)
 --
 -- TODO: maybe one possible thing is to offload all of the ConnectionPool into the bot config (since it'll be in the core)
 --
-commandRoute :: Config -> ConnectionPool -> ClockTime -> (TVar PingDelay) -> [(String, [BS.ByteString], Set BS.ByteString, Int)] -> Route [CmdHandler]
+commandRoute :: Config -> ConnectionPool -> ClockTime -> (TVar PingDelay) -> [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])] -> Route [CmdHandler]
 commandRoute c p t pd nc = choice (
     [ do
         match pingMatch
@@ -97,7 +97,7 @@ commandRoute c p t pd nc = choice (
         persistHandler "karma" p (sqlWrapper (karma c))
 
     -- Per network channel supporting bits
-    ] ++ map (\(n, cs, csBl, csJoin) -> do
+    ] ++ map (\(n, cs, csBl, csJoin, nicks) -> do
         match (networkMatch n)
         choice
             [ do
@@ -122,7 +122,7 @@ commandRoute c p t pd nc = choice (
                 persistHandler "part" p (sqlWrapper $ kickPartLeave n)
 
             , do
-                match kickMatch
+                match (kickMatch $ head nicks)
                 debug ("kickMatch - " ++ n)
                 persistHandler "kick" p (sqlWrapper $ kickPartLeave n)
 
@@ -174,7 +174,7 @@ getArgs = execParser opts
         )
 
 -- Load the bot config
-getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig], [(String, [BS.ByteString], Set BS.ByteString, Int)])
+getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig], [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])])
 getBotConfig conf = do
     config <- runExceptT (do
         c <- join $ liftIO $ readfile emptyCP conf
@@ -236,4 +236,4 @@ getBotConfig conf = do
                                 }
                             }
 
-        return (ServerConfig s host (fromInteger port) nicks user pass tls reconn (reWait * 1000000) logfile logirc, (s, channel, Set.fromList chan_bl, chan_join))
+        return (ServerConfig s host (fromInteger port) nicks user pass tls reconn (reWait * 1000000) logfile logirc, (s, channel, Set.fromList chan_bl, chan_join, nicks))
