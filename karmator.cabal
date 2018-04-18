@@ -2,7 +2,7 @@ name:                karmator
 author:              Anja Berens
 maintainer:          pharaun666@gmail.com
 copyright:           (c) Anja Berens
-version:             0.4.0.0
+version:             0.5.0.0
 license:             BSD3
 license-file:        LICENSE
 build-type:          Simple
@@ -33,7 +33,7 @@ library
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts -threaded
   hs-source-dirs:      src/karmator
   extra-libraries:     pthread
-  build-depends:       base >=4.5 && <4.9
+  build-depends:       base >=4.5
                      -- TODO: Working around aeson not handling something here
                      --, scientific  < 0.3.3.1
                      , async
@@ -53,14 +53,14 @@ library
                      , pretty
                      , stm
                      , tls >= 1.3
-                     , transformers >=0.4 && <0.5
+                     , transformers >=0.4
                      , x509-system
                      , errors >= 1.4.0
                      , safe >= 0.3
                      , exceptions >= 0.6
                      -- Stateful management stuff
-                     , persistent >=2.1.1.7 && <2.3
-                     , persistent-sqlite < 2.3
+                     , persistent >=2.1.1.7
+                     , persistent-sqlite
                      , persistent-template >= 2.0
 
 executable karmator
@@ -77,7 +77,7 @@ executable karmator
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts -threaded
   hs-source-dirs:      src/binary
   extra-libraries:     pthread
-  build-depends:       base >=4.5 && <4.9
+  build-depends:       base >=4.5
                      , karmator
 
                      , ConfigFile
@@ -94,13 +94,13 @@ executable karmator
                      , old-time
                      , old-locale
                      , parsec
-                     , persistent >=2.1.1.7 && <2.3
-                     , persistent-sqlite < 2.3
+                     , persistent >=2.1.1.7
+                     , persistent-sqlite
                      , persistent-template >= 2.0
                      , text >= 1.2.0.0
                      , time
                      , tls >= 1.3
-                     , transformers >=0.4 && <0.5
+                     , transformers >=0.4
                      , x509-system
                      , x509-validation
                      , optparse-applicative
@@ -116,15 +116,15 @@ executable migration
   ghc-options:        -Wall -fno-warn-missing-signatures -O2 -rtsopts -threaded
   hs-source-dirs:      src/binary
   extra-libraries:     pthread
-  build-depends:       base >=4.5 && <4.9
+  build-depends:       base >=4.5
                      , conduit
-                     , persistent >=2.1.1.7 && <2.3
-                     , persistent-sqlite < 2.3
+                     , persistent >=2.1.1.7
+                     , persistent-sqlite
                      , persistent-template >= 2.0
                      , text
                      , timezone-olson
                      , timezone-series
-                     , transformers >=0.4 && <0.5
+                     , transformers >=0.4
 
 test-suite karmator-tests
   other-modules:       Plugins.Karma.Karma
@@ -137,11 +137,11 @@ test-suite karmator-tests
   hs-source-dirs:      src/binary
   extra-libraries:     pthread
   type:                exitcode-stdio-1.0
-  build-depends:       base >=4.5 && <4.9
+  build-depends:       base >=4.5
                      , karmator
                      , bytestring >= 0.10
                      , irc >= 0.6
-                     , transformers >=0.4 && <0.5
+                     , transformers >=0.4
                      , parsec
                      , text
                      , HUnit

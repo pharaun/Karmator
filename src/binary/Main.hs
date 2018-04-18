@@ -10,6 +10,7 @@ import System.Time
 import Options.Applicative
 import qualified Data.Text as T
 import Data.Set (Set)
+import Data.Monoid ((<>))
 import qualified Data.Set as Set
 
 import qualified Data.ByteString as BS

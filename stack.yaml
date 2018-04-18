@@ -1,7 +1,8 @@
 # For more information, see: https://github.com/commercialhaskell/stack/blob/release/doc/yaml_configuration.md
 
 # Specifies the GHC version and set of packages available (e.g., lts-3.5, nightly-2015-09-21, ghc-7.10.2)
-resolver: lts-5.13
+#resolver: lts-5.13
+resolver: lts-11.5
 
 # Local packages, usually specified by relative directory name
 packages:
@@ -10,6 +11,7 @@ packages:
 - libs/network-simple-tls
 - libs/pipes-network
 - libs/pipes-network-tls
+- libs/esqueleto
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
