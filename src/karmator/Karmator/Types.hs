@@ -121,6 +121,14 @@ data BotCommand
     | Register ExternalHandler
     deriving (Show)
 
+instance Eq BotCommand where
+    Disconnect == Disconnect        = True
+    Die == Die                      = True
+    CMessage x == CMessage y        = x == y
+    DMessage x x' == DMessage y y'  = (x == y) && (x' == y')
+    Register _ == Register _        = False
+    _ == _                          = False
+
 -- Routing
 data Segment m p i o n
     = Match (i -> Bool) n
