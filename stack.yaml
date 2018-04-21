@@ -12,6 +12,7 @@ packages:
 - libs/pipes-network
 - libs/pipes-network-tls
 - libs/esqueleto
+- libs/slack-api
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:

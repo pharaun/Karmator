@@ -62,6 +62,7 @@ library
                      , persistent >=2.1.1.7
                      , persistent-sqlite
                      , persistent-template >= 2.0
+                     , slack-api
 
 executable karmator
   other-modules:       Plugins.Generic
