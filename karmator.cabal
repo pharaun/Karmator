@@ -24,7 +24,8 @@ library
   exposed-modules:     Karmator.Bot
                        Karmator.Filter
                        Karmator.Route
-                       Karmator.Server
+                       Karmator.Server.IRC
+                       Karmator.Server.Slack
                        Karmator.Types
                        Karmator.State
                        Karmator.Config

@@ -16,8 +16,10 @@ import Control.Concurrent (forkIO, threadDelay)
 
 -- Karmator Stuff
 import Karmator.Route
-import Karmator.Server
 import Karmator.Types
+
+import qualified Karmator.Server.IRC as IRC
+import qualified Karmator.Server.Slack as Slack
 
 -- Temp?
 import Database.Persist.Sql (ConnectionPool)
@@ -35,12 +37,19 @@ runBot s r = do
 
     -- TODO: construct a mapping between network & TQueue
     -- Give the input to each server thread and spawn them
-    servers <- mapM (\sc -> async (runServer sc q)) s
+    servers <- mapM (\sc -> async (runAnyServer sc q)) s
 
     -- TODO: more sophsicated logic here, we exit upon shutdown of any
     -- server/bot async
     _ <- waitAnyCancel (bot : servers)
     return ()
+
+
+-- This bit decide between slack or irc server for this particular config
+runAnyServer :: ServerConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
+runAnyServer sc@IrcConfig{} q   = IRC.runServer sc q
+runAnyServer sc@SlackConfig{} q = Slack.runServer sc q
+
 
 runCommand :: TQueue (BotEvent, TQueue BotCommand) -> [Route [CmdHandler]] -> IO ()
 runCommand q routes = forever $ do

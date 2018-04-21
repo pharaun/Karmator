@@ -33,45 +33,55 @@ import qualified Network.TLS as TLS
 
 
 -- Per server config for the bot
-data ServerConfig = ServerConfig
-    { network :: String
-    , server :: String
-    , port :: PortNumber
-    , nicks :: [BS.ByteString] -- First one then alternatives in descending order
-    , userName :: BS.ByteString
-    , serverPassword :: Maybe BS.ByteString
+data ServerConfig
+    = SlackConfig
+        { apiToken :: String
+        , reconnect :: Bool
+        , reconnectWait :: Int -- Microseconds
 
-    , tlsSettings :: Maybe TLS.ClientParams
+        -- TODO: make this optional/replaced by a logging infrastructure
+        , logfile :: String
+        , logIrc :: Bool
+        }
+    | IrcConfig
+        { network :: String
+        , server :: String
+        , port :: PortNumber
+        , nicks :: [BS.ByteString] -- First one then alternatives in descending order
+        , userName :: BS.ByteString
+        , serverPassword :: Maybe BS.ByteString
 
-    , reconnect :: Bool
-    , reconnectWait :: Int -- Microseconds
+        , tlsSettings :: Maybe TLS.ClientParams
 
-    -- TODO: make this optional/replaced by a logging infrastructure
-    , logfile :: String
-    , logIrc :: Bool
+        , reconnect :: Bool
+        , reconnectWait :: Int -- Microseconds
 
-    -- Function for default encoding and decoding
-    -- defaultEncoding :: BS.ByteString -> T.Text
-    -- defaultDecoding :: T.Text -> BS.ByteString
-    --
-    -- Rates:
-    --  messages_per_seconds, server_queue_size
-    --
-    -- Messages:
-    --  message_split_start, message_split_end, max_messages, encoding
-    --  modes
-    --
-    -- Timeouts:
-    --  read - 240s
-    --  connect - 10s
-    --  ping_interval
-    --  max_reconnect_delay
-    --  delay_joins
-    --
-    -- Security:
-    --  sasl {username, password}
-    --  serverauth {username, password}
-    }
+        -- TODO: make this optional/replaced by a logging infrastructure
+        , logfile :: String
+        , logIrc :: Bool
+
+        -- Function for default encoding and decoding
+        -- defaultEncoding :: BS.ByteString -> T.Text
+        -- defaultDecoding :: T.Text -> BS.ByteString
+        --
+        -- Rates:
+        --  messages_per_seconds, server_queue_size
+        --
+        -- Messages:
+        --  message_split_start, message_split_end, max_messages, encoding
+        --  modes
+        --
+        -- Timeouts:
+        --  read - 240s
+        --  connect - 10s
+        --  ping_interval
+        --  max_reconnect_delay
+        --  delay_joins
+        --
+        -- Security:
+        --  sasl {username, password}
+        --  serverauth {username, password}
+        }
     deriving (Show)
 
 -- Ephemeral State:

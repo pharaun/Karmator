@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Karmator.Server
+module Karmator.Server.IRC
     ( runServer
     ) where
 
