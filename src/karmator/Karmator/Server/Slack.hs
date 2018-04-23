@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Karmator.Server.Slack
     ( runServer
+    , SlackConfig(..)
     ) where
 
 import Safe
@@ -30,8 +31,17 @@ import qualified Pipes.Prelude as PP
 -- Karmator Stuff
 import Karmator.Types
 
+
+--
+-- Server Specific configs
+--
+data SlackConfig = SlackConfig
+    { apiToken :: String
+    }
+    deriving (Show)
+
 --
 -- Establish and run a server connection (tls/plain)
 --
-runServer :: ServerConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
+runServer :: ServerConfig SlackConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
 runServer sc queue = undefined

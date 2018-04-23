@@ -33,60 +33,28 @@ import qualified Network.TLS as TLS
 
 
 -- Per server config for the bot
-data ServerConfig
-    = SlackConfig
-        { apiToken :: String
-        , reconnect :: Bool
-        , reconnectWait :: Int -- Microseconds
+data ServerConfig a = ServerConfig
+    { serverSpecific :: a
+    , reconnect :: Bool
+    , reconnectWait :: Int -- Microseconds
 
-        -- TODO: make this optional/replaced by a logging infrastructure
-        , logfile :: String
-        , logIrc :: Bool
-        }
-    | IrcConfig
-        { network :: String
-        , server :: String
-        , port :: PortNumber
-        , nicks :: [BS.ByteString] -- First one then alternatives in descending order
-        , userName :: BS.ByteString
-        , serverPassword :: Maybe BS.ByteString
+    -- TODO: make this optional/replaced by a logging infrastructure
+    , logfile :: String
+    , logMsg :: Bool
 
-        , tlsSettings :: Maybe TLS.ClientParams
-
-        , reconnect :: Bool
-        , reconnectWait :: Int -- Microseconds
-
-        -- TODO: make this optional/replaced by a logging infrastructure
-        , logfile :: String
-        , logIrc :: Bool
-
-        -- Function for default encoding and decoding
-        -- defaultEncoding :: BS.ByteString -> T.Text
-        -- defaultDecoding :: T.Text -> BS.ByteString
-        --
-        -- Rates:
-        --  messages_per_seconds, server_queue_size
-        --
-        -- Messages:
-        --  message_split_start, message_split_end, max_messages, encoding
-        --  modes
-        --
-        -- Timeouts:
-        --  read - 240s
-        --  connect - 10s
-        --  ping_interval
-        --  max_reconnect_delay
-        --  delay_joins
-        --
-        -- Security:
-        --  sasl {username, password}
-        --  serverauth {username, password}
-        }
+    -- Rates:
+    --  messages_per_seconds, server_queue_size
+    --
+    -- Messages:
+    --  message_split_start, message_split_end, max_messages, encoding
+    --  modes
+    }
     deriving (Show)
 
+
 -- Ephemeral State:
-data ServerState = ServerState
-    { config :: ServerConfig
+data ServerState a = ServerState
+    { config :: ServerConfig a
     , logStream :: Handle
 
     , botQueue :: TQueue (BotEvent, TQueue BotCommand)

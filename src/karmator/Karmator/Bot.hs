@@ -24,8 +24,8 @@ import qualified Karmator.Server.Slack as Slack
 -- Temp?
 import Database.Persist.Sql (ConnectionPool)
 
-runBot :: [ServerConfig] -> Route [CmdHandler] -> IO ()
-runBot s r = do
+runBot :: [ServerConfig IRC.IrcConfig] -> [ServerConfig Slack.SlackConfig] -> Route [CmdHandler] -> IO ()
+runBot sic ssc r = do
     -- TODO: register a custom runEH command here for handling EH output
     -- and routing to the right network
     -- q' <- newTQueueIO
@@ -37,18 +37,13 @@ runBot s r = do
 
     -- TODO: construct a mapping between network & TQueue
     -- Give the input to each server thread and spawn them
-    servers <- mapM (\sc -> async (runAnyServer sc q)) s
+    ircServers   <- mapM (\sc -> async (IRC.runServer sc q)) sic
+    slackServers <- mapM (\sc -> async (Slack.runServer sc q)) ssc
 
     -- TODO: more sophsicated logic here, we exit upon shutdown of any
     -- server/bot async
-    _ <- waitAnyCancel (bot : servers)
+    _ <- waitAnyCancel (bot : (ircServers ++ slackServers))
     return ()
-
-
--- This bit decide between slack or irc server for this particular config
-runAnyServer :: ServerConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
-runAnyServer sc@IrcConfig{} q   = IRC.runServer sc q
-runAnyServer sc@SlackConfig{} q = Slack.runServer sc q
 
 
 runCommand :: TQueue (BotEvent, TQueue BotCommand) -> [Route [CmdHandler]] -> IO ()

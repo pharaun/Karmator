@@ -41,6 +41,9 @@ import Plugins.Karma
 import Karmator.State
 import Plugins.Karma.Types (Config)
 
+import Karmator.Server.IRC (IrcConfig(..))
+import Karmator.Server.Slack (SlackConfig(..))
+
 --
 -- Routes configuration
 --
@@ -150,7 +153,7 @@ main = do
             pd <- pingInit
 
             -- Run the bot
-            runBot servers (commandRoute c pool t pd networkChannels)
+            runBot servers [] (commandRoute c pool t pd networkChannels)
 
             return ()
             )
@@ -175,7 +178,7 @@ getArgs = execParser opts
         )
 
 -- Load the bot config
-getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig], [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])])
+getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig IrcConfig], [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])])
 getBotConfig conf = do
     config <- runExceptT (do
         c <- join $ liftIO $ readfile emptyCP conf
@@ -195,6 +198,7 @@ getBotConfig conf = do
         Right config -> return config
   where
     splitConf xs = (map fst xs, map snd xs)
+
     getServerConfig c s = do
         host      <- get c s "host"
         port      <- get c s "port"
@@ -237,4 +241,5 @@ getBotConfig conf = do
                                 }
                             }
 
-        return (IrcConfig s host (fromInteger port) nicks user pass tls reconn (reWait * 1000000) logfile logirc, (s, channel, Set.fromList chan_bl, chan_join, nicks))
+        let config = IrcConfig s host (fromInteger port) nicks user pass tls
+        return (ServerConfig config reconn (reWait * 1000000) logfile logirc, (s, channel, Set.fromList chan_bl, chan_join, nicks))
