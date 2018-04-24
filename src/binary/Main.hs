@@ -12,6 +12,7 @@ import qualified Data.Text as T
 import Data.Set (Set)
 import Data.Monoid ((<>))
 import qualified Data.Set as Set
+import qualified Data.List as DL
 
 import qualified Data.ByteString as BS
 
@@ -135,7 +136,7 @@ main = do
     if version
     then putStrLn versionText
     else do
-        (database, karmaConf, servers, networkChannels) <- getBotConfig botConf
+        (database, karmaConf, ircServers, networkChannels, slackServers) <- getBotConfig botConf
         runStderrLoggingT $ withSqlitePool database 1 (\pool -> liftIO $ do
             -- Run the bot
             t <- getClockTime
@@ -143,7 +144,7 @@ main = do
             pd <- pingInit
 
             -- Run the bot
-            runBot servers [] (commandRoute c pool t pd networkChannels)
+            runBot ircServers slackServers (commandRoute c pool t pd networkChannels)
 
             return ()
             )
@@ -168,7 +169,7 @@ getArgs = execParser opts
         )
 
 -- Load the bot config
-getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig IRC.IrcConfig], [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])])
+getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig IRC.IrcConfig], [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])], [ServerConfig Slack.SlackConfig])
 getBotConfig conf = do
     config <- runExceptT (do
         c <- join $ liftIO $ readfile emptyCP conf
@@ -179,9 +180,18 @@ getBotConfig conf = do
         karmaConf <- get c "bot" "karma_config"
 
         -- Get a list of section, each is a server config
-        (servers, networkChannels) <- liftM splitConf $ mapM (IRC.getServerConfig c) $ filter ("bot" /=) $ sections c
+        (ircServers, networkChannels) <- liftM splitConf
+                                       $ mapM (IRC.getServerConfig c)
+                                       $ filter ("bot" /=)
+                                       $ filter (DL.isPrefixOf "irc.")
+                                       $ sections c
 
-        return (database, karmaConf, servers, networkChannels))
+        slackServers <- mapM (Slack.getServerConfig c)
+                      $ filter ("bot" /=)
+                      $ filter (DL.isPrefixOf "slack.")
+                      $ sections c
+
+        return (database, karmaConf, ircServers, networkChannels, slackServers))
 
     case config of
         Left cperr   -> error $ show cperr

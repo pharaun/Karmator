@@ -18,6 +18,7 @@ import Data.Typeable
 import Prelude hiding (log, head, tail)
 import qualified Control.Monad.Catch as C
 import qualified Data.ByteString as BS
+import qualified Data.List as DL
 
 --
 -- TODO: For config bits
@@ -347,5 +348,6 @@ getServerConfig c s = do
                             }
                         }
 
-    let config = IrcConfig s host (fromInteger port) nicks user pass tls
-    return (ServerConfig config reconn (reWait * 1000000) logfile logirc, (s, channel, Set.fromList chan_bl, chan_join, nicks))
+    let network = DL.dropWhile ('.' ==) s
+    let config = IrcConfig network host (fromInteger port) nicks user pass tls
+    return (ServerConfig config reconn (reWait * 1000000) logfile logirc, (network, channel, Set.fromList chan_bl, chan_join, nicks))

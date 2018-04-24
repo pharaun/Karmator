@@ -17,6 +17,7 @@ import Data.Typeable
 import Prelude hiding (log, head, tail)
 import qualified Control.Monad.Catch as C
 import qualified Data.ByteString as BS
+import qualified Data.List as DL
 
 --
 -- TODO: For config bits
@@ -62,7 +63,7 @@ runServer sc queue = undefined
 getServerConfig
     :: ConfigParser
     -> String
-    -> ExceptT CPError IO (ServerConfig SlackConfig, (String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString]))
+    -> ExceptT CPError IO (ServerConfig SlackConfig)
 getServerConfig c s = do
     apitoken  <- get c s "api_token"
     logfile   <- get c s "logfile"
@@ -70,5 +71,6 @@ getServerConfig c s = do
     reconn    <- get c s "reconn"
     reWait    <- get c s "reconn_wait" -- In seconds
 
-    let config = SlackConfig s apitoken
-    return (ServerConfig config reconn (reWait * 1000000) logfile logslack, (s, [], Set.fromList [], 0, []))
+    let network = DL.dropWhile ('.' ==) s
+    let config = SlackConfig network apitoken
+    return $ ServerConfig config reconn (reWait * 1000000) logfile logslack
