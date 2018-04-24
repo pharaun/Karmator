@@ -14,16 +14,6 @@ import Data.Monoid ((<>))
 import qualified Data.Set as Set
 
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as C8
-import qualified Data.ByteString.Base16 as B16
-
-import qualified Network.Simple.TCP.TLS as TLS
-import qualified Network.TLS as TLS
-import qualified Data.X509.Validation as TLS
-
--- TODO: detect osx vs unix and get the cert store that way
-import qualified System.X509.Unix as TLS
---import qualified System.X509.MacOS as TLS
 
 import Control.Concurrent.STM.TVar (TVar)
 
@@ -41,8 +31,8 @@ import Plugins.Karma
 import Karmator.State
 import Plugins.Karma.Types (Config)
 
-import Karmator.Server.IRC (IrcConfig(..))
-import Karmator.Server.Slack (SlackConfig(..))
+import qualified Karmator.Server.IRC as IRC
+import qualified Karmator.Server.Slack as Slack
 
 --
 -- Routes configuration
@@ -178,7 +168,7 @@ getArgs = execParser opts
         )
 
 -- Load the bot config
-getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig IrcConfig], [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])])
+getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig IRC.IrcConfig], [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])])
 getBotConfig conf = do
     config <- runExceptT (do
         c <- join $ liftIO $ readfile emptyCP conf
@@ -189,7 +179,7 @@ getBotConfig conf = do
         karmaConf <- get c "bot" "karma_config"
 
         -- Get a list of section, each is a server config
-        (servers, networkChannels) <- liftM splitConf $ mapM (getServerConfig c) $ filter ("bot" /=) $ sections c
+        (servers, networkChannels) <- liftM splitConf $ mapM (IRC.getServerConfig c) $ filter ("bot" /=) $ sections c
 
         return (database, karmaConf, servers, networkChannels))
 
@@ -199,47 +189,3 @@ getBotConfig conf = do
   where
     splitConf xs = (map fst xs, map snd xs)
 
-    getServerConfig c s = do
-        host      <- get c s "host"
-        port      <- get c s "port"
-        nicks     <- get c s "nicks"
-        user      <- get c s "user"
-        pass      <- get c s "pass"
-        channel   <- get c s "channel" :: ExceptT CPError IO [BS.ByteString] -- Mandatory channels per host
-        chan_bl   <- get c s "channel_blacklist" :: ExceptT CPError IO [BS.ByteString] -- Channel blacklist per host
-        chan_join <- get c s "channel_joins"
-        tlsHost   <- get c s "tls_host"
-        tlsHash   <- get c s "tls_fingerprint" -- Hex sha256
-        logfile   <- get c s "logfile"
-        logirc    <- get c s "logirc"
-        reconn    <- get c s "reconn"
-        reWait    <- get c s "reconn_wait" -- In seconds
-
-        tls <- case tlsHost of
-            Nothing -> return Nothing
-            Just th -> do
-                -- Setup the TLS configuration
-                tls <- liftIO $ TLS.makeClientSettings Nothing host (show port) True <$> TLS.getSystemCertificateStore
-                let tls' = tls
-                        { TLS.clientServerIdentification = (th, C8.pack $ show port)
-                        , TLS.clientHooks = (TLS.clientHooks tls)
-                            { TLS.onCertificateRequest = \_ -> return Nothing
-                            }
-                        }
-
-                case tlsHash of
-                    Nothing    -> return $ Just tls'
-                    Just thash -> do
-                        -- Setup hash
-                        let unpackedHash = fst $ B16.decode $ C8.pack thash
-                        let sid = (th, C8.pack $ show port)
-                        let cache = TLS.exceptionValidationCache [(sid, TLS.Fingerprint unpackedHash)]
-
-                        return $ Just $ tls'
-                            { TLS.clientShared = (TLS.clientShared tls')
-                                { TLS.sharedValidationCache = cache
-                                }
-                            }
-
-        let config = IrcConfig s host (fromInteger port) nicks user pass tls
-        return (ServerConfig config reconn (reWait * 1000000) logfile logirc, (s, channel, Set.fromList chan_bl, chan_join, nicks))

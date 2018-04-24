@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Karmator.Server.IRC
     ( runServer
-    , IrcConfig(..)
+    , IrcConfig
+    , getServerConfig
     ) where
 
 import Network
@@ -12,14 +13,31 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Error
 import Control.Monad.Reader
-import Control.Monad.Trans.State.Strict
+import Control.Monad.Trans.State.Strict hiding (get)
 import Data.Typeable
 import Prelude hiding (log, head, tail)
 import qualified Control.Monad.Catch as C
 import qualified Data.ByteString as BS
 
+--
+-- TODO: For config bits
+--
+import Data.ConfigFile
+import Data.Set (Set)
+import Data.Monoid ((<>))
+import qualified Data.Set as Set
+import qualified Data.Text as T
+-- TODO: detect osx vs unix and get the cert store that way
+import qualified System.X509.Unix as TLS
+--import qualified System.X509.MacOS as TLS
+import qualified Data.X509.Validation as TLS
+--
+-- Config bits above
+--
+
 -- TODO: kill this here
 import qualified Data.ByteString.Char8 as C8
+import qualified Data.ByteString.Base16 as B16
 
 import Pipes
 import qualified Pipes.Attoparsec as PA
@@ -279,3 +297,55 @@ logParsingException h (PA.ParsingError c m) = BS.hPutStr h $ BS.concat
     , "\n"
     , "===========\n"
     ]
+
+--
+-- Bot Config
+--
+getServerConfig
+    :: ConfigParser
+    -> String
+    -> ExceptT CPError IO (ServerConfig IrcConfig, (String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString]))
+getServerConfig c s = do
+    host      <- get c s "host"
+    port      <- get c s "port"
+    nicks     <- get c s "nicks"
+    user      <- get c s "user"
+    pass      <- get c s "pass"
+    channel   <- get c s "channel" :: ExceptT CPError IO [BS.ByteString] -- Mandatory channels per host
+    chan_bl   <- get c s "channel_blacklist" :: ExceptT CPError IO [BS.ByteString] -- Channel blacklist per host
+    chan_join <- get c s "channel_joins" :: ExceptT CPError IO Int
+    tlsHost   <- get c s "tls_host"
+    tlsHash   <- get c s "tls_fingerprint" -- Hex sha256
+    logfile   <- get c s "logfile"
+    logirc    <- get c s "logirc"
+    reconn    <- get c s "reconn"
+    reWait    <- get c s "reconn_wait" -- In seconds
+
+    tls <- case tlsHost of
+        Nothing -> return Nothing
+        Just th -> do
+            -- Setup the TLS configuration
+            tls <- liftIO $ TLS.makeClientSettings Nothing host (show port) True <$> TLS.getSystemCertificateStore
+            let tls' = tls
+                    { TLS.clientServerIdentification = (th, C8.pack $ show port)
+                    , TLS.clientHooks = (TLS.clientHooks tls)
+                        { TLS.onCertificateRequest = \_ -> return Nothing
+                        }
+                    }
+
+            case tlsHash of
+                Nothing    -> return $ Just tls'
+                Just thash -> do
+                    -- Setup hash
+                    let unpackedHash = fst $ B16.decode $ C8.pack thash
+                    let sid = (th, C8.pack $ show port)
+                    let cache = TLS.exceptionValidationCache [(sid, TLS.Fingerprint unpackedHash)]
+
+                    return $ Just $ tls'
+                        { TLS.clientShared = (TLS.clientShared tls')
+                            { TLS.sharedValidationCache = cache
+                            }
+                        }
+
+    let config = IrcConfig s host (fromInteger port) nicks user pass tls
+    return (ServerConfig config reconn (reWait * 1000000) logfile logirc, (s, channel, Set.fromList chan_bl, chan_join, nicks))

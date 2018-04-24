@@ -63,7 +63,14 @@ library
                      , persistent >=2.1.1.7
                      , persistent-sqlite
                      , persistent-template >= 2.0
+                     -- Slack bits
                      , slack-api
+                     -- Config files
+                     , ConfigFile
+                     , containers
+                     , x509-system
+                     , x509-validation
+                     , base16-bytestring
 
 executable karmator
   other-modules:       Plugins.Generic
@@ -103,8 +110,6 @@ executable karmator
                      , time
                      , tls >= 1.3
                      , transformers >=0.4
-                     , x509-system
-                     , x509-validation
                      , optparse-applicative
                      , base16-bytestring
                      , split
