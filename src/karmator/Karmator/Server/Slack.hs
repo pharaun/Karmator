@@ -34,6 +34,7 @@ import qualified Data.Set as Set
 import qualified Data.ByteString.Char8 as C8
 
 import Pipes
+import Pipes.Prelude (drain)
 import qualified Pipes.Attoparsec as PA
 import qualified Pipes.Network.TCP as PNT
 import qualified Pipes.Prelude as PP
@@ -59,7 +60,7 @@ data SlackConfig = SlackConfig
 -- Establish and run a server connection
 --
 runServer :: ServerConfig SlackConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
-runServer sc queue = undefined
+runServer sc queue = PNT.withSocketsDo $
     -- Establish the logfile
     withFile (logfile sc) AppendMode $ \l -> do
         -- Set log to be unbuffered for testing
@@ -95,7 +96,14 @@ runServer sc queue = undefined
 -- slack-api - raises an exception if there was a network error (caught by syncIO)
 --
 establishConnection :: ServerState SlackConfig -> IO ServerEvent
-establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} = undefined
+establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} = do
+    let conf = WS.SlackConfig{ WS._slackApiToken = apiToken sc}
+
+    -- TODO: need some sort of MVAR set here when the pipeBot part fails
+    -- that we can then read and use to Emit RecvLost or SendLost
+    WS.withSlackHandle conf (pipeBot ss)
+
+    return RecvLost
 
 -- TODO: build runBot from Web.Slack (feed it the needed server state in its event handler)
 -- TODO: Wire up the event handler to the loop
@@ -104,21 +112,71 @@ establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} = und
     --emitConnectionEstablished ss
 -- )
 -- TODO: Figure out some sort of logging of data both way
+pipeBot :: ServerState SlackConfig -> WS.SlackHandle -> IO ()
+pipeBot ss@ServerState{config=ssc, logStream=l} h = do
+    emitConnectionEstablished ss
 
---myConfig :: SlackConfig
---myConfig = SlackConfig
---        { _slackApiToken = "..." -- Specify your API token here
---        }
+    -- Start bot streaming
+    runEffect $ slackProducer h >-> (log l) >-> drain
+
+    return ()
+
+
+slackProducer :: WS.SlackHandle -> Producer WS.Event IO ()
+slackProducer h = forever $ lift (WS.getNextEvent h) >>= yield
+
+
+--pipeBot :: SlackHandle -> IO ()
+--pipeBot h = runEffect $ slackProducer h >-> slackConsumer h
 --
----- type SlackBot s = Event -> Slack s ()
---echoBot :: SlackBot ()
---echoBot (Message cid _ msg _ _ _) = sendMessage cid msg
---echoBot _ = return ()
+--slackProducer :: SlackHandle -> Producer Event IO ()
+--slackProducer h = forever $ lift (getNextEvent h) >>= yield
 --
---main :: IO ()
---main = runBot myConfig echoBot ()
+--slackConsumer :: SlackHandle -> Consumer Event IO ()
+--slackConsumer h = forever $
+--    await >>= \case
+--        (Message cid _ msg _ _ _) -> lift $ sendMessage h cid msg
+--        _ -> return ()
+
+--handleIRC :: Producer BS.ByteString IO () -> Consumer BS.ByteString IO () -> ServerState IrcConfig -> IO ServerEvent
+--handleIRC recv send ss@ServerState{config=ssc@ServerConfig{serverSpecific=sc}, logStream=l} = do
+--    -- Emit connection established here
+--    emitConnectionEstablished ss
+--
+--    -- Log irc messages in/out?
+--    let recv' = if logMsg ssc then recv >-> log l else recv
+--    let send' = if logMsg ssc then log l >-> send else send
+--
+--    -- Regular irc streaming
+--    loser <- race
+--        (runEffect (ircParserErrorLogging (network sc) (logStream ss) recv' >-> messagePump ss))
+--        (runEffect (messageVacuum ss >-> onlyMessages >-> showMessage >-> send'))
+
+--
+-- Log anything that passes through this stream to a logfile
+--
+log :: MonadIO m => Handle -> Pipe WS.Event WS.Event m r
+log h = forever $ do
+    x <- await
+    liftIO $ hPutStr h (show x)
+    yield x
 
 
+
+
+--
+-- Pump Message into Bot Queue
+--
+messagePump :: (Monad m, MonadIO m) => ServerState SlackConfig -> Consumer BotEvent m ()
+messagePump ss = forever $ do
+    msg <- await
+    liftIO $ atomically $ writeTQueue (botQueue ss) (msg, replyQueue ss)
+
+--
+-- Vacuum, fetch replies and send to network
+--
+messageVacuum :: (Monad m, MonadIO m) => ServerState SlackConfig -> Producer BotCommand m ()
+messageVacuum ss = forever (liftIO (atomically $ readTQueue (replyQueue ss)) >>= yield)
 
 
 --
