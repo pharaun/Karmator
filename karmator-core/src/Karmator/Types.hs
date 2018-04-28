@@ -28,8 +28,10 @@ import Text.Show.Functions()
 import Database.Persist.Sql (ConnectionPool)
 
 import qualified Data.ByteString as BS
-import qualified Network.IRC as IRC
 import qualified Network.TLS as TLS
+
+-- TODO: Migrate this to karmator-irc
+import qualified Network.IRC as IRC
 
 
 -- Per server config for the bot

@@ -14,8 +14,10 @@ module Karmator.Filter
 
 import Safe
 import qualified Data.ByteString as BS
-import qualified Network.IRC as IRC
 import Karmator.Types
+
+-- TODO: migrate to karmator-irc
+import qualified Network.IRC as IRC
 
 
 --

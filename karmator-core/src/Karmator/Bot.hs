@@ -18,14 +18,17 @@ import Control.Concurrent (forkIO, threadDelay)
 import Karmator.Route
 import Karmator.Types
 
-import qualified Karmator.Server.IRC as IRC
-import qualified Karmator.Server.Slack as Slack
-
 -- Temp?
 import Database.Persist.Sql (ConnectionPool)
 
-runBot :: [ServerConfig IRC.IrcConfig] -> [ServerConfig Slack.SlackConfig] -> Route [CmdHandler] -> IO ()
-runBot sic ssc r = do
+--
+-- TODO: This bit is not ideal cos we now need two bot core? running, let's abstract this better?
+--
+--runBot :: [ServerConfig IRC.IrcConfig] -> [ServerConfig Slack.SlackConfig] -> Route [CmdHandler] -> IO ()
+runBot :: [(ServerConfig a, ServerConfig a -> TQueue (BotEvent, TQueue BotCommand) -> IO ())] -> Route [CmdHandler] -> IO ()
+--runBot sic ssc r = do
+runBot serverConfig botRoute = do
+
     -- TODO: register a custom runEH command here for handling EH output
     -- and routing to the right network
     -- q' <- newTQueueIO
@@ -33,16 +36,18 @@ runBot sic ssc r = do
 
     -- Start up the bot command + route
     q <- newTQueueIO
-    bot <- async (runCommand q [r]) -- add q' here
+    bot <- async (runCommand q [botRoute]) -- add q' here
 
     -- TODO: construct a mapping between network & TQueue
     -- Give the input to each server thread and spawn them
-    ircServers   <- mapM (\sc -> async (IRC.runServer sc q)) sic
-    slackServers <- mapM (\sc -> async (Slack.runServer sc q)) ssc
+    servers <- mapM (\(sc, rc) -> async (rc sc q)) serverConfig
+    --ircServers   <- mapM (\sc -> async (IRC.runServer sc q)) sic
+    --slackServers <- mapM (\sc -> async (Slack.runServer sc q)) ssc
 
     -- TODO: more sophsicated logic here, we exit upon shutdown of any
     -- server/bot async
-    _ <- waitAnyCancel (bot : (ircServers ++ slackServers))
+    _ <- waitAnyCancel (bot : servers)
+    --_ <- waitAnyCancel (bot : (ircServers ++ slackServers))
     return ()
 
 
