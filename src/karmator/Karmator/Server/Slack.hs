@@ -169,11 +169,15 @@ slackToIrc = forever $ do
     e <- await
 
     -- TODO: handle BotIds
+    -- TODO: see a way to remap the <@userid> -> an actual user name
+    -- TODO: find a good way to handle remapping the user-id+channel id to an actual name (May need some new columns)
+    -- TODO: Going to need to find another new message type to pump the id stuff through (hacky might be enough) then
+    --      a new hook to feed those id updates/info into the database that can be used for lookups
     case e of
         WS.Message (WS.Id {WS._getId = cid}) (WS.UserComment (WS.Id {WS._getId = uid})) msg ts _ _ -> (do
             -- All fields are Text, get a nice converter to pack into utf8 bytestring
             let prefix = IRC.NickName (TE.encodeUtf8 uid) (Just (TE.encodeUtf8 uid)) (Just (C8.pack "SlackServer"))
-            let message = IRC.Message (Just prefix) (C8.pack "PRIVMSG") [(TE.encodeUtf8 msg)]
+            let message = IRC.Message (Just prefix) (C8.pack "PRIVMSG") [TE.encodeUtf8 cid, TE.encodeUtf8 msg]
 
             --Right m -> yield (EMessage network' m)
             yield message
