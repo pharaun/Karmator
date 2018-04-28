@@ -19,6 +19,9 @@ import qualified Control.Monad.Catch as C
 import qualified Data.ByteString as BS
 import qualified Data.List as DL
 
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+
 --
 -- TODO: For config bits
 --
@@ -42,6 +45,8 @@ import qualified Pipes.Prelude as PP
 -- Slack Parser
 import qualified Web.Slack as WS
 
+-- Irc Message stuff for transformation
+import qualified Network.IRC as IRC
 
 -- Karmator Stuff
 import Karmator.Types
@@ -117,11 +122,14 @@ pipeBot ss@ServerState{config=ssc, logStream=l} h = do
     emitConnectionEstablished ss
 
     -- Start bot streaming
-    runEffect $ slackProducer h >-> (log l) >-> drain
+    runEffect $ slackProducer h >-> (log l) >-> slackToIrc >-> (logIrc l) >-> drain
 
     return ()
 
 
+--
+-- Pump messages from slack into pipe streams
+--
 slackProducer :: WS.SlackHandle -> Producer WS.Event IO ()
 slackProducer h = forever $ lift (WS.getNextEvent h) >>= yield
 
@@ -152,6 +160,27 @@ slackProducer h = forever $ lift (WS.getNextEvent h) >>= yield
 --        (runEffect (ircParserErrorLogging (network sc) (logStream ss) recv' >-> messagePump ss))
 --        (runEffect (messageVacuum ss >-> onlyMessages >-> showMessage >-> send'))
 
+
+--
+-- Transform Slack events into Irc messages to pump it
+--
+slackToIrc :: MonadIO m => Pipe WS.Event IRC.Message m r
+slackToIrc = forever $ do
+    e <- await
+
+    -- TODO: handle BotIds
+    case e of
+        WS.Message (WS.Id {WS._getId = cid}) (WS.UserComment (WS.Id {WS._getId = uid})) msg ts _ _ -> (do
+            -- All fields are Text, get a nice converter to pack into utf8 bytestring
+            let prefix = IRC.NickName (TE.encodeUtf8 uid) (Just (TE.encodeUtf8 uid)) (Just (C8.pack "SlackServer"))
+            let message = IRC.Message (Just prefix) (C8.pack "PRIVMSG") [(TE.encodeUtf8 msg)]
+
+            --Right m -> yield (EMessage network' m)
+            yield message
+            )
+        _ -> return ()
+
+
 --
 -- Log anything that passes through this stream to a logfile
 --
@@ -159,9 +188,18 @@ log :: MonadIO m => Handle -> Pipe WS.Event WS.Event m r
 log h = forever $ do
     x <- await
     liftIO $ hPutStr h (show x)
+    liftIO $ hPutStr h "\n"
     yield x
 
-
+--
+-- Log Irc message
+--
+logIrc :: MonadIO m => Handle -> Pipe IRC.Message IRC.Message m r
+logIrc h = forever $ do
+    x <- await
+    liftIO $ hPutStr h "\t"
+    liftIO $ BS.hPutStr h (IRC.encode x)
+    yield x
 
 
 --
