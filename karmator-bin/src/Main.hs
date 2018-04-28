@@ -91,42 +91,43 @@ commandRoute c p t pd nc = choice (
         debug "karmaMatch"
         persistHandler "karma" p (sqlWrapper (karma c))
 
-    -- Per network channel supporting bits
-    ] ++ map (\(n, cs, csBl, csJoin, nicks) -> do
-        match (networkMatch n)
-        choice
-            [ do
-                match motdMatch
-                debug ("motdMatch - " ++ n)
-                persistHandler ("motd - " ++ n) p (sqlWrapper $ motdJoin n cs csBl csJoin)
-
-            -- Channel handlers
-            , do
-                match inviteMatch
-                debug ("inviteMatch - " ++ n)
-                persistHandler "invite" p (sqlWrapper $ inviteJoin n csBl)
-
-            , do
-                match joinMatch
-                debug ("joinMatch - " ++ n)
-                persistHandler "join" p (sqlWrapper $ joinJoin n csBl csJoin)
-
-            , do
-                match partMatch
-                debug ("partMatch - " ++ n)
-                persistHandler "part" p (sqlWrapper $ kickPartLeave n)
-
-            , do
-                match (kickMatch $ head nicks)
-                debug ("kickMatch - " ++ n)
-                persistHandler "kick" p (sqlWrapper $ kickPartLeave n)
-
-            , do
-                match listMatch
-                debug ("listMatch - " ++ n)
-                persistHandler "list" p (sqlWrapper $ listChannel n)
-            ]
-        ) nc)
+    ])
+--    -- Per network channel supporting bits
+--    ] ++ map (\(n, cs, csBl, csJoin, nicks) -> do
+--        match (networkMatch n)
+--        choice
+--            [ do
+--                match motdMatch
+--                debug ("motdMatch - " ++ n)
+--                persistHandler ("motd - " ++ n) p (sqlWrapper $ motdJoin n cs csBl csJoin)
+--
+--            -- Channel handlers
+--            , do
+--                match inviteMatch
+--                debug ("inviteMatch - " ++ n)
+--                persistHandler "invite" p (sqlWrapper $ inviteJoin n csBl)
+--
+--            , do
+--                match joinMatch
+--                debug ("joinMatch - " ++ n)
+--                persistHandler "join" p (sqlWrapper $ joinJoin n csBl csJoin)
+--
+--            , do
+--                match partMatch
+--                debug ("partMatch - " ++ n)
+--                persistHandler "part" p (sqlWrapper $ kickPartLeave n)
+--
+--            , do
+--                match (kickMatch $ head nicks)
+--                debug ("kickMatch - " ++ n)
+--                persistHandler "kick" p (sqlWrapper $ kickPartLeave n)
+--
+--            , do
+--                match listMatch
+--                debug ("listMatch - " ++ n)
+--                persistHandler "list" p (sqlWrapper $ listChannel n)
+--            ]
+--        ) nc)
 
 
 main :: IO ()

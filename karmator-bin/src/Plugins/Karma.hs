@@ -85,7 +85,7 @@ karmaSidevotes _ m@(EMessage _ _) = do
         if null received || null given
         then "There is no karma values recorded in the database!"
         else BL.toStrict $ TL.encodeUtf8 (
-            format (stext % ", most sidevotes received: " % text % ". most sidevotes given: " % text % ". ")
+            format (stext % ": most sidevotes received: " % text % ". most sidevotes given: " % text % ". ")
                    nick
                    (renderTotalKarma received)
                    (renderTotalKarma given)
@@ -128,8 +128,8 @@ karmaStats conf pool karmaType countMax givers m@(EMessage _ _) =
                 then "There is no karma values recorded in the database!"
                 else BL.toStrict $ TL.encodeUtf8 (
                     format (if givers
-                            then stext % ", most positive: " % text % ". most negative: " % text % "."
-                            else stext % ", highest karma: " % text % ". lowest karma: " % text % ".")
+                            then stext % ": most positive: " % text % ". most negative: " % text % "."
+                            else stext % ": highest karma: " % text % ". lowest karma: " % text % ".")
                            nick
                            (renderTotalKarma topNDesc)
                            (renderTotalKarma topNAsc)
@@ -164,7 +164,7 @@ karmaRank conf m@(EMessage _ _) =
             pool <- ask
             msg <- renderRank pool False nick x x
             return [CMessage $ IRC.privmsg (whichChannel m) msg]
-        (Right _)      -> return [CMessage $ IRC.privmsg (whichChannel m) "Can only rank one karma entry at a time!"]
+        (Right _)      -> return [CMessage $ IRC.privmsg (whichChannel m) ": Can only rank one karma entry at a time!"]
 karmaRank _ _ = return []
 
 
@@ -190,10 +190,10 @@ renderRank pool sidevotes nick whom target = do
 
     return $ BL.toStrict $ TL.encodeUtf8 $ format (stext % ", " % text) nick (
         case (recvRank, giveRank) of
-            (Nothing, Nothing) -> "No ranking available"
-            (Just r,  Nothing) -> format (stext % " rank is " % int % " of " % int % " in receiving.") target r recvCount
-            (Nothing, Just g)  -> format (stext % " rank is " % int % " of " % int % " in giving.") target g giveCount
-            (Just r,  Just g)  -> format (stext % " rank is " % int % " of " % int % " in receiving and " % int % " of " % int % " in giving.") target r recvCount g giveCount
+            (Nothing, Nothing) -> ": No ranking available"
+            (Just r,  Nothing) -> format (stext % ": rank is " % int % " of " % int % " in receiving.") target r recvCount
+            (Nothing, Just g)  -> format (stext % ": rank is " % int % " of " % int % " in giving.") target g giveCount
+            (Just r,  Just g)  -> format (stext % ": rank is " % int % " of " % int % " in receiving and " % int % " of " % int % " in giving.") target r recvCount g giveCount
         )
 
 
@@ -214,7 +214,7 @@ karmaSidevotesRank conf m@(EMessage _ _) =
             pool <- ask
             msg <- renderRank pool True nick x x
             return [CMessage $ IRC.privmsg (whichChannel m) msg]
-        (Right _)      -> return [CMessage $ IRC.privmsg (whichChannel m) "Can only rank one karma entry at a time!"]
+        (Right _)      -> return [CMessage $ IRC.privmsg (whichChannel m) ": Can only rank one karma entry at a time!"]
 karmaSidevotesRank _ _ = return []
 
 
