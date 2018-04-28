@@ -11,3 +11,4 @@ TestData/
 dist/
 bot.cfg
 .stack-work/
+sqlite3.exe
