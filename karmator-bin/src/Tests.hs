@@ -3,7 +3,6 @@ import Test.Framework
 import Test.Framework.Providers.HUnit
 
 import Tests.KarmaParser
-import Tests.KarmatorRoute
 
 
 --
@@ -16,5 +15,4 @@ main = defaultMain $ concat
     , hUnitTestToTests commandParsingTests
     , hUnitTestToTests newKarmaEdgeCaseTests
     , hUnitTestToTests karmaEdgeCaseTests
-    , hUnitTestToTests routingTests
     ]

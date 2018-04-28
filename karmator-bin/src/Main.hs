@@ -145,7 +145,8 @@ main = do
             pd <- pingInit
 
             -- Run the bot
-            runBot ircServers slackServers (commandRoute c pool t pd networkChannels)
+            --runBot ircServers IRC.runServer (commandRoute c pool t pd networkChannels)
+            runBot slackServers Slack.runServer (commandRoute c pool t pd networkChannels)
 
             return ()
             )
@@ -162,7 +163,7 @@ getArgs = execParser opts
         <$> strArgument
         (  metavar "CONFIG"
         <> help "The bot configuration"
-        <> value "src/binary/bot.cfg"
+        <> value "config/bot.cfg"
         )
         <*> switch
         ( long "version"

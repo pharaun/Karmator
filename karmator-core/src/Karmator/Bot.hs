@@ -25,9 +25,12 @@ import Database.Persist.Sql (ConnectionPool)
 -- TODO: This bit is not ideal cos we now need two bot core? running, let's abstract this better?
 --
 --runBot :: [ServerConfig IRC.IrcConfig] -> [ServerConfig Slack.SlackConfig] -> Route [CmdHandler] -> IO ()
-runBot :: [(ServerConfig a, ServerConfig a -> TQueue (BotEvent, TQueue BotCommand) -> IO ())] -> Route [CmdHandler] -> IO ()
---runBot sic ssc r = do
-runBot serverConfig botRoute = do
+runBot
+    :: [ServerConfig a]
+    -> (ServerConfig a -> TQueue (BotEvent, TQueue BotCommand) -> IO ())
+    -> Route [CmdHandler]
+    -> IO ()
+runBot serverConfig serverRunner botRoute = do
 
     -- TODO: register a custom runEH command here for handling EH output
     -- and routing to the right network
@@ -40,7 +43,7 @@ runBot serverConfig botRoute = do
 
     -- TODO: construct a mapping between network & TQueue
     -- Give the input to each server thread and spawn them
-    servers <- mapM (\(sc, rc) -> async (rc sc q)) serverConfig
+    servers <- mapM (\sc -> async (serverRunner sc q)) serverConfig
     --ircServers   <- mapM (\sc -> async (IRC.runServer sc q)) sic
     --slackServers <- mapM (\sc -> async (Slack.runServer sc q)) ssc
 

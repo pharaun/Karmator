@@ -19,7 +19,7 @@ import Karmator.Filter
 import qualified Network.IRC as IRC
 
 -- Versions out of the cabal file
-import qualified Paths_karmator as PK
+import qualified Paths_karmator_bin as PK
 import Data.Version (showVersion)
 import Language.Haskell.TH
 

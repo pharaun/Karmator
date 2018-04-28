@@ -1,5 +1,5 @@
 {-# LANGUAGE ExistentialQuantification, GADTs, DeriveFunctor, FlexibleInstances, FlexibleContexts #-}
-module Karmator.Plugins
+module Plugins.Protype
     -- TODO: clean up the type export and restrict it
     (
     ) where
