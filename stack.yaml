@@ -14,8 +14,8 @@ packages:
 - libs/slack-api
 # Bot
 - ./karmator-core
-  #- ./karmator-irc
-  #- ./karmator-slack
+- ./karmator-irc
+- ./karmator-slack
   #- ./karmator-bin
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
