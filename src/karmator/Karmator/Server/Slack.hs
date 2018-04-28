@@ -122,7 +122,10 @@ pipeBot ss@ServerState{config=ssc, logStream=l} h = do
     emitConnectionEstablished ss
 
     -- Start bot streaming
-    runEffect $ slackProducer h >-> (log l) >-> slackToIrc >-> (logIrc l) >-> drain
+    loser <- race
+        (runEffect (slackProducer h >-> logSlack l >-> slackToIrc >-> logEvent l >-> messagePump ss))
+        -- TODO: create a slackConsumer
+        (runEffect (messageVacuum ss >-> onlyMessages >-> logIrc l >-> ircToSlack >-> logReply l >-> slackConsumer h))
 
     return ()
 
@@ -133,38 +136,20 @@ pipeBot ss@ServerState{config=ssc, logStream=l} h = do
 slackProducer :: WS.SlackHandle -> Producer WS.Event IO ()
 slackProducer h = forever $ lift (WS.getNextEvent h) >>= yield
 
+--
+-- Pump Messages into Slack
+--
+slackConsumer :: WS.SlackHandle -> Consumer (T.Text, T.Text) IO ()
+slackConsumer h = forever $ do
+    (cid, msg) <- await
+    lift $ WS.sendMessage h (WS.Id cid) msg
 
---pipeBot :: SlackHandle -> IO ()
---pipeBot h = runEffect $ slackProducer h >-> slackConsumer h
---
---slackProducer :: SlackHandle -> Producer Event IO ()
---slackProducer h = forever $ lift (getNextEvent h) >>= yield
---
---slackConsumer :: SlackHandle -> Consumer Event IO ()
---slackConsumer h = forever $
---    await >>= \case
---        (Message cid _ msg _ _ _) -> lift $ sendMessage h cid msg
---        _ -> return ()
-
---handleIRC :: Producer BS.ByteString IO () -> Consumer BS.ByteString IO () -> ServerState IrcConfig -> IO ServerEvent
---handleIRC recv send ss@ServerState{config=ssc@ServerConfig{serverSpecific=sc}, logStream=l} = do
---    -- Emit connection established here
---    emitConnectionEstablished ss
---
---    -- Log irc messages in/out?
---    let recv' = if logMsg ssc then recv >-> log l else recv
---    let send' = if logMsg ssc then log l >-> send else send
---
---    -- Regular irc streaming
---    loser <- race
---        (runEffect (ircParserErrorLogging (network sc) (logStream ss) recv' >-> messagePump ss))
---        (runEffect (messageVacuum ss >-> onlyMessages >-> showMessage >-> send'))
 
 
 --
 -- Transform Slack events into Irc messages to pump it
 --
-slackToIrc :: MonadIO m => Pipe WS.Event IRC.Message m r
+slackToIrc :: MonadIO m => Pipe WS.Event BotEvent m r
 slackToIrc = forever $ do
     e <- await
 
@@ -179,18 +164,69 @@ slackToIrc = forever $ do
             let prefix = IRC.NickName (TE.encodeUtf8 uid) (Just (TE.encodeUtf8 uid)) (Just (C8.pack "SlackServer"))
             let message = IRC.Message (Just prefix) (C8.pack "PRIVMSG") [TE.encodeUtf8 cid, TE.encodeUtf8 msg]
 
-            --Right m -> yield (EMessage network' m)
-            yield message
+            -- TODO: support network name (for slack differnation)
+            yield (EMessage "Slack" message)
             )
         _ -> return ()
+
+
+
+--
+-- Transform Irc messages into Slack messages to pump to slack
+--
+-- TODO: Make actual Mechanic to tell the sender what to actually send othe rthan just message
+--
+ircToSlack :: MonadIO m => Pipe IRC.Message (T.Text, T.Text) m r
+ircToSlack = forever $ do
+    m <- await
+
+    -- TODO: more fancy support
+    case m of
+        IRC.Message _ _ msg -> (do
+                let cid = headDef "" msg
+                -- Drop the username portion of the message and replace with <@uid>
+                let uid = (BS.takeWhile (colon /=)) $ headDef "" $ tailSafe msg
+                let msg' = (BS.dropWhile (space /=)) $ headDef "" $ tailSafe msg
+
+                yield (TE.decodeUtf8 cid, TE.decodeUtf8 $ BS.concat [ "<@", uid, ">:", msg' ])
+            )
+        _ -> return ()
+  where
+    space = BS.head " "
+    colon = BS.head ":"
+
+
+
+--
+-- Filter any non Message
+--
+-- TODO: Identify if its a disconnect message and specifically disconnect
+--
+onlyMessages :: Monad m => Pipe BotCommand IRC.Message m ()
+onlyMessages = forever $ do
+    c <- await
+    case c of
+        CMessage m -> yield m
+        _          -> return ()
 
 
 --
 -- Log anything that passes through this stream to a logfile
 --
-log :: MonadIO m => Handle -> Pipe WS.Event WS.Event m r
-log h = forever $ do
+logSlack :: MonadIO m => Handle -> Pipe WS.Event WS.Event m r
+logSlack h = forever $ do
     x <- await
+    liftIO $ hPutStr h (show x)
+    liftIO $ hPutStr h "\n"
+    yield x
+
+--
+-- Log anything that passes through this stream to a logfile
+--
+logReply :: MonadIO m => Handle -> Pipe (T.Text, T.Text) (T.Text, T.Text) m r
+logReply h = forever $ do
+    x <- await
+    liftIO $ hPutStr h "\t\t\t"
     liftIO $ hPutStr h (show x)
     liftIO $ hPutStr h "\n"
     yield x
@@ -198,11 +234,27 @@ log h = forever $ do
 --
 -- Log Irc message
 --
+logEvent :: MonadIO m => Handle -> Pipe BotEvent BotEvent m r
+logEvent h = forever $ do
+    x <- await
+    case x of
+        EMessage _ x' -> (do
+            liftIO $ hPutStr h "\t"
+            liftIO $ BS.hPutStr h (IRC.encode x')
+            liftIO $ hPutStr h "\n"
+            )
+        _ -> return ()
+    yield x
+
+--
+-- Log Irc Command message
+--
 logIrc :: MonadIO m => Handle -> Pipe IRC.Message IRC.Message m r
 logIrc h = forever $ do
     x <- await
-    liftIO $ hPutStr h "\t"
+    liftIO $ hPutStr h "\t\t"
     liftIO $ BS.hPutStr h (IRC.encode x)
+    liftIO $ hPutStr h "\n"
     yield x
 
 
