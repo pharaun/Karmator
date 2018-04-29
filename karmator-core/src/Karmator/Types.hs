@@ -20,18 +20,11 @@ module Karmator.Types
     , ExternalHandler(..)
     ) where
 
-import Network
 import System.IO
 import Control.Concurrent.STM
 import Control.Monad.Trans.Free
 import Text.Show.Functions()
 import Database.Persist.Sql (ConnectionPool)
-
-import qualified Data.ByteString as BS
-import qualified Network.TLS as TLS
-
--- TODO: Migrate this to karmator-irc
-import qualified Network.IRC as IRC
 
 
 -- Per server config for the bot
@@ -55,12 +48,12 @@ data ServerConfig a = ServerConfig
 
 
 -- Ephemeral State:
-data ServerState a = ServerState
+data ServerState a b = ServerState
     { config :: ServerConfig a
     , logStream :: Handle
 
-    , botQueue :: TQueue (BotEvent, TQueue BotCommand)
-    , replyQueue :: TQueue BotCommand
+    , botQueue :: TQueue (BotEvent b, TQueue (BotCommand b))
+    , replyQueue :: TQueue (BotCommand b)
 
     , connectionSuccess :: TVar Bool
     }
@@ -76,16 +69,16 @@ data ServerEvent
 -- Bot/Server Events
 --  1. Connection established
 --  2. Connection lost
---  3. Normal IRC message
+--  3. Normal x message
 --
 --  TODO: (Useful for plugin system maybe)
 --   1. Bot init
 --   2. Bot shutdown
 --   3. Auth completed (failed?)
-data BotEvent
+data BotEvent a
     = ConnectionEstablished
     | ConnectionLost
-    | EMessage String IRC.Message
+    | EMessage String a
     deriving (Show)
 
 -- Bot/Server Commands
@@ -93,15 +86,15 @@ data BotEvent
 --  2. Die - If emitted the bot needs to die
 --  3. Message
 --  4. Delayed Message (x second delay) (Supports Throttled Messages)
-data BotCommand
+data BotCommand a
     = Disconnect
     | Die
-    | CMessage IRC.Message
-    | DMessage Int IRC.Message
-    | Register ExternalHandler
+    | CMessage a
+    | DMessage Int a
+    | Register (ExternalHandler a)
     deriving (Show)
 
-instance Eq BotCommand where
+instance (Eq a) => Eq (BotCommand a) where
     Disconnect == Disconnect        = True
     Die == Die                      = True
     CMessage x == CMessage y        = x == y
@@ -116,9 +109,9 @@ data Segment m p i o n
     | Handler (CmdRef m p i o)
     deriving (Functor, Show)
 
-type RouteT m p a = FreeT (Segment m p BotEvent [BotCommand]) m a
+type RouteT m p a b = FreeT (Segment m p (BotEvent b) [BotCommand b]) m a
 -- TODO: maybe neat to add in support for varying persistance method, but for now force one
-type Route a = RouteT IO ConnectionPool a
+type Route a b = RouteT IO ConnectionPool a b
 
 
 -- Handler Type
@@ -136,8 +129,12 @@ instance Show (CmdRef m p i o) where
     show (PCmdRef n _ _)    = "Persistance Command: " ++ show n
     show (PSCmdRef n _ _ _) = "Persistance Stateful Command: " ++ show n
 
-type CmdHandler = CmdRef IO ConnectionPool BotEvent [BotCommand]
+type CmdHandler a = CmdRef IO ConnectionPool (BotEvent a) [BotCommand a]
 
+
+-- TODO: Delayed messages and external handler, could in theory be a new serverRunner,
+--      The main unanswered/unknown question is how to find and map to the relevant/right network and
+--      cross network/plugin/server runner sharing of some data...
 
 -- TODO: Implement ExternalHandler
 --  External Handler is a snippet of code that works via external stimulus
@@ -171,7 +168,7 @@ type CmdHandler = CmdRef IO ConnectionPool BotEvent [BotCommand]
 --      5. Relaunch if the EH crashes?
 --
 --  Name, Network/any, (EH Queue)
-data ExternalHandler = ExtRef String [String] (TQueue BotCommand -> IO ()) -- TODO: io for now
+data ExternalHandler a = ExtRef String [String] (TQueue (BotCommand a) -> IO ()) -- TODO: io for now
 -- Open questions:
 --  - ExtRef should be able to register more extref to be launched
 --  - DMessages should get put into the delay thing like other messages
@@ -184,5 +181,5 @@ data ExternalHandler = ExtRef String [String] (TQueue BotCommand -> IO ()) -- TO
 -- data NetworkType = Network String | All
 -- type NetworkQueue = Map.Map NetworkType (TQueue BotCommand)
 
-instance Show ExternalHandler where
+instance Show (ExternalHandler a) where
     show (ExtRef n _ _)       = "External Handler: " ++ show n

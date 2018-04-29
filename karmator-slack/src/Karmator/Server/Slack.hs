@@ -12,7 +12,6 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Error
 import Control.Monad.Reader
-import Control.Monad.Trans.State.Strict hiding (get)
 import Data.Typeable
 import Prelude hiding (log, head, tail)
 import qualified Control.Monad.Catch as C
@@ -26,9 +25,6 @@ import qualified Data.Text.Encoding as TE
 -- TODO: For config bits
 --
 import Data.ConfigFile
-import Data.Set (Set)
-import Data.Monoid ((<>))
-import qualified Data.Set as Set
 --
 -- Config bits above
 --
@@ -37,10 +33,7 @@ import qualified Data.Set as Set
 import qualified Data.ByteString.Char8 as C8
 
 import Pipes
-import Pipes.Prelude (drain)
-import qualified Pipes.Attoparsec as PA
 import qualified Pipes.Network.TCP as PNT
-import qualified Pipes.Prelude as PP
 
 -- Slack Parser
 import qualified Web.Slack as WS
@@ -64,7 +57,7 @@ data SlackConfig = SlackConfig
 --
 -- Establish and run a server connection
 --
-runServer :: ServerConfig SlackConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
+runServer :: ServerConfig SlackConfig -> TQueue (BotEvent IRC.Message, TQueue (BotCommand IRC.Message)) -> IO ()
 runServer sc queue = PNT.withSocketsDo $
     -- Establish the logfile
     withFile (logfile sc) AppendMode $ \l -> do
@@ -100,15 +93,12 @@ runServer sc queue = PNT.withSocketsDo $
 --
 -- slack-api - raises an exception if there was a network error (caught by syncIO)
 --
-establishConnection :: ServerState SlackConfig -> IO ServerEvent
+establishConnection :: ServerState SlackConfig IRC.Message -> IO ServerEvent
 establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} = do
     let conf = WS.SlackConfig{ WS._slackApiToken = apiToken sc}
 
-    -- TODO: need some sort of MVAR set here when the pipeBot part fails
-    -- that we can then read and use to Emit RecvLost or SendLost
     WS.withSlackHandle conf (pipeBot ss)
 
-    return RecvLost
 
 -- TODO: build runBot from Web.Slack (feed it the needed server state in its event handler)
 -- TODO: Wire up the event handler to the loop
@@ -117,18 +107,20 @@ establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} = do
     --emitConnectionEstablished ss
 -- )
 -- TODO: Figure out some sort of logging of data both way
-pipeBot :: ServerState SlackConfig -> WS.SlackHandle -> IO ()
+pipeBot :: ServerState SlackConfig IRC.Message -> WS.SlackHandle -> IO ServerEvent
 pipeBot ss@ServerState{config=ssc, logStream=l} h = do
     emitConnectionEstablished ss
 
     -- Start bot streaming
     loser <- race
-        (runEffect (slackProducer h >-> logSlack l >-> slackToIrc >-> logEvent l >-> messagePump ss))
+        (runEffect (slackProducer h >-> logSlack l >-> slackToIrc (network $ serverSpecific ssc) >-> logEvent l >-> messagePump ss))
         -- TODO: create a slackConsumer
         (runEffect (messageVacuum ss >-> onlyMessages >-> logIrc l >-> ircToSlack >-> logReply l >-> slackConsumer h))
 
-    return ()
-
+    -- Identify who terminated first (the send or the recv)
+    return $ case loser of
+        Left _  -> RecvLost
+        Right _ -> SendLost
 
 --
 -- Pump messages from slack into pipe streams
@@ -149,8 +141,8 @@ slackConsumer h = forever $ do
 --
 -- Transform Slack events into Irc messages to pump it
 --
-slackToIrc :: MonadIO m => Pipe WS.Event BotEvent m r
-slackToIrc = forever $ do
+slackToIrc :: MonadIO m => String -> Pipe WS.Event (BotEvent IRC.Message) m r
+slackToIrc snet = forever $ do
     e <- await
 
     -- TODO: handle BotIds
@@ -159,16 +151,15 @@ slackToIrc = forever $ do
     -- TODO: Going to need to find another new message type to pump the id stuff through (hacky might be enough) then
     --      a new hook to feed those id updates/info into the database that can be used for lookups
     case e of
-        WS.Message (WS.Id {WS._getId = cid}) (WS.UserComment (WS.Id {WS._getId = uid})) msg ts _ _ -> (do
+        WS.Message (WS.Id {WS._getId = cid}) (WS.UserComment (WS.Id {WS._getId = uid})) msg _ _ _ -> (do
             -- All fields are Text, get a nice converter to pack into utf8 bytestring
             let prefix = IRC.NickName (TE.encodeUtf8 uid) (Just (TE.encodeUtf8 uid)) (Just (C8.pack "SlackServer"))
             let message = IRC.Message (Just prefix) (C8.pack "PRIVMSG") [TE.encodeUtf8 cid, TE.encodeUtf8 msg]
 
             -- TODO: support network name (for slack differnation)
-            yield (EMessage "Slack" message)
+            yield (EMessage snet message)
             )
         _ -> return ()
-
 
 
 --
@@ -202,7 +193,7 @@ ircToSlack = forever $ do
 --
 -- TODO: Identify if its a disconnect message and specifically disconnect
 --
-onlyMessages :: Monad m => Pipe BotCommand IRC.Message m ()
+onlyMessages :: Monad m => Pipe (BotCommand IRC.Message) IRC.Message m ()
 onlyMessages = forever $ do
     c <- await
     case c of
@@ -234,7 +225,7 @@ logReply h = forever $ do
 --
 -- Log Irc message
 --
-logEvent :: MonadIO m => Handle -> Pipe BotEvent BotEvent m r
+logEvent :: MonadIO m => Handle -> Pipe (BotEvent IRC.Message) (BotEvent IRC.Message) m r
 logEvent h = forever $ do
     x <- await
     case x of
@@ -261,7 +252,7 @@ logIrc h = forever $ do
 --
 -- Pump Message into Bot Queue
 --
-messagePump :: (Monad m, MonadIO m) => ServerState SlackConfig -> Consumer BotEvent m ()
+messagePump :: (Monad m, MonadIO m) => ServerState SlackConfig a -> Consumer (BotEvent a) m ()
 messagePump ss = forever $ do
     msg <- await
     liftIO $ atomically $ writeTQueue (botQueue ss) (msg, replyQueue ss)
@@ -269,7 +260,7 @@ messagePump ss = forever $ do
 --
 -- Vacuum, fetch replies and send to network
 --
-messageVacuum :: (Monad m, MonadIO m) => ServerState SlackConfig -> Producer BotCommand m ()
+messageVacuum :: (Monad m, MonadIO m) => ServerState SlackConfig a -> Producer (BotCommand a) m ()
 messageVacuum ss = forever (liftIO (atomically $ readTQueue (replyQueue ss)) >>= yield)
 
 
@@ -277,7 +268,7 @@ messageVacuum ss = forever (liftIO (atomically $ readTQueue (replyQueue ss)) >>=
 -- Emit connection established and set that we successfully connected (socket/tls level)
 -- TODO: merge with ircConfig this does nothing unique with the config
 --
-emitConnectionEstablished :: ServerState SlackConfig -> IO ()
+emitConnectionEstablished :: ServerState SlackConfig a -> IO ()
 emitConnectionEstablished ServerState{botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $
     writeTQueue queue (ConnectionEstablished, sq) >> writeTVar suc True
 
@@ -285,7 +276,7 @@ emitConnectionEstablished ServerState{botQueue=queue, replyQueue=sq, connectionS
 -- Emit connection loss only if we "successfully" connected
 -- TODO: merge with ircConfig this does nothing unique with the config
 --
-emitConnectionLoss :: ServerState SlackConfig -> IO ()
+emitConnectionLoss :: ServerState SlackConfig a -> IO ()
 emitConnectionLoss ServerState{botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $ do
     success <- readTVar suc
     when success (writeTQueue queue (ConnectionLost, sq) >> writeTVar suc False)

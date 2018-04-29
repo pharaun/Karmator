@@ -26,8 +26,8 @@ import Database.Persist.Sql (ConnectionPool)
 -- Just preload the config into the runner and feed it here
 --
 runBot
-    :: [TQueue (BotEvent, TQueue BotCommand) -> IO ()]
-    -> Route [CmdHandler]
+    :: [TQueue (BotEvent a, TQueue (BotCommand a)) -> IO ()]
+    -> Route [CmdHandler a] a
     -> IO ()
 runBot serverRunner botRoute = do
 
@@ -53,7 +53,7 @@ runBot serverRunner botRoute = do
     return ()
 
 
-runCommand :: TQueue (BotEvent, TQueue BotCommand) -> [Route [CmdHandler]] -> IO ()
+runCommand :: TQueue (BotEvent a, TQueue (BotCommand a)) -> [Route [CmdHandler a] a] -> IO ()
 runCommand q routes = forever $ do
     (msg, reply) <- atomically $ readTQueue q
 
@@ -88,7 +88,7 @@ runCommand q routes = forever $ do
 --
 -- Also should eventually parallelize and other improvement on this region.
 --
-executeCmdRef :: [CmdHandler] -> BotEvent -> IO [[BotCommand]]
+executeCmdRef :: [CmdHandler a] -> BotEvent a -> IO [[BotCommand a]]
 executeCmdRef cs m = mapM (mapCmdRef m) cs
   where
     mapCmdRef m' (CmdRef _ h)        = h m'
@@ -118,5 +118,5 @@ executeCmdRef cs m = mapM (mapCmdRef m) cs
 -- Test the wrapper stuff so i don't need to modify all over
 -- TODO: move the pool management stuff to the cmdexecute stuff
 --
-sqlWrapper :: MonadIO m => (BotEvent -> ReaderT ConnectionPool m [BotCommand]) -> ConnectionPool -> BotEvent -> m [BotCommand]
+sqlWrapper :: MonadIO m => (BotEvent a -> ReaderT ConnectionPool m [BotCommand a]) -> ConnectionPool -> BotEvent a -> m [BotCommand a]
 sqlWrapper c pool e = runReaderT (c e) pool

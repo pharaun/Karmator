@@ -17,7 +17,6 @@ module Karmator.Route
 
     ) where
 
-import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Free
@@ -28,12 +27,12 @@ import Karmator.Types
 
 
 -- | Match on a message using a predicate
-match :: (BotEvent -> Bool) -> Route ()
+match :: (BotEvent a -> Bool) -> Route () a
 match p = liftF (Match p ())
 
 -- | Try several routes, using all that succeeds
 -- TODO: maybe neat to add in support for varying persistance method, but for now force one
-choice :: [Route a] -> Route a
+choice :: [Route a b] -> Route a b
 choice a = join $ liftF (Choice a)
 
 -- | Register a pure handler
@@ -62,7 +61,7 @@ debug = liftIO . putStrLn
 
 -- | Run the route
 -- TODO: refine the functor
-runRoute :: Route [CmdHandler] -> BotEvent -> IO [CmdHandler]
+runRoute :: Route [CmdHandler a] a -> BotEvent a -> IO [CmdHandler a]
 runRoute f m = do
     x <- runFreeT f
     case x of
@@ -72,7 +71,7 @@ runRoute f m = do
         (Free (Handler h))    -> return [h]
 
 -- | Debug interpreter for running route
-debugRoute :: Route [CmdHandler] -> BotEvent -> IO (Doc, [CmdHandler])
+debugRoute :: (Show a) => Route [CmdHandler a] a -> BotEvent a -> IO (Doc, [CmdHandler a])
 debugRoute f m = do
     x <- runFreeT f
     case x of

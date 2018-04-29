@@ -66,10 +66,10 @@ renderTotalKarma :: [(T.Text, Int)] -> TL.Text
 renderTotalKarma xs = TL.intercalate "; " $ map (uncurry (format (stext % " (" % int % ")"))) xs
 
 
-karmaSidevotesMatch :: BotEvent -> Bool
+karmaSidevotesMatch :: BotEvent IRC.Message -> Bool
 karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!sidevotes")
 
-karmaSidevotes :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+karmaSidevotes :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 karmaSidevotes _ m@(EMessage _ _) = do
     let nick     = T.decodeUtf8 $ nickContent m
     let countMax = 3
@@ -94,25 +94,25 @@ karmaSidevotes _ m@(EMessage _ _) = do
 karmaSidevotes _ _ = return []
 
 
-karmaMatch :: BotEvent -> Bool
+karmaMatch :: BotEvent IRC.Message -> Bool
 karmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!karma")
 
-karma :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+karma :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 karma conf m = do
     pool <- ask
     karmaStats conf pool KarmaReceived 3 False m
 
 
-karmaGiversMatch :: BotEvent -> Bool
+karmaGiversMatch :: BotEvent IRC.Message -> Bool
 karmaGiversMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!givers")
 
-karmaGivers :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+karmaGivers :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 karmaGivers conf m = do
     pool <- ask
     karmaStats conf pool KarmaGiven 3 True m
 
 
-karmaStats :: (MonadIO m) => Config -> ConnectionPool -> KarmaTable -> Int64 -> Bool -> BotEvent -> m [BotCommand]
+karmaStats :: (MonadIO m) => Config -> ConnectionPool -> KarmaTable -> Int64 -> Bool -> BotEvent IRC.Message -> m [BotCommand IRC.Message]
 karmaStats conf pool karmaType countMax givers m@(EMessage _ _) =
     case parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)   -> return [CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"]
@@ -146,11 +146,11 @@ karmaStats conf pool karmaType countMax givers m@(EMessage _ _) =
 karmaStats _ _ _ _ _ _ = return []
 
 
-karmaRankMatch :: BotEvent -> Bool
+karmaRankMatch :: BotEvent IRC.Message -> Bool
 karmaRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!rank")
 
 
-karmaRank :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+karmaRank :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 karmaRank conf m@(EMessage _ _) =
     case parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)       -> return [CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"]
@@ -197,10 +197,10 @@ renderRank pool sidevotes nick whom target = do
         )
 
 
-karmaSidevotesRankMatch :: BotEvent -> Bool
+karmaSidevotesRankMatch :: BotEvent IRC.Message -> Bool
 karmaSidevotesRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!ranksidevote")
 
-karmaSidevotesRank :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+karmaSidevotesRank :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 karmaSidevotesRank conf m@(EMessage _ _) =
     case parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)       -> return [CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"]
@@ -219,10 +219,10 @@ karmaSidevotesRank _ _ = return []
 
 
 -- This takes care of sulping all irc messages to stuff into the karma parser
-rawKarmaMatch :: BotEvent -> Bool
+rawKarmaMatch :: BotEvent IRC.Message -> Bool
 rawKarmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (not . prefixMessage "!")
 
-rawKarma :: MonadIO m => Config -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+rawKarma :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 rawKarma conf m@(EMessage _ _) = do
     -- ByteString -> utf8
     -- TODO: error handling

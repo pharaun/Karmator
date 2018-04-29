@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-import Control.Applicative
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Logger
@@ -23,15 +22,16 @@ import Karmator.Bot
 import Karmator.Route
 import Karmator.Types
 import Karmator.Filter
+import Karmator.State
 
 -- Plugins
 import Plugins.Ping
 import Plugins.Generic
 import Plugins.Channels
 import Plugins.Karma
-import Karmator.State
 import Plugins.Karma.Types (Config)
 
+import qualified Network.IRC as IRC
 import qualified Karmator.Server.IRC as IRC
 import qualified Karmator.Server.Slack as Slack
 
@@ -40,7 +40,7 @@ import qualified Karmator.Server.Slack as Slack
 --
 -- TODO: maybe one possible thing is to offload all of the ConnectionPool into the bot config (since it'll be in the core)
 --
-commandRoute :: Config -> ConnectionPool -> ClockTime -> (TVar PingDelay) -> [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])] -> Route [CmdHandler]
+commandRoute :: Config -> ConnectionPool -> ClockTime -> (TVar PingDelay) -> [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])] -> Route [CmdHandler IRC.Message] IRC.Message
 commandRoute c p t pd nc = choice (
     [ do
         match pingMatch

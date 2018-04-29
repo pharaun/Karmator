@@ -24,7 +24,6 @@ import qualified Data.ByteString as BS
 import Database.Persist.Sql
 import Data.ByteString.UTF8 (fromString, toString)
 import Data.List.Split (chunksOf)
-import Data.Maybe
 
 import Text.Parsec hiding (getState, modifyState, setState)
 import qualified Data.ByteString as B
@@ -66,10 +65,10 @@ moduleKey = "Plugins.Channels"
 --
 -- Invite
 --
-inviteMatch :: BotEvent -> Bool
+inviteMatch :: BotEvent IRC.Message -> Bool
 inviteMatch             = exactCommand "INVITE"
 
-inviteJoin :: MonadIO m => String -> Set B.ByteString -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+inviteJoin :: MonadIO m => String -> Set B.ByteString -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 inviteJoin network chanBlacklist mm@(EMessage _ m) = do
     let channel = head $ tail $ IRC.msg_params m
 
@@ -179,7 +178,7 @@ listChannel network m = do
 --
 motdMatch = exactCommand "004"
 
-motdJoin :: MonadIO m => String -> [B.ByteString] -> Set B.ByteString -> Int -> BotEvent -> ReaderT ConnectionPool m [BotCommand]
+motdJoin :: MonadIO m => String -> [B.ByteString] -> Set B.ByteString -> Int -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 motdJoin network cs chanBlacklist maxJoin _ = do
     pool <- ask
     chan <- liftIO $ runSqlPool (getState moduleKey readSet (joinKey network)) pool

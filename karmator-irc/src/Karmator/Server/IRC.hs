@@ -25,9 +25,7 @@ import qualified Data.List as DL
 --
 import Data.ConfigFile
 import Data.Set (Set)
-import Data.Monoid ((<>))
 import qualified Data.Set as Set
-import qualified Data.Text as T
 -- TODO: detect osx vs unix and get the cert store that way
 import qualified System.X509.Unix as TLS
 --import qualified System.X509.MacOS as TLS
@@ -54,11 +52,7 @@ import qualified Network.TLS as TLS
 import qualified Pipes.Network.TCP.TLS as TLS
 import qualified Network.Simple.TCP.TLS as TLS
 
-import System.IO
-import Control.Concurrent.STM
-import Control.Monad.Trans.Free
 import Text.Show.Functions()
-import Database.Persist.Sql (ConnectionPool)
 
 -- Karmator Stuff
 import Karmator.Types
@@ -98,7 +92,7 @@ data IrcConfig = IrcConfig
 --
 -- Establish and run a server connection (tls/plain)
 --
-runServer :: ServerConfig IrcConfig -> TQueue (BotEvent, TQueue BotCommand) -> IO ()
+runServer :: ServerConfig IrcConfig -> TQueue (BotEvent IRC.Message, TQueue (BotCommand IRC.Message)) -> IO ()
 runServer sc queue = PNT.withSocketsDo $
     -- Establish the logfile
     withFile (logfile sc) AppendMode $ \l -> do
@@ -135,7 +129,7 @@ runServer sc queue = PNT.withSocketsDo $
 --
 -- NSB.sendAll - raises an exception if there was a network error (caught by syncIO)
 --
-establishConnection :: ServerState IrcConfig -> IO ServerEvent
+establishConnection :: ServerState IrcConfig IRC.Message -> IO ServerEvent
 establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} =
     case tlsSettings sc of
         Nothing  -> PNT.connect (server sc) (show $ port sc) $ \(sock, _)        -> handleIRC (PNT.fromSocket sock 8192) (PNT.toSocket sock) ss
@@ -144,7 +138,7 @@ establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} =
 --
 -- The IRC handler and protocol
 --
-handleIRC :: Producer BS.ByteString IO () -> Consumer BS.ByteString IO () -> ServerState IrcConfig -> IO ServerEvent
+handleIRC :: Producer BS.ByteString IO () -> Consumer BS.ByteString IO () -> ServerState IrcConfig IRC.Message -> IO ServerEvent
 handleIRC recv send ss@ServerState{config=ssc@ServerConfig{serverSpecific=sc}, logStream=l} = do
     -- Emit connection established here
     emitConnectionEstablished ss
@@ -170,7 +164,7 @@ handleIRC recv send ss@ServerState{config=ssc@ServerConfig{serverSpecific=sc}, l
 --
 -- Parses incoming irc messages and emits any errors to a log and keep going
 --
-ircParserErrorLogging :: MonadIO m => String -> Handle -> Producer BS.ByteString m () -> Producer BotEvent m ()
+ircParserErrorLogging :: MonadIO m => String -> Handle -> Producer BS.ByteString m () -> Producer (BotEvent IRC.Message) m ()
 ircParserErrorLogging network' l producer = do
     (result, rest) <- lift $ runStateT (PA.parse IRC.message) producer
 
@@ -195,7 +189,7 @@ ircParserErrorLogging network' l producer = do
 -- TODO: move this into an Auth Route for handling more complicated
 -- handshake sequence.
 --
-handshake :: Monad m => ServerState IrcConfig -> Producer IRC.Message m ()
+handshake :: Monad m => ServerState IrcConfig a -> Producer IRC.Message m ()
 handshake ServerState{config=ServerConfig{serverSpecific=sc}} = do
     let nick = headNote "Server.hs: handshake - please set atleast one nickname" $ nicks sc
     let user = userName sc
@@ -223,7 +217,7 @@ showMessage = PP.map encode
 --
 -- TODO: Identify if its a disconnect message and specifically disconnect
 --
-onlyMessages :: Monad m => Pipe BotCommand IRC.Message m ()
+onlyMessages :: Monad m => Pipe (BotCommand IRC.Message) IRC.Message m ()
 onlyMessages = forever $ do
     c <- await
     case c of
@@ -233,7 +227,7 @@ onlyMessages = forever $ do
 --
 -- Pump Message into Bot Queue
 --
-messagePump :: (Monad m, MonadIO m) => ServerState IrcConfig -> Consumer BotEvent m ()
+messagePump :: (Monad m, MonadIO m) => ServerState IrcConfig a -> Consumer (BotEvent a) m ()
 messagePump ss = forever $ do
     msg <- await
     liftIO $ atomically $ writeTQueue (botQueue ss) (msg, replyQueue ss)
@@ -241,20 +235,20 @@ messagePump ss = forever $ do
 --
 -- Vacuum, fetch replies and send to network
 --
-messageVacuum :: (Monad m, MonadIO m) => ServerState IrcConfig -> Producer BotCommand m ()
+messageVacuum :: (Monad m, MonadIO m) => ServerState IrcConfig a -> Producer (BotCommand a) m ()
 messageVacuum ss = forever (liftIO (atomically $ readTQueue (replyQueue ss)) >>= yield)
 
 --
 -- Emit connection established and set that we successfully connected (socket/tls level)
 --
-emitConnectionEstablished :: ServerState IrcConfig -> IO ()
+emitConnectionEstablished :: ServerState IrcConfig a -> IO ()
 emitConnectionEstablished ServerState{botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $
     writeTQueue queue (ConnectionEstablished, sq) >> writeTVar suc True
 
 --
 -- Emit connection loss only if we "successfully" connected
 --
-emitConnectionLoss :: ServerState IrcConfig -> IO ()
+emitConnectionLoss :: ServerState IrcConfig a -> IO ()
 emitConnectionLoss ServerState{botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $ do
     success <- readTVar suc
     when success (writeTQueue queue (ConnectionLost, sq) >> writeTVar suc False)

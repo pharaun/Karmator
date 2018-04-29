@@ -7,17 +7,10 @@ module Plugins.Ping
     , PingDelay
     ) where
 
-import Data.List
-import System.Time
-import System.Locale
-import Control.Monad.Reader
-import qualified Data.ByteString.Char8 as C8
-
 import Karmator.Types
 import Karmator.Filter
 import qualified Network.IRC as IRC
 
-import Control.Concurrent.STM.Delay
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM.TMVar
 import Control.Monad.STM
@@ -39,7 +32,7 @@ data PingDelay = PingDelay
     }
 
 
-pingMatch :: BotEvent -> Bool
+pingMatch :: BotEvent IRC.Message -> Bool
 pingMatch = exactCommand "PING"
 
 
@@ -55,7 +48,7 @@ pingMatch = exactCommand "PING"
 
 -- TODO: Unsafe head
 --ping :: Monad m => (TVar PingDelay) -> BotEvent -> m [BotCommand]
-ping t (EMessage _ m) = return [CMessage $ IRC.pong $ head $ IRC.msg_params m]
+ping _ (EMessage _ m) = return [CMessage $ IRC.pong $ head $ IRC.msg_params m]
 ping _ _ = return []
 
 
