@@ -163,7 +163,7 @@ getArgs = execParser opts
         <$> strArgument
         (  metavar "CONFIG"
         <> help "The bot configuration"
-        <> value "config/bot.cfg"
+        <> value "karmator-bin/config/bot.cfg"
         )
         <*> switch
         ( long "version"
