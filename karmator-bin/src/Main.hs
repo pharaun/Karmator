@@ -145,8 +145,8 @@ main = do
             pd <- pingInit
 
             -- Run the bot
-            --runBot ircServers IRC.runServer (commandRoute c pool t pd networkChannels)
-            runBot slackServers Slack.runServer (commandRoute c pool t pd networkChannels)
+            let serverRunners = map IRC.runServer ircServers ++ map Slack.runServer slackServers
+            runBot serverRunners (commandRoute c pool t pd networkChannels)
 
             return ()
             )

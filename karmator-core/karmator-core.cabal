@@ -18,7 +18,6 @@ source-repository head
 
 library
   exposed-modules:     Karmator.Bot
-                       Karmator.Filter
                        Karmator.Route
                        Karmator.Types
                        Karmator.State
