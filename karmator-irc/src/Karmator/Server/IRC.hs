@@ -56,6 +56,8 @@ import Text.Show.Functions()
 
 -- Karmator Stuff
 import Karmator.Types
+import Karmator.Server hiding (runServer)
+import qualified Karmator.Server as KS
 
 
 --
@@ -92,34 +94,8 @@ data IrcConfig = IrcConfig
 --
 -- Establish and run a server connection (tls/plain)
 --
-runServer :: ServerConfig IrcConfig -> TQueue (BotEvent IRC.Message, TQueue (BotCommand IRC.Message)) -> IO ()
-runServer sc queue = PNT.withSocketsDo $
-    -- Establish the logfile
-    withFile (logfile sc) AppendMode $ \l -> do
-        -- Set log to be unbuffered for testing
-        hSetBuffering l NoBuffering
+runServer = KS.runServer establishConnection emitConnectionLoss
 
-        -- Server queue
-        sq <- newTQueueIO
-        suc <- newTVarIO False
-        let ss = ServerState sc l queue sq suc
-
-        -- Establish tls/norm connection
-        forever $ do
-            -- Upon exit of the establishConnection we ensure we always emit ConnectionLost
-            errors <- runExceptT $ syncIO $ C.finally (establishConnection ss) (emitConnectionLoss ss)
-
-            -- TODO: good place for tallying the number of failure and
-            -- shutting the server connection off if it exceeds some
-            -- threshold.
-            case errors of
-                -- TODO: Need to identify the type of error and allow some to propagate upward - IE don't just catch all.
-                Left e         -> logException l e
-                Right RecvLost -> liftIO $ BS.hPutStr l "Recv was lost (closed server side)\n"
-                Right SendLost -> liftIO $ BS.hPutStr l "Send was lost (closed server side)\n"
-
-            -- Wait for a bit before retrying
-            threadDelay $ reconnectWait sc
 
 --
 -- Establish the connection
@@ -144,8 +120,8 @@ handleIRC recv send ss@ServerState{config=ssc@ServerConfig{serverSpecific=sc}, l
     emitConnectionEstablished ss
 
     -- Log irc messages in/out?
-    let recv' = if logMsg ssc then recv >-> log l else recv
-    let send' = if logMsg ssc then log l >-> send else send
+    let recv' = if logMsg ssc then recv >-> logFormat "" bsFormat l else recv
+    let send' = if logMsg ssc then logFormat "" bsFormat l >-> send else send
 
     -- Initial connection
     -- TODO: Improve error handling if auth has failed
@@ -224,58 +200,11 @@ onlyMessages = forever $ do
         CMessage m -> yield m
         _          -> return ()
 
---
--- Pump Message into Bot Queue
---
-messagePump :: (Monad m, MonadIO m) => ServerState IrcConfig a -> Consumer (BotEvent a) m ()
-messagePump ss = forever $ do
-    msg <- await
-    liftIO $ atomically $ writeTQueue (botQueue ss) (msg, replyQueue ss)
 
---
--- Vacuum, fetch replies and send to network
---
-messageVacuum :: (Monad m, MonadIO m) => ServerState IrcConfig a -> Producer (BotCommand a) m ()
-messageVacuum ss = forever (liftIO (atomically $ readTQueue (replyQueue ss)) >>= yield)
+-- TODO: remove c8
+bsFormat :: BS.ByteString -> String
+bsFormat = C8.unpack
 
---
--- Emit connection established and set that we successfully connected (socket/tls level)
---
-emitConnectionEstablished :: ServerState IrcConfig a -> IO ()
-emitConnectionEstablished ServerState{botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $
-    writeTQueue queue (ConnectionEstablished, sq) >> writeTVar suc True
-
---
--- Emit connection loss only if we "successfully" connected
---
-emitConnectionLoss :: ServerState IrcConfig a -> IO ()
-emitConnectionLoss ServerState{botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $ do
-    success <- readTVar suc
-    when success (writeTQueue queue (ConnectionLost, sq) >> writeTVar suc False)
-
---
--- Log anything that passes through this stream to a logfile
---
-log :: MonadIO m => Handle -> Pipe BS.ByteString BS.ByteString m r
-log h = forever $ do
-    x <- await
-    liftIO $ BS.hPutStr h x
-    yield x
-
---
--- Log Exception
---
-logException :: Handle -> C.SomeException -> IO ()
-logException h (C.SomeException e) = BS.hPutStr h $ BS.concat
-    [ "===========\n"
-    , "Error Type: "
-    , C8.pack $ show $ typeOf e -- TODO: Ascii packing
-    , "\n"
-    , "Error Message: "
-    , C8.pack $ show e -- TODO: Ascii packing
-    , "\n"
-    , "===========\n"
-    ]
 
 --
 -- Log Parsing Exception
