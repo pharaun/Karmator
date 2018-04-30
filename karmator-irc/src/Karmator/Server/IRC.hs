@@ -94,7 +94,7 @@ data IrcConfig = IrcConfig
 --
 -- Establish and run a server connection (tls/plain)
 --
-runServer = KS.runServer establishConnection emitConnectionLoss
+runServer = KS.runServer establishConnection emitConnectionLoss ()
 
 
 --
@@ -105,7 +105,7 @@ runServer = KS.runServer establishConnection emitConnectionLoss
 --
 -- NSB.sendAll - raises an exception if there was a network error (caught by syncIO)
 --
-establishConnection :: ServerState IrcConfig IRC.Message -> IO ServerEvent
+establishConnection :: ServerState IrcConfig IRC.Message () -> IO ServerEvent
 establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} =
     case tlsSettings sc of
         Nothing  -> PNT.connect (server sc) (show $ port sc) $ \(sock, _)        -> handleIRC (PNT.fromSocket sock 8192) (PNT.toSocket sock) ss
@@ -114,7 +114,7 @@ establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} =
 --
 -- The IRC handler and protocol
 --
-handleIRC :: Producer BS.ByteString IO () -> Consumer BS.ByteString IO () -> ServerState IrcConfig IRC.Message -> IO ServerEvent
+handleIRC :: Producer BS.ByteString IO () -> Consumer BS.ByteString IO () -> ServerState IrcConfig IRC.Message () -> IO ServerEvent
 handleIRC recv send ss@ServerState{config=ssc@ServerConfig{serverSpecific=sc}, logStream=l} = do
     -- Emit connection established here
     emitConnectionEstablished ss
@@ -165,7 +165,7 @@ ircParserErrorLogging network' l producer = do
 -- TODO: move this into an Auth Route for handling more complicated
 -- handshake sequence.
 --
-handshake :: Monad m => ServerState IrcConfig a -> Producer IRC.Message m ()
+handshake :: Monad m => ServerState IrcConfig a () -> Producer IRC.Message m ()
 handshake ServerState{config=ServerConfig{serverSpecific=sc}} = do
     let nick = headNote "Server.hs: handshake - please set atleast one nickname" $ nicks sc
     let user = userName sc

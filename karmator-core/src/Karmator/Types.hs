@@ -48,7 +48,7 @@ data ServerConfig a = ServerConfig
 
 
 -- Ephemeral State:
-data ServerState a b = ServerState
+data ServerState a b c = ServerState
     { config :: ServerConfig a
     , logStream :: Handle
 
@@ -56,6 +56,8 @@ data ServerState a b = ServerState
     , replyQueue :: TQueue (BotCommand b)
 
     , connectionSuccess :: TVar Bool
+
+    , botState :: TVar c
     }
 
 -- Server Connect Loop Events

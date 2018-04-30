@@ -42,6 +42,11 @@ import qualified Web.Slack as WS
 -- Irc Message stuff for transformation
 import qualified Network.IRC as IRC
 
+-- For the userid and channel id bits
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+
+
 -- Karmator Stuff
 import Karmator.Types
 import Karmator.Server hiding (runServer)
@@ -60,9 +65,50 @@ data SlackConfig = SlackConfig
 
 
 --
+-- Slack Map between username/channel and their ids
+--
+data SlackMap = SlackMap
+    { uidToName :: Map T.Text T.Text
+    , nameToUid :: Map T.Text T.Text
+--    , cidToChan :: Map T.Text T.Text
+--    , chanToCid :: Map T.Text T.Text
+    }
+    deriving (Show)
+
+
+newSlackMap :: SlackMap
+newSlackMap = SlackMap Map.empty Map.empty
+
+
+initFromSession :: WS.SlackSession -> TVar SlackMap -> IO ()
+initFromSession s m = do
+    let uidToName = map getName (WS._slackUsers s)
+
+    atomically $ writeTVar m $ SlackMap (Map.fromList uidToName) (Map.fromList $ map (\(a, b) -> (b, a)) uidToName)
+  where
+    getName :: WS.User -> (T.Text, T.Text)
+    getName u = (WS._getId $ WS._userId u, WS._userName u)
+
+
+getUserX :: (SlackMap -> Map T.Text T.Text) -> WS.SlackHandle -> TVar SlackMap -> T.Text -> IO T.Text
+getUserX getMap h m val = do
+    sm <- readTVarIO m
+    let v = Map.lookup val (getMap sm)
+
+    case v of
+        Just x  -> return x
+        -- TODO: Do query
+        Nothing -> return "test"
+
+
+getUserName = getUserX uidToName
+getUserId = getUserX nameToUid
+
+
+--
 -- Establish and run a server connection
 --
-runServer = KS.runServer establishConnection emitConnectionLoss
+runServer = KS.runServer establishConnection emitConnectionLoss newSlackMap
 
 
 --
@@ -72,7 +118,7 @@ runServer = KS.runServer establishConnection emitConnectionLoss
 --
 -- slack-api - raises an exception if there was a network error (caught by syncIO)
 --
-establishConnection :: ServerState SlackConfig IRC.Message -> IO ServerEvent
+establishConnection :: ServerState SlackConfig IRC.Message SlackMap -> IO ServerEvent
 establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} = do
     let conf = WS.SlackConfig{ WS._slackApiToken = apiToken sc}
 
@@ -83,14 +129,14 @@ establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} = do
     -- Emit connection established here
     --emitConnectionEstablished ss
 -- )
-handleSlack :: ServerState SlackConfig IRC.Message -> WS.SlackHandle -> IO ServerEvent
-handleSlack ss@ServerState{config=ssc, logStream=l} h = do
+handleSlack :: ServerState SlackConfig IRC.Message SlackMap -> WS.SlackHandle -> IO ServerEvent
+handleSlack ss@ServerState{config=ssc, logStream=l, botState=bs} h = do
     emitConnectionEstablished ss
 
     -- Start bot streaming
     loser <- race
-        (runEffect (slackProducer h >-> logShow "" l >-> slackToIrc (network $ serverSpecific ssc) >-> logFormat "\t" eIrcFormat l >-> messagePump ss))
-        (runEffect (messageVacuum ss >-> onlyMessages >-> logFormat "\t\t" ircFormat l >-> ircToSlack >-> logShow "\t\t\t" l >-> slackConsumer h))
+        (runEffect (slackProducer h >-> logShow "" l >-> slackToIrc (network $ serverSpecific ssc) bs h >-> logFormat "\t" eIrcFormat l >-> messagePump ss))
+        (runEffect (messageVacuum ss >-> onlyMessages >-> logFormat "\t\t" ircFormat l >-> ircToSlack h bs >-> logShow "\t\t\t" l >-> slackConsumer h))
 
     -- Identify who terminated first (the send or the recv)
     return $ case loser of
@@ -117,9 +163,15 @@ slackConsumer h = forever $ do
 --
 -- Transform Slack events into Irc messages to pump it
 --
-slackToIrc :: MonadIO m => String -> Pipe WS.Event (BotEvent IRC.Message) m r
-slackToIrc snet = forever $ do
+slackToIrc :: MonadIO m => String -> TVar SlackMap -> WS.SlackHandle -> Pipe WS.Event (BotEvent IRC.Message) m r
+slackToIrc snet sm h = forever $ do
     e <- await
+
+    -- TODO: Handle user id.
+    -- 1) on hello, call initFromSession, use this to update the SlackMap on a Hello event
+    -- 2) In the Message, do a getUserName to query for the irc one
+    -- 3) In the other pipe func (do getUserId) to query for slack one
+
 
     -- TODO: handle BotIds
     -- TODO: see a way to remap the <@userid> -> an actual user name
@@ -127,9 +179,13 @@ slackToIrc snet = forever $ do
     -- TODO: Going to need to find another new message type to pump the id stuff through (hacky might be enough) then
     --      a new hook to feed those id updates/info into the database that can be used for lookups
     case e of
+        WS.Hello -> liftIO $ initFromSession (WS.getSession h) sm
         WS.Message (WS.Id {WS._getId = cid}) (WS.UserComment (WS.Id {WS._getId = uid})) msg _ _ _ -> (do
             -- All fields are Text, get a nice converter to pack into utf8 bytestring
-            let prefix = IRC.NickName (TE.encodeUtf8 uid) (Just (TE.encodeUtf8 uid)) (Just (C8.pack "SlackServer"))
+
+            user <- liftIO $ getUserName h sm uid
+
+            let prefix = IRC.NickName (TE.encodeUtf8 user) (Just (TE.encodeUtf8 uid)) (Just (C8.pack "SlackServer"))
             let message = IRC.Message (Just prefix) (C8.pack "PRIVMSG") [TE.encodeUtf8 cid, TE.encodeUtf8 msg]
 
             -- TODO: support network name (for slack differnation)
@@ -143,19 +199,22 @@ slackToIrc snet = forever $ do
 --
 -- TODO: Make actual Mechanic to tell the sender what to actually send othe rthan just message
 --
-ircToSlack :: MonadIO m => Pipe IRC.Message (T.Text, T.Text) m r
-ircToSlack = forever $ do
+ircToSlack :: MonadIO m => WS.SlackHandle -> TVar SlackMap -> Pipe IRC.Message (T.Text, T.Text) m r
+ircToSlack h sm = forever $ do
     m <- await
 
     -- TODO: more fancy support
     case m of
+        -- TODO: put the user name back into the prefix for use here
         IRC.Message _ _ msg -> (do
                 let cid = headDef "" msg
                 -- Drop the username portion of the message and replace with <@uid>
-                let uid = (BS.takeWhile (colon /=)) $ headDef "" $ tailSafe msg
+                let user = (BS.takeWhile (colon /=)) $ headDef "" $ tailSafe msg
                 let msg' = (BS.dropWhile (space /=)) $ headDef "" $ tailSafe msg
 
-                yield (TE.decodeUtf8 cid, TE.decodeUtf8 $ BS.concat [ "<@", uid, ">:", msg' ])
+                userId <- liftIO $ getUserId h sm "aberens"
+
+                yield (TE.decodeUtf8 cid, TE.decodeUtf8 $ BS.concat [ "<@", TE.encodeUtf8 userId, ">:", msg' ])
             )
         _ -> return ()
   where
