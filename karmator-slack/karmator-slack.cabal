@@ -52,6 +52,11 @@ library
                      , persistent-template >= 2.0
                      -- Slack bits
                      , slack-api
+                     , wreq
+                     , lens
+                     , aeson
+                     , vector
+                     , unordered-containers
                      -- Config files
                      , ConfigFile
                      , containers

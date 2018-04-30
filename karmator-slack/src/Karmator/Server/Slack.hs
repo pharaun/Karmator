@@ -38,6 +38,10 @@ import qualified Pipes.Network.TCP as PNT
 
 -- Slack Parser
 import qualified Web.Slack as WS
+import qualified Web.Slack.WebAPI as WSA
+import qualified Network.Wreq as W
+import Control.Lens ((.~))
+import qualified Data.Aeson as A
 
 -- Irc Message stuff for transformation
 import qualified Network.IRC as IRC
@@ -45,6 +49,8 @@ import qualified Network.IRC as IRC
 -- For the userid and channel id bits
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.HashMap.Strict as HM
+import qualified Data.Vector as V
 
 
 -- Karmator Stuff
@@ -90,19 +96,49 @@ initFromSession s m = do
     getName u = (WS._getId $ WS._userId u, WS._userName u)
 
 
-getUserX :: (SlackMap -> Map T.Text T.Text) -> WS.SlackHandle -> TVar SlackMap -> T.Text -> IO T.Text
-getUserX getMap h m val = do
+getUserName :: Handle -> WS.SlackHandle -> TVar SlackMap -> T.Text -> IO T.Text
+getUserName l h m val = do
     sm <- readTVarIO m
-    let v = Map.lookup val (getMap sm)
+    --let v = Map.lookup val (uidToName sm)
+    let v = Map.lookup val (Map.empty)
 
     case v of
         Just x  -> return x
         -- TODO: Do query
-        Nothing -> return "test"
+        Nothing -> (do
+            res <- runExceptT $ WSA.makeSlackCall (WS.getConfig h) "users.info" (W.param "user" .~ [val])
+
+            case res of
+                Left e  -> log l e >> return "invalid"
+                Right e -> (do
+                    -- TODO: already parsed
+                    --let user = HM.lookup "user" e
+
+                    return "aberens"
+                    )
+            )
+  where
+    log :: (Show a, Typeable a) => Handle -> a -> IO ()
+    log l res = BS.hPutStr l $ BS.concat
+        [ "===========\n"
+        , "Error Type: "
+        , C8.pack $ show $ typeOf res -- TODO: Ascii packing
+        , "\n"
+        , "Error Message: "
+        , C8.pack $ show res -- TODO: Ascii packing
+        , "\n"
+        , "===========\n"
+        ]
 
 
-getUserName = getUserX uidToName
-getUserId = getUserX nameToUid
+getUserId :: WS.SlackHandle -> TVar SlackMap -> T.Text -> IO T.Text
+getUserId _ m val = do
+    sm <- readTVarIO m
+    let v = Map.lookup val (nameToUid sm)
+
+    return $ case v of
+        Just x  -> x
+        Nothing -> "invalid"
 
 
 --
@@ -135,7 +171,7 @@ handleSlack ss@ServerState{config=ssc, logStream=l, botState=bs} h = do
 
     -- Start bot streaming
     loser <- race
-        (runEffect (slackProducer h >-> logShow "" l >-> slackToIrc (network $ serverSpecific ssc) bs h >-> logFormat "\t" eIrcFormat l >-> messagePump ss))
+        (runEffect (slackProducer h >-> logShow "" l >-> slackToIrc (network $ serverSpecific ssc) bs h l >-> logFormat "\t" eIrcFormat l >-> messagePump ss))
         (runEffect (messageVacuum ss >-> onlyMessages >-> logFormat "\t\t" ircFormat l >-> ircToSlack h bs >-> logShow "\t\t\t" l >-> slackConsumer h))
 
     -- Identify who terminated first (the send or the recv)
@@ -163,15 +199,9 @@ slackConsumer h = forever $ do
 --
 -- Transform Slack events into Irc messages to pump it
 --
-slackToIrc :: MonadIO m => String -> TVar SlackMap -> WS.SlackHandle -> Pipe WS.Event (BotEvent IRC.Message) m r
-slackToIrc snet sm h = forever $ do
+slackToIrc :: MonadIO m => String -> TVar SlackMap -> WS.SlackHandle -> Handle -> Pipe WS.Event (BotEvent IRC.Message) m r
+slackToIrc snet sm h l = forever $ do
     e <- await
-
-    -- TODO: Handle user id.
-    -- 1) on hello, call initFromSession, use this to update the SlackMap on a Hello event
-    -- 2) In the Message, do a getUserName to query for the irc one
-    -- 3) In the other pipe func (do getUserId) to query for slack one
-
 
     -- TODO: handle BotIds
     -- TODO: see a way to remap the <@userid> -> an actual user name
@@ -183,7 +213,7 @@ slackToIrc snet sm h = forever $ do
         WS.Message (WS.Id {WS._getId = cid}) (WS.UserComment (WS.Id {WS._getId = uid})) msg _ _ _ -> (do
             -- All fields are Text, get a nice converter to pack into utf8 bytestring
 
-            user <- liftIO $ getUserName h sm uid
+            user <- liftIO $ getUserName l h sm uid
 
             let prefix = IRC.NickName (TE.encodeUtf8 user) (Just (TE.encodeUtf8 uid)) (Just (C8.pack "SlackServer"))
             let message = IRC.Message (Just prefix) (C8.pack "PRIVMSG") [TE.encodeUtf8 cid, TE.encodeUtf8 msg]
