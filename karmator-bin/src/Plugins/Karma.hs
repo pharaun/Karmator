@@ -50,6 +50,7 @@ import Plugins.Karma.Database
 import Karmator.Types
 import Karmator.Filter
 import qualified Network.IRC as IRC
+import qualified Network.IRC.Patch as IRC
 
 -- Configuration
 import Data.ConfigFile
@@ -81,12 +82,11 @@ karmaSidevotes _ m@(EMessage _ _) = do
             b <- topNSideVotesDenormalized KarmaGiven countMax
             return (a, b)
 
-    return [CMessage $ IRC.privmsg (whichChannel m) (
+    return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) (
         if null received || null given
         then "There is no karma values recorded in the database!"
         else BL.toStrict $ TL.encodeUtf8 (
-            format (stext % ": most sidevotes received: " % text % ". most sidevotes given: " % text % ". ")
-                   nick
+            format ("most sidevotes received: " % text % ". most sidevotes given: " % text % ". ")
                    (renderTotalKarma received)
                    (renderTotalKarma given)
             )
@@ -115,7 +115,7 @@ karmaGivers conf m = do
 karmaStats :: (MonadIO m) => Config -> ConnectionPool -> KarmaTable -> Int64 -> Bool -> BotEvent IRC.Message -> m [BotCommand IRC.Message]
 karmaStats conf pool karmaType countMax givers m@(EMessage _ _) =
     case parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m of
-        (Left _)   -> return [CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"]
+        (Left _)   -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
         (Right []) -> do
             let nick  = T.decodeUtf8 $ nickContent m
             (topNDesc, topNAsc) <- liftIO $ flip runSqlPool pool $ do
@@ -123,14 +123,13 @@ karmaStats conf pool karmaType countMax givers m@(EMessage _ _) =
                     b <- topNDenormalized karmaType countMax asc
                     return (a, b)
 
-            return [CMessage $ IRC.privmsg (whichChannel m) (
+            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) (
                 if null topNDesc || null topNAsc
                 then "There is no karma values recorded in the database!"
                 else BL.toStrict $ TL.encodeUtf8 (
                     format (if givers
-                            then stext % ": most positive: " % text % ". most negative: " % text % "."
-                            else stext % ": highest karma: " % text % ". lowest karma: " % text % ".")
-                           nick
+                            then "most positive: " % text % ". most negative: " % text % "."
+                            else "highest karma: " % text % ". lowest karma: " % text % ".")
                            (renderTotalKarma topNDesc)
                            (renderTotalKarma topNAsc)
                     )
@@ -138,11 +137,7 @@ karmaStats conf pool karmaType countMax givers m@(EMessage _ _) =
         (Right x)  -> do
             let nick  = T.decodeUtf8 $ nickContent m
             count <- liftIO $ runSqlPool (partalKarma karmaType x) pool
-            return [CMessage $ IRC.privmsg (whichChannel m) $ BL.toStrict $ TL.encodeUtf8 (
-                format (stext % ": " % text)
-                    nick
-                    (renderAllKarma count)
-                )]
+            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ BL.toStrict $ TL.encodeUtf8 (renderAllKarma count)]
 karmaStats _ _ _ _ _ _ = return []
 
 
@@ -153,18 +148,18 @@ karmaRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!rank")
 karmaRank :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 karmaRank conf m@(EMessage _ _) =
     case parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m of
-        (Left _)       -> return [CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"]
+        (Left _)       -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
         (Right [])     -> do
             let nick  = T.decodeUtf8 $ nickContent m
             pool <- ask
             msg <- renderRank pool False nick nick "Your"
-            return [CMessage $ IRC.privmsg (whichChannel m) msg]
+            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) msg]
         (Right [x]) -> do
             let nick  = T.decodeUtf8 $ nickContent m
             pool <- ask
             msg <- renderRank pool False nick x x
-            return [CMessage $ IRC.privmsg (whichChannel m) msg]
-        (Right _)      -> return [CMessage $ IRC.privmsg (whichChannel m) ": Can only rank one karma entry at a time!"]
+            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) msg]
+        (Right _)      -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Can only rank one karma entry at a time!"]
 karmaRank _ _ = return []
 
 
@@ -188,6 +183,7 @@ renderRank pool sidevotes nick whom target = do
             return (a, b, c, d)
             )
 
+    -- TODO: clean this up
     return $ BL.toStrict $ TL.encodeUtf8 $ format (stext % ", " % text) nick (
         case (recvRank, giveRank) of
             (Nothing, Nothing) -> ": No ranking available"
@@ -203,18 +199,18 @@ karmaSidevotesRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "
 karmaSidevotesRank :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 karmaSidevotesRank conf m@(EMessage _ _) =
     case parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m of
-        (Left _)       -> return [CMessage $ IRC.privmsg (whichChannel m) "Karma command parse failed"]
+        (Left _)       -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
         (Right [])     -> do
             let nick  = T.decodeUtf8 $ nickContent m
             pool <- ask
             msg <- renderRank pool True nick nick "Your"
-            return [CMessage $ IRC.privmsg (whichChannel m) msg]
+            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) msg]
         (Right [x]) -> do
             let nick  = T.decodeUtf8 $ nickContent m
             pool <- ask
             msg <- renderRank pool True nick x x
-            return [CMessage $ IRC.privmsg (whichChannel m) msg]
-        (Right _)      -> return [CMessage $ IRC.privmsg (whichChannel m) ": Can only rank one karma entry at a time!"]
+            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) msg]
+        (Right _)      -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Can only rank one karma entry at a time!"]
 karmaSidevotesRank _ _ = return []
 
 

@@ -17,6 +17,7 @@ import qualified Data.ByteString.Char8 as C8
 import Karmator.Types
 import Karmator.Filter
 import qualified Network.IRC as IRC
+import qualified Network.IRC.Patch as IRC
 
 -- Versions out of the cabal file
 import qualified Paths_karmator_bin as PK
@@ -30,7 +31,7 @@ import Language.Haskell.TH
 uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!uptime")
 uptime t m  = do
     now <- liftIO getClockTime
-    return [CMessage $ IRC.privmsg (whichChannel m) (C8.pack $ pretty $ diffClockTimes now t)]
+    return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) (C8.pack $ pretty $ diffClockTimes now t)]
 
 --
 -- Pretty print the date in '1d 9h 9m 17s' format
@@ -52,7 +53,7 @@ pretty td = join . intersperse " " . filter (not . null) . map f $
 -- Version
 --
 versionMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!version")
-version m = [CMessage $ IRC.privmsg (whichChannel m) $ C8.pack versionText]
+version m = [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ C8.pack versionText]
 
 versionText = concat
     [ "Version: "

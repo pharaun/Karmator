@@ -218,7 +218,6 @@ slackToIrc snet sm h l = forever $ do
     e <- await
 
     -- TODO: handle BotIds
-    -- TODO: see a way to remap the <@userid> -> an actual user name
     -- TODO: find a good way to handle remapping the user-id+channel id to an actual name (May need some new columns)
     -- TODO: Going to need to find another new message type to pump the id stuff through (hacky might be enough) then
     --      a new hook to feed those id updates/info into the database that can be used for lookups
@@ -307,18 +306,19 @@ ircToSlack h sm = forever $ do
     -- TODO: more fancy support
     case m of
         -- TODO: put the user name back into the prefix for use here
-        IRC.Message _ _ msg -> (do
+        IRC.Message p _ msg -> (do
                 let cid = headDef "" msg
-                -- Drop the username portion of the message and replace with <@uid>
-                let user = (BS.takeWhile (colon /=)) $ headDef "" $ tailSafe msg
-                let msg' = (BS.dropWhile (space /=)) $ headDef "" $ tailSafe msg
+                let msg' = headDef "" $ tailSafe msg
 
-                -- TODO: just have all of these things mirror back the
-                -- nickname, then i can <@name> it to make this portion go
-                -- away
-                userId <- liftIO $ getUserId h sm "aberens"
+                case p of
+                    Just (IRC.NickName user _ _) -> (do
+                        uid <- liftIO $ getUserId h sm (TE.decodeUtf8 user)
+                        case uid of
+                            Nothing   -> yield (TE.decodeUtf8 cid, TE.decodeUtf8 msg')
+                            Just uid' -> yield (TE.decodeUtf8 cid, TE.decodeUtf8 $ BS.concat [ "<@", TE.encodeUtf8 uid', ">: ", msg' ])
+                        )
+                    _                 -> yield (TE.decodeUtf8 cid, TE.decodeUtf8 msg')
 
-                yield (TE.decodeUtf8 cid, TE.decodeUtf8 $ BS.concat [ "<@", TE.encodeUtf8 (fromMaybe "invalid" userId), ">:", msg' ])
             )
         _ -> return ()
   where

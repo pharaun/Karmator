@@ -34,6 +34,7 @@ import Karmator.State
 import Karmator.Types
 import Karmator.Filter
 import qualified Network.IRC as IRC
+import qualified Network.IRC.Patch as IRC
 
 -- TODO: temp
 import Plugins.Karma.Karma (chanParse)
@@ -73,7 +74,7 @@ inviteJoin network chanBlacklist mm@(EMessage _ m) = do
     let channel = head $ tail $ IRC.msg_params m
 
     if Set.member channel chanBlacklist
-    then return [CMessage $ IRC.privmsg (whichChannel mm) "Channel on blacklist"]
+    then return [CMessage $ IRC.privmsgnick (whichChannel mm) (nickContent mm) "Channel on blacklist"]
     else do
         pool <- ask
         liftIO $ flip runSqlPool pool $ do
@@ -90,8 +91,8 @@ inviteJoin _ _ _ = return []
 joinMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!join")
 joinJoin  network chanBlacklist maxJoin m@(EMessage _ _) =
     case parse chanParse "(irc)" $ T.decodeUtf8 $ messageContent m of
-        (Left _)        -> return [CMessage $ IRC.privmsg (whichChannel m) "Channel parse failed"]
-        (Right [])      -> return [CMessage $ IRC.privmsg (whichChannel m) "Please specify a channel to join"]
+        (Left _)        -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Channel parse failed"]
+        (Right [])      -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Please specify a channel to join"]
         (Right channel) -> do
             -- Subset of channels that aren't on the blacklist
             let channelSet = Set.fromList (map (fromString . T.unpack) channel) `Set.difference` chanBlacklist
@@ -115,11 +116,11 @@ joinJoin  network chanBlacklist maxJoin m@(EMessage _ _) =
             return (
                 (case Set.null channelSet of
                     True  -> []
-                    False -> [CMessage $ IRC.privmsg (whichChannel m) $ fromString ("Joining: " ++ show (map toString $ Set.toList channelSet))]
+                    False -> [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ fromString ("Joining: " ++ show (map toString $ Set.toList channelSet))]
                 ) ++
                 (case Set.null ignoredSet of
                     True  -> []
-                    False -> [CMessage $ IRC.privmsg (whichChannel m) $ fromString ("Blacklisted: " ++ show (map toString $ Set.toList ignoredSet))]
+                    False -> [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ fromString ("Blacklisted: " ++ show (map toString $ Set.toList ignoredSet))]
                 ) ++
                 [DMessage t $ IRC.joinChan msg | (msg,t) <- zip chunks [0, 1..] ]
                 )
@@ -164,7 +165,7 @@ listChannel network m = do
     pool <- ask
     chan <- liftIO $ runSqlPool (getState moduleKey readSet (joinKey network)) pool
 
-    return [CMessage $ IRC.privmsg (whichChannel m) (fromString $ show (chan :: Maybe (Set String)))]
+    return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) (fromString $ show (chan :: Maybe (Set String)))]
 
 
 --

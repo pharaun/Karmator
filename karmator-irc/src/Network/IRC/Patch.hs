@@ -6,6 +6,7 @@ module Network.IRC.Patch
     , mkMessage
     , pass
 
+    , privmsgnick
     ) where
 
 import qualified Data.ByteString as BS
@@ -40,3 +41,9 @@ mkMessage = IRC.Message Nothing
 pass  :: IRC.Password -> IRC.Message
 pass u = mkMessage "PASS" [u]
 --------------------------------------------------------------------------
+
+--
+-- Custom msg
+--
+privmsgnick :: IRC.Channel -> BS.ByteString -> BS.ByteString -> IRC.Message
+privmsgnick c u m = IRC.Message (Just $ IRC.NickName u Nothing Nothing) "PRIVMSG" [c, m]
