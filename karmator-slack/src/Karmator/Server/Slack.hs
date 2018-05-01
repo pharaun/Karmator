@@ -52,6 +52,12 @@ import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 
+-- Parsec for remap
+import Text.Parsec
+import Data.Functor.Identity (Identity)
+import Control.Applicative hiding ((<|>), many, optional)
+import Data.Maybe
+
 
 -- Karmator Stuff
 import Karmator.Types
@@ -96,7 +102,7 @@ initFromSession s m = do
     getName u = (WS._getId $ WS._userId u, WS._userName u)
 
 
-getUserName :: Handle -> WS.SlackHandle -> TVar SlackMap -> T.Text -> IO T.Text
+getUserName :: Handle -> WS.SlackHandle -> TVar SlackMap -> T.Text -> IO (Maybe T.Text)
 getUserName l h m val = do
     sm <- readTVarIO m
     --let v = Map.lookup val (uidToName sm)
@@ -109,12 +115,12 @@ getUserName l h m val = do
             res <- runExceptT $ WSA.makeSlackCall (WS.getConfig h) "users.info" (W.param "user" .~ [val])
 
             case res of
-                Left e  -> log l e >> return "invalid"
+                Left e  -> log l e >> return Nothing
                 Right e ->
                     case e of
                         A.Object e' ->
                             case (HM.lookup "user" e') of
-                                Nothing  -> return "invalid"
+                                Nothing  -> log l e' >> return Nothing
                                 Just e'' ->
                                     case A.fromJSON e'' :: A.Result WS.User of
                                         A.Success u -> (do
@@ -124,10 +130,10 @@ getUserName l h m val = do
                                                 SlackMap (Map.insert id name $ uidToName m) (Map.insert name id $ nameToUid m)
                                                 )
 
-                                            return name
+                                            return $ Just name
                                             )
-                                        _ -> return "invalid"
-                        _ ->  log l e >> return "invalid"
+                                        _ -> log l e'' >> return Nothing
+                        _ ->  log l e >> return Nothing
             )
   where
     log :: (Show a, Typeable a) => Handle -> a -> IO ()
@@ -143,14 +149,10 @@ getUserName l h m val = do
         ]
 
 
-getUserId :: WS.SlackHandle -> TVar SlackMap -> T.Text -> IO T.Text
+getUserId :: WS.SlackHandle -> TVar SlackMap -> T.Text -> IO (Maybe T.Text)
 getUserId _ m val = do
     sm <- readTVarIO m
-    let v = Map.lookup val (nameToUid sm)
-
-    return $ case v of
-        Just x  -> x
-        Nothing -> "invalid"
+    return $ Map.lookup val (nameToUid sm)
 
 
 --
@@ -224,16 +226,41 @@ slackToIrc snet sm h l = forever $ do
         WS.Hello -> liftIO $ initFromSession (WS.getSession h) sm
         WS.Message (WS.Id {WS._getId = cid}) (WS.UserComment (WS.Id {WS._getId = uid})) msg _ _ _ -> (do
             -- All fields are Text, get a nice converter to pack into utf8 bytestring
-
             user <- liftIO $ getUserName l h sm uid
+            let prefix = IRC.NickName (TE.encodeUtf8 (fromMaybe "invalid" user)) (Just (TE.encodeUtf8 uid)) (Just (C8.pack "SlackServer"))
 
-            let prefix = IRC.NickName (TE.encodeUtf8 user) (Just (TE.encodeUtf8 uid)) (Just (C8.pack "SlackServer"))
-            let message = IRC.Message (Just prefix) (C8.pack "PRIVMSG") [TE.encodeUtf8 cid, TE.encodeUtf8 msg]
+            -- Parse message for <@id> and replace with userName
+            msg' <- remapMessage sm h l msg
+            let message = IRC.Message (Just prefix) (C8.pack "PRIVMSG") [TE.encodeUtf8 cid, TE.encodeUtf8 msg']
 
-            -- TODO: support network name (for slack differnation)
             yield (EMessage snet message)
             )
         _ -> return ()
+
+--
+-- Remap <@id> to name
+--
+remapMessage :: MonadIO m => TVar SlackMap -> WS.SlackHandle -> Handle -> T.Text -> m T.Text
+remapMessage sm h l msg = do
+
+    return "asdf"
+
+
+test :: T.Text
+test = "Blah blah <@UA74XCZT4> asdf <@invalid> test"
+
+testMap :: SlackMap
+testMap = SlackMap (Map.singleton (T.pack "UA74XCZT4") (T.pack "name")) (Map.singleton (T.pack "name") (T.pack "UA74XCZT4"))
+
+
+--
+-- This block is specifically for breaking up a message into text and ids
+--
+data ParsedMsg = Txt T.Text | Ident T.Text
+
+msgParse :: ParsecT T.Text u Identity [ParsedMsg]
+msgParse = undefined
+
 
 
 --
@@ -254,9 +281,12 @@ ircToSlack h sm = forever $ do
                 let user = (BS.takeWhile (colon /=)) $ headDef "" $ tailSafe msg
                 let msg' = (BS.dropWhile (space /=)) $ headDef "" $ tailSafe msg
 
+                -- TODO: just have all of these things mirror back the
+                -- nickname, then i can <@name> it to make this portion go
+                -- away
                 userId <- liftIO $ getUserId h sm "aberens"
 
-                yield (TE.decodeUtf8 cid, TE.decodeUtf8 $ BS.concat [ "<@", TE.encodeUtf8 userId, ">:", msg' ])
+                yield (TE.decodeUtf8 cid, TE.decodeUtf8 $ BS.concat [ "<@", TE.encodeUtf8 (fromMaybe "invalid" userId), ">:", msg' ])
             )
         _ -> return ()
   where

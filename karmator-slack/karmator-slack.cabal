@@ -57,6 +57,7 @@ library
                      , aeson
                      , vector
                      , unordered-containers
+                     , parsec
                      -- Config files
                      , ConfigFile
                      , containers
