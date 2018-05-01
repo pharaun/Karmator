@@ -242,25 +242,57 @@ slackToIrc snet sm h l = forever $ do
 --
 remapMessage :: MonadIO m => TVar SlackMap -> WS.SlackHandle -> Handle -> T.Text -> m T.Text
 remapMessage sm h l msg = do
+    case runParser msgParse () "Slack" msg of
+        Left e  -> (liftIO $ log l e) >> return msg
+        Right p -> foldM process "" p
 
-    return "asdf"
+  where
+    process :: MonadIO m => T.Text -> ParsedMsg -> m T.Text
+    process str (Txt t)     = return $ T.concat [str, t]
+    process str (Ident uid) = (do
+        user <- liftIO $ getUserName l h sm uid
 
+        return $ T.concat [str, fromMaybe "invalid" user]
+        )
 
-test :: T.Text
-test = "Blah blah <@UA74XCZT4> asdf <@invalid> test"
-
-testMap :: SlackMap
-testMap = SlackMap (Map.singleton (T.pack "UA74XCZT4") (T.pack "name")) (Map.singleton (T.pack "name") (T.pack "UA74XCZT4"))
+    log :: (Show a, Typeable a) => Handle -> a -> IO ()
+    log l res = BS.hPutStr l $ BS.concat
+        [ "===========\n"
+        , "Error Type: "
+        , C8.pack $ show $ typeOf res -- TODO: Ascii packing
+        , "\n"
+        , "Error Message: "
+        , C8.pack $ show res -- TODO: Ascii packing
+        , "\n"
+        , "===========\n"
+        ]
 
 
 --
 -- This block is specifically for breaking up a message into text and ids
 --
-data ParsedMsg = Txt T.Text | Ident T.Text
+data ParsedMsg
+    = Txt T.Text
+    | Ident T.Text
+    deriving (Show)
 
 msgParse :: ParsecT T.Text u Identity [ParsedMsg]
-msgParse = undefined
+msgParse = many1 $ choice [identParse, try txtParse, trashParse]
 
+identParse :: ParsecT T.Text u Identity ParsedMsg
+identParse = do
+    a <- between (string "<@") (string ">") (many1 $ noneOf ">")
+    return $ Ident $ T.pack a
+
+txtParse :: ParsecT T.Text u Identity ParsedMsg
+txtParse = do
+    a <- anyChar `manyTill` lookAhead (try identParse)
+    return $ Txt $ T.pack a
+
+trashParse :: ParsecT T.Text u Identity ParsedMsg
+trashParse = do
+    a <- many1 anyChar
+    return $ Txt $ T.pack a
 
 
 --
