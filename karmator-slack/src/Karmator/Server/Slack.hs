@@ -185,8 +185,10 @@ handleSlack ss@ServerState{config=ssc, logStream=l, botState=bs} h = do
 
     -- Start bot streaming
     loser <- race
-        (runEffect (slackProducer h >-> logShow "" l >-> slackToIrc (network $ serverSpecific ssc) bs h l >-> logFormat "\t" eIrcFormat l >-> messagePump ss))
-        (runEffect (messageVacuum ss >-> onlyMessages >-> logFormat "\t\t" ircFormat l >-> ircToSlack h bs >-> logShow "\t\t\t" l >-> slackConsumer h))
+--        (runEffect (slackProducer h >-> logShow "" l >-> slackToIrc (network $ serverSpecific ssc) bs h l >-> logFormat "\t" eIrcFormat l >-> messagePump ss))
+--        (runEffect (messageVacuum ss >-> onlyMessages >-> logFormat "\t\t" ircFormat l >-> ircToSlack h bs >-> logShow "\t\t\t" l >-> slackConsumer h))
+        (runEffect (slackProducer h >-> slackToIrc (network $ serverSpecific ssc) bs h l >-> messagePump ss))
+        (runEffect (messageVacuum ss >-> onlyMessages >-> ircToSlack h bs >-> slackConsumer h))
 
     -- Identify who terminated first (the send or the recv)
     return $ case loser of
