@@ -110,12 +110,24 @@ getUserName l h m val = do
 
             case res of
                 Left e  -> log l e >> return "invalid"
-                Right e -> (do
-                    -- TODO: already parsed
-                    --let user = HM.lookup "user" e
+                Right e ->
+                    case e of
+                        A.Object e' ->
+                            case (HM.lookup "user" e') of
+                                Nothing  -> return "invalid"
+                                Just e'' ->
+                                    case A.fromJSON e'' :: A.Result WS.User of
+                                        A.Success u -> (do
+                                            let (id, name) = (WS._getId $ WS._userId u, WS._userName u)
 
-                    return "aberens"
-                    )
+                                            atomically $ modifyTVar' m (\m ->
+                                                SlackMap (Map.insert id name $ uidToName m) (Map.insert name id $ nameToUid m)
+                                                )
+
+                                            return name
+                                            )
+                                        _ -> return "invalid"
+                        _ ->  log l e >> return "invalid"
             )
   where
     log :: (Show a, Typeable a) => Handle -> a -> IO ()
