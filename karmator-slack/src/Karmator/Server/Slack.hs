@@ -316,16 +316,20 @@ ircToSlack h sm = forever $ do
                     Just (IRC.NickName user _ _) -> (do
                         uid <- liftIO $ getUserId h sm (TE.decodeUtf8 user)
                         case uid of
-                            Nothing   -> yield (TE.decodeUtf8 cid, TE.decodeUtf8 msg')
-                            Just uid' -> yield (TE.decodeUtf8 cid, TE.decodeUtf8 $ BS.concat [ "<@", TE.encodeUtf8 uid', ">: ", msg' ])
+                            Nothing   -> yield (TE.decodeUtf8 cid, remapAtHere $ TE.decodeUtf8 msg')
+                            Just uid' -> yield (TE.decodeUtf8 cid, remapAtHere $ TE.decodeUtf8 $ BS.concat [ "<@", TE.encodeUtf8 uid', ">: ", msg' ])
                         )
-                    _                 -> yield (TE.decodeUtf8 cid, TE.decodeUtf8 msg')
+                    _                 -> yield (TE.decodeUtf8 cid, remapAtHere $ TE.decodeUtf8 msg')
 
             )
         _ -> return ()
   where
     space = BS.head " "
     colon = BS.head ":"
+
+
+remapAtHere :: T.Text -> T.Text
+remapAtHere x = T.replace "<!here>" "`@here`" $ T.replace "<!channel>" "`@channel`" x
 
 
 --
