@@ -184,12 +184,12 @@ renderRank pool sidevotes nick whom target = do
             )
 
     -- TODO: clean this up
-    return $ BL.toStrict $ TL.encodeUtf8 $ format (stext % ", " % text) nick (
+    return $ BL.toStrict $ TL.encodeUtf8 (
         case (recvRank, giveRank) of
-            (Nothing, Nothing) -> ": No ranking available"
-            (Just r,  Nothing) -> format (stext % ": rank is " % int % " of " % int % " in receiving.") target r recvCount
-            (Nothing, Just g)  -> format (stext % ": rank is " % int % " of " % int % " in giving.") target g giveCount
-            (Just r,  Just g)  -> format (stext % ": rank is " % int % " of " % int % " in receiving and " % int % " of " % int % " in giving.") target r recvCount g giveCount
+            (Nothing, Nothing) -> "No ranking available"
+            (Just r,  Nothing) -> format (stext % " rank is " % int % " of " % int % " in receiving.") target r recvCount
+            (Nothing, Just g)  -> format (stext % " rank is " % int % " of " % int % " in giving.") target g giveCount
+            (Just r,  Just g)  -> format (stext % " rank is " % int % " of " % int % " in receiving and " % int % " of " % int % " in giving.") target r recvCount g giveCount
         )
 
 
