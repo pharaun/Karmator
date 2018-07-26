@@ -43,11 +43,6 @@ import qualified Karmator.Server.Slack as Slack
 commandRoute :: Config -> ConnectionPool -> ClockTime -> (TVar PingDelay) -> [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])] -> Route [CmdHandler IRC.Message] IRC.Message
 commandRoute c p t pd nc = choice (
     [ do
-        match pingMatch
-        debug "pingMatch"
-        stateHandler "ping" pd ping
-
-    , do
         match uptimeMatch
         debug "uptimeMatch"
         stateHandler "uptime" t uptime
@@ -57,6 +52,12 @@ commandRoute c p t pd nc = choice (
         match versionMatch
         debug "versionMatch"
         pureHandler "version" (return . version)
+
+    , do
+        -- Bot Help text
+        match $ customCommandMatch "!help"
+        debug "customCommand - !help"
+        pureHandler "!help" (return . (customCommand "Available commands: !uptime !version !sidevotes !karma !givers !rank !ranksidevote"))
 
     -- Karma handlers
     -- Need to "create a database connection" then pass it into all karma handlers
@@ -91,6 +92,11 @@ commandRoute c p t pd nc = choice (
         debug "karmaMatch"
         persistHandler "karma" p (sqlWrapper (karma c))
 
+-- IRC pings
+--    , do
+--        match pingMatch
+--        debug "pingMatch"
+--        stateHandler "ping" pd ping
     ])
 --    -- Per network channel supporting bits
 --    ] ++ map (\(n, cs, csBl, csJoin, nicks) -> do

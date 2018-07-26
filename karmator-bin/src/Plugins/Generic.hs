@@ -6,6 +6,9 @@ module Plugins.Generic
     , versionMatch
     , version
     , versionText
+
+    , customCommandMatch
+    , customCommand
     ) where
 
 import Data.List
@@ -61,4 +64,14 @@ versionText = concat
     , " - Build Date: "
     -- TODO: figure out why the last character is eated here
     , $((stringE . init) =<< (runIO ((return . (formatCalendarTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S %Z ")) =<< (toCalendarTime =<< getClockTime))))
+    , " - Build Sha: "
+    , "9494ac2ed0148e12ea6898e62a2bdfa3054f1100"
     ]
+
+
+--
+-- Create your own custom Text command (ie !help) will return a predefined
+-- text string
+--
+customCommandMatch c = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage c)
+customCommand t m = [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ C8.pack t]
