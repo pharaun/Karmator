@@ -114,7 +114,7 @@ karmaGivers conf m = do
 
 karmaStats :: (MonadIO m) => Config -> ConnectionPool -> KarmaTable -> Int64 -> Bool -> BotEvent IRC.Message -> m [BotCommand IRC.Message]
 karmaStats conf pool karmaType countMax givers m@(EMessage _ _) =
-    case parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m of
+    case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)   -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
         (Right []) -> do
             let nick  = T.decodeUtf8 $ nickContent m
@@ -147,7 +147,7 @@ karmaRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!rank")
 
 karmaRank :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 karmaRank conf m@(EMessage _ _) =
-    case parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m of
+    case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)       -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
         (Right [])     -> do
             let nick  = T.decodeUtf8 $ nickContent m
@@ -198,7 +198,7 @@ karmaSidevotesRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "
 
 karmaSidevotesRank :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 karmaSidevotesRank conf m@(EMessage _ _) =
-    case parse (karmaCommandParse conf) "(irc)" $ T.decodeUtf8 $ messageContent m of
+    case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)       -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
         (Right [])     -> do
             let nick  = T.decodeUtf8 $ nickContent m

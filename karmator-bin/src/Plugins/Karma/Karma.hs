@@ -46,23 +46,8 @@ leftBrace = char openBrace
 rightBrace :: ParsecT T.Text u Identity Char
 rightBrace = char closeBrace
 
-
---
--- Karma Command Braces
---
--- Specific handlers to handle both types of bracing
---
-commandLeftBrace :: ParsecT T.Text u Identity Char
-commandLeftBrace = char commandOpenBrace
-
-commandRightBrace :: ParsecT T.Text u Identity Char
-commandRightBrace = char commandCloseBrace
-
-
 openBrace = '['
 closeBrace = ']'
-commandOpenBrace = '"'
-commandCloseBrace = '"'
 
 
 -- TODO: break this out to the NickName module.
@@ -99,13 +84,13 @@ chanParse = do
 --    , ("!karma ( (foo) )", [" (foo) "])
 --    , ("!karma ( ( foo) )", [" ( foo) "])
 --    , ("!karma ( ( foo ) )", [" ( foo ) "])
-karmaCommandParse :: Config -> ParsecT T.Text u Identity [T.Text]
-karmaCommandParse conf = do
+karmaCommandParse :: ParsecT T.Text u Identity [T.Text]
+karmaCommandParse = do
     cmdParse
 
     words <- choice
-        [ brace conf
-        , simple conf
+        [ brace
+        , simple
         ] `sepEndBy` space
     eof
 
@@ -114,18 +99,26 @@ karmaCommandParse conf = do
 cmdParse :: ParsecT T.Text u Identity ()
 cmdParse = oneOf "!" >> skipMany1 letter >> optional spaces
 
-simple :: Config -> ParsecT T.Text u Identity String
-simple conf = many $ noneOf [' ', openBrace, closeBrace]
+simple :: ParsecT T.Text u Identity String
+simple = many $ noneOf [' ', openBrace, closeBrace]
 
-brace :: Config -> ParsecT T.Text u Identity String
-brace conf = do
-    before <- L.drop 1 `fmap` many1 commandLeftBrace
-    expr <- many $ noneOf [commandOpenBrace, commandCloseBrace]
+--
+-- Karma Command Braces
+--
+-- Specific handlers to handle both types of bracing
+--
+brace :: ParsecT T.Text u Identity String
+brace = do
+    before <- L.drop 1 `fmap` (many1 $ char openQuote)
+    expr <- many $ noneOf [openQuote, closeQuote]
 
-    a <- many1 commandRightBrace
+    a <- many1 $ char closeQuote
     let after = L.take (L.length a - 1) a
 
     return $ before ++ expr ++ after
+  where
+    openQuote = '"'
+    closeQuote = '"'
 
 
 
