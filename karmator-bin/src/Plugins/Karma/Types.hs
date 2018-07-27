@@ -45,10 +45,4 @@ data Config = Config
     , partialKarma :: [ (Char, PartialKarmaType) ]
     , totalKarma :: [ (Char, KarmaType) ]
 
-    , openBrace :: Char
-    , closeBrace :: Char
-
-    , commandOpenBrace :: Char
-    , commandCloseBrace :: Char
-
     } deriving (Show)

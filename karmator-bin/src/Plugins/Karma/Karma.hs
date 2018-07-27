@@ -25,6 +25,46 @@ import Data.Traversable (sequenceA)
 import Plugins.Karma.Types
 
 
+--
+-- Karma Braces
+--
+-- TODO: Have a version of this that will eat whitspace and restore it to fix a few case
+--
+-- Brace choice Breakdown:
+--  - From a corpus of 25,000 irc messages
+--
+-- {} - 77   - 28941
+-- `` - 206  - 80813
+-- [] - 231  - 215417
+-- <> - 544  - 161483
+-- "" - 982  - 549037
+-- () - 1570 - 1013058
+-- '' - 1691 - 1602736
+leftBrace :: ParsecT T.Text u Identity Char
+leftBrace = char openBrace
+
+rightBrace :: ParsecT T.Text u Identity Char
+rightBrace = char closeBrace
+
+
+--
+-- Karma Command Braces
+--
+-- Specific handlers to handle both types of bracing
+--
+commandLeftBrace :: ParsecT T.Text u Identity Char
+commandLeftBrace = char commandOpenBrace
+
+commandRightBrace :: ParsecT T.Text u Identity Char
+commandRightBrace = char commandCloseBrace
+
+
+openBrace = '['
+closeBrace = ']'
+commandOpenBrace = '"'
+commandCloseBrace = '"'
+
+
 -- TODO: break this out to the NickName module.
 nickDeFuzzifier :: ParsecT T.Text u Identity T.Text
 nickDeFuzzifier = do
@@ -75,23 +115,17 @@ cmdParse :: ParsecT T.Text u Identity ()
 cmdParse = oneOf "!" >> skipMany1 letter >> optional spaces
 
 simple :: Config -> ParsecT T.Text u Identity String
-simple conf = many $ noneOf [' ', openBrace conf, closeBrace conf]
+simple conf = many $ noneOf [' ', openBrace, closeBrace]
 
 brace :: Config -> ParsecT T.Text u Identity String
 brace conf = do
-    before <- L.drop 1 `fmap` many1 (commandLeftBrace conf)
-    expr <- many $ noneOf [commandOpenBrace conf, commandCloseBrace conf]
+    before <- L.drop 1 `fmap` many1 commandLeftBrace
+    expr <- many $ noneOf [commandOpenBrace, commandCloseBrace]
 
-    a <- many1 $ commandRightBrace conf
+    a <- many1 commandRightBrace
     let after = L.take (L.length a - 1) a
 
     return $ before ++ expr ++ after
-
-commandLeftBrace :: Config -> ParsecT T.Text u Identity Char
-commandLeftBrace = char . commandOpenBrace
-
-commandRightBrace :: Config -> ParsecT T.Text u Identity Char
-commandRightBrace = char . commandCloseBrace
 
 
 
@@ -114,7 +148,7 @@ karmaParse conf = catMaybes `fmap` processCandidates conf `fmap` nestedKarmaPars
         --  - Decide how to identify/deal with braced karma vs regular, may be worth uniquelly identifying these
         processCandidates c (k@KarmaCandidate{kcMessage=msg}:k'@KarmaCandidate{kcMessage=msg'}:ks)
         --  - (a++)++ -> (a++)++
-            | safeLast msg /= " " && safeHead msg' == [closeBrace c] = evalKarma c ( mergeKarma k k') : processCandidates c ks
+            | safeLast msg /= " " && safeHead msg' == [closeBrace] = evalKarma c ( mergeKarma k k') : processCandidates c ks
 
         --  - a++ b++ -> a++,b++
         --  - a ++ b++ -> a ++,b++
@@ -195,24 +229,6 @@ evalulateKarma conf karma = evalKarma conf $ L.reverse karma
         partialToTotal _ _ = Sidevote
 
 
--- Brace choice Breakdown:
---  - From a corpus of 25,000 irc messages
---
--- {} - 77   - 28941
--- `` - 206  - 80813
--- [] - 231  - 215417
--- <> - 544  - 161483
--- "" - 982  - 549037
--- () - 1570 - 1013058
--- '' - 1691 - 1602736
--- TODO: Have a version of this that will eat whitspace and restore it to fix a few case
-leftBrace :: Config -> ParsecT T.Text u Identity Char
-leftBrace = char . openBrace
-
-rightBrace :: Config -> ParsecT T.Text u Identity Char
-rightBrace = char . closeBrace
-
-
 -- Karma
 -- Check for one total karma
 --  - If there is one, eat the rest and return the whole thing
@@ -235,15 +251,15 @@ nonKarmaParse = KarmaNonCandidate <$> many1 anyChar
 
 simpleKarmaParse :: Config -> ParsecT T.Text u Identity KarmaCandidates
 simpleKarmaParse conf = KarmaCandidate
-    <$> anyChar `manyTill` lookAhead (karma conf >> notFollowedBy (rightBrace conf))
+    <$> anyChar `manyTill` lookAhead (karma conf >> notFollowedBy rightBrace)
     <*> karma conf
 
 bracedKarmaParse :: Config -> ParsecT T.Text u Identity KarmaCandidates
 bracedKarmaParse conf = do
-    before <- L.drop 1 `fmap` many1 (leftBrace conf)
-    expr <- anyChar `manyTill` lookAhead (many1 (rightBrace conf) >> karma conf)
+    before <- L.drop 1 `fmap` many1 leftBrace
+    expr <- anyChar `manyTill` lookAhead (many1 rightBrace >> karma conf)
 
-    a <- many1 $ rightBrace conf
+    a <- many1 rightBrace
     let after = L.take (L.length a - 1) a
 
     karma <- karma conf
@@ -253,7 +269,7 @@ bracedKarmaParse conf = do
 -- TODO: fix up this one to properly do karma subparser - Instead of just getting a list of karma character,
 --      Should make sure it properly at least parse a valid karma otherwise fail
 nonBracedKarmaParse :: Config -> ParsecT T.Text u Identity KarmaCandidates
-nonBracedKarmaParse conf = KarmaNonCandidate <$> many1 (noneOf (openBrace conf : karmaCandidate conf))
+nonBracedKarmaParse conf = KarmaNonCandidate <$> many1 (noneOf (openBrace : karmaCandidate conf))
     where
         karmaCandidate conf = map fst (partialKarma conf) ++ map fst (totalKarma conf)
 
@@ -262,9 +278,9 @@ nonKarmaPreBracedKarmaParse conf = sequenceA [nonBracedKarmaParse conf, bracedKa
 
 eatKarmaInsideBracesParse :: Config -> ParsecT T.Text u Identity [KarmaCandidates]
 eatKarmaInsideBracesParse conf = do
-    before <- many1 $ leftBrace conf
-    expr <- anyChar `manyTill` lookAhead (many1 (rightBrace conf) >> notFollowedBy (karma conf))
-    after <- many1 $ rightBrace conf
+    before <- many1 leftBrace
+    expr <- anyChar `manyTill` lookAhead (many1 rightBrace >> notFollowedBy (karma conf))
+    after <- many1 rightBrace
 
     return [KarmaNonCandidate (before ++ expr ++ after)]
 
