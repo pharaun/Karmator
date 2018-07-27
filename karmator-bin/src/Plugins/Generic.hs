@@ -27,6 +27,9 @@ import qualified Paths_karmator_bin as PK
 import Data.Version (showVersion)
 import Language.Haskell.TH
 
+-- Git sha
+import Development.GitRev (gitHash)
+
 
 --
 -- Uptime
@@ -59,13 +62,13 @@ versionMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!version")
 version m = [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ C8.pack versionText]
 
 versionText = concat
-    [ "Version: "
+    [ "Cabal Version: "
     , showVersion PK.version
     , " - Build Date: "
     -- TODO: figure out why the last character is eated here
     , $((stringE . init) =<< (runIO ((return . (formatCalendarTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S %Z ")) =<< (toCalendarTime =<< getClockTime))))
-    , " - Build Sha: "
-    , "9494ac2ed0148e12ea6898e62a2bdfa3054f1100"
+    , " - Build SHA: "
+    , $(gitHash)
     ]
 
 

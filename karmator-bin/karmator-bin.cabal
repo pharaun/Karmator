@@ -63,6 +63,9 @@ executable karmator
                      , stm
                      , stm-delay
 
+                     -- Builds
+                     , gitrev
+
 test-suite karmator-bin-tests
   other-modules:       Plugins.Karma.Karma
                        Plugins.Karma.Types
