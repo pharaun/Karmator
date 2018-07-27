@@ -48,6 +48,7 @@ rightBrace = char closeBrace
 
 openBrace = '['
 closeBrace = ']'
+quote = '"'
 
 
 -- TODO: break this out to the NickName module.
@@ -89,7 +90,8 @@ karmaCommandParse = do
     cmdParse
 
     words <- choice
-        [ brace
+        [ brace quote quote
+        , brace openBrace closeBrace
         , simple
         ] `sepEndBy` space
     eof
@@ -100,26 +102,20 @@ cmdParse :: ParsecT T.Text u Identity ()
 cmdParse = oneOf "!" >> skipMany1 letter >> optional spaces
 
 simple :: ParsecT T.Text u Identity String
-simple = many $ noneOf [' ', openBrace, closeBrace]
+simple = many $ noneOf [' ', openBrace, closeBrace, quote]
 
 --
 -- Karma Command Braces
 --
--- Specific handlers to handle both types of bracing
---
-brace :: ParsecT T.Text u Identity String
-brace = do
-    before <- L.drop 1 `fmap` (many1 $ char openQuote)
-    expr <- many $ noneOf [openQuote, closeQuote]
+brace :: Char -> Char -> ParsecT T.Text u Identity String
+brace open close = do
+    before <- L.drop 1 `fmap` (many1 $ char open)
+    expr <- many $ noneOf [close]
 
-    a <- many1 $ char closeQuote
+    a <- many1 $ char close
     let after = L.take (L.length a - 1) a
 
     return $ before ++ expr ++ after
-  where
-    openQuote = '"'
-    closeQuote = '"'
-
 
 
 -- TODO:
