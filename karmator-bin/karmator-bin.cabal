@@ -77,7 +77,6 @@ test-suite karmator-bin-tests
   extra-libraries:     pthread
   type:                exitcode-stdio-1.0
   build-depends:       base >=4.5
-                     , karmator
                      , bytestring >= 0.10
                      , irc >= 0.6
                      , transformers >=0.4

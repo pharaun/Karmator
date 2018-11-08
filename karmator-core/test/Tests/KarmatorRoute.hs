@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Tests.KarmatorRoute
     ( routingTests
     ) where
@@ -28,14 +29,21 @@ routeTest input result = TestCase $ do
     assertEqual "" result run'
 
 -- TODO: build a gathering of some nice pattern for testing + output
-routeData :: [(BotEvent, [[BotCommand]])]
+routeData :: [(BotEvent IRC.Message, [[BotCommand IRC.Message]])]
 routeData =
-    [ ( EMessage "" $ IRC.Message (Just $ IRC.NickName (C8.pack "") (Just $ C8.pack "never") (Just $ C8.pack "base")) (C8.pack "") [C8.pack "target"], [] )
+    [ ( EMessage "" $ IRC.Message (Just $ IRC.NickName (C8.pack "") (Just $ C8.pack "never") (Just $ C8.pack "base")) (C8.pack "") [C8.pack "target"],
+        [ [CMessage (IRC.Message {IRC.msg_prefix = Nothing, IRC.msg_command = "PRIVMSG", IRC.msg_params = ["bye"]})]
+        , [CMessage (IRC.Message {IRC.msg_prefix = Nothing, IRC.msg_command = "PRIVMSG", IRC.msg_params = ["base"]})]
+        , [CMessage (IRC.Message {IRC.msg_prefix = Nothing, IRC.msg_command = "PRIVMSG", IRC.msg_params = ["bar"]})]
+        , [CMessage (IRC.Message {IRC.msg_prefix = Nothing, IRC.msg_command = "PRIVMSG", IRC.msg_params = ["return"]})]
+        , [CMessage (IRC.Message {IRC.msg_prefix = Nothing, IRC.msg_command = "PRIVMSG", IRC.msg_params = ["io"]})]
+        ]
+      )
     ]
 
 -- TODO: Build some more through routing tests for various cases
 -- TODO: add persistance and stateful persistance tests
-testRoute :: Route [CmdHandler]
+testRoute :: Route [CmdHandler IRC.Message] IRC.Message
 testRoute = choice
     [ do
         debug "bye handler"
@@ -64,21 +72,21 @@ testRoute = choice
         pureHandler "io" fooIO
     ]
   where
-    testServer :: BotEvent -> String
+    testServer :: BotEvent IRC.Message -> String
     testServer (EMessage "" IRC.Message{IRC.msg_prefix=(Just (IRC.Server n))}) = C8.unpack n
     testServer (EMessage "" IRC.Message{IRC.msg_prefix=(Just (IRC.NickName _ _ (Just n)))}) = C8.unpack n
     testServer _ = "" -- TODO: bad
 
     -- TODO: unsafe head, and does not support multi-channel privmsg
-    channel :: BotEvent -> String
+    channel :: BotEvent IRC.Message -> String
     channel (EMessage _ m) = C8.unpack $ head $ IRC.msg_params m
     channel _              = "" -- TODO: bad
 
-    nick :: BotEvent -> String
+    nick :: BotEvent IRC.Message -> String
     nick (EMessage _ IRC.Message{IRC.msg_prefix=(Just (IRC.NickName n _ _))}) = C8.unpack n
     nick _ = ""
 
-    fooIO :: MonadIO m => a -> m [BotCommand]
+    fooIO :: MonadIO m => a -> m [BotCommand IRC.Message]
     fooIO _ = do
         liftIO $ putStrLn "test"
         return [CMessage $ IRC.Message Nothing (C8.pack "PRIVMSG") [C8.pack "io"]]
