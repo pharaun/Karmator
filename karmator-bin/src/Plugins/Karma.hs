@@ -64,64 +64,61 @@ karmaMatch :: BotEvent IRC.Message -> Bool
 karmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!karma")
 
 karma :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-karma = karmaStats KarmaReceived 3 False False
+--karma = karmaStats KarmaReceived 3 False False
+karma = karmaStats (KST KarmaReceived) 3
 
 karmaGiversMatch :: BotEvent IRC.Message -> Bool
 karmaGiversMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!givers")
 
 karmaGivers :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-karmaGivers = karmaStats KarmaGiven 3 True False
+--karmaGivers = karmaStats KarmaGiven 3 True False
+karmaGivers = karmaStats (KST KarmaGiven) 3
 
 karmaSidevotesMatch :: BotEvent IRC.Message -> Bool
 karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!sidevotes")
 
 karmaSidevotes :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-karmaSidevotes = karmaStats KarmaGiven 3 True True
+--karmaSidevotes = karmaStats KarmaGiven 3 True True
+karmaSidevotes = karmaStats KSTSidevote 3
 
 
--- TODO: tritype (give|get|side, rather than two boolean)
-karmaStats :: (MonadIO m) => KarmaTable -> Int64 -> Bool -> Bool -> Config -> BotEvent IRC.Message -> m [BotCommand IRC.Message]
-karmaStats karmaType countMax givers sidevote conf m@(EMessage _ _) =
+data KarmaStatsType = KST KarmaTable | KSTSidevote
+
+karmaStats :: (MonadIO m) => KarmaStatsType -> Int64 -> Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+karmaStats karmaType countMax conf m@(EMessage _ _) =
     case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)   -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
         (Right []) -> do
-            let nick  = T.decodeUtf8 $ nickContent m
-            pool <- ask
-
-            (topNDesc, topNAsc) <- liftIO $ flip runSqlPool pool $
-                if sidevote
-                then do
-                    a <- topNSideVotesDenormalized KarmaReceived countMax
-                    b <- topNSideVotesDenormalized KarmaGiven countMax
-                    return (a, b)
-                else do
-                    a <- topNDenormalized karmaType countMax desc
-                    b <- topNDenormalized karmaType countMax asc
-                    return (a, b)
+            (topNDesc, topNAsc) <- ask >>= (liftIO . runSqlPool
+                (case karmaType of
+                    (KST x) -> do
+                        a <- topNDenormalized x countMax desc
+                        b <- topNDenormalized x countMax asc
+                        return (a, b)
+                    KSTSidevote -> do
+                        a <- topNSideVotesDenormalized KarmaReceived countMax
+                        b <- topNSideVotesDenormalized KarmaGiven countMax
+                        return (a, b)))
 
             return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) (
                 if null topNDesc || null topNAsc
                 then "There is no karma values recorded in the database!"
                 else BL.toStrict $ TL.encodeUtf8 (
-                    format (if sidevote
-                            then "most sidevotes received: " % text % ". most sidevotes given: " % text % ". "
-                            else if givers
-                                 then "most positive: " % text % ". most negative: " % text % "."
-                                 else "highest karma: " % text % ". lowest karma: " % text % ".")
+                    format (case karmaType of
+                                (KST KarmaGiven)    -> "most positive: " % text % ". most negative: " % text % "."
+                                (KST KarmaReceived) -> "highest karma: " % text % ". lowest karma: " % text % "."
+                                KSTSidevote         -> "most sidevotes received: " % text % ". most sidevotes given: " % text % ".")
                            (renderTotalKarma topNDesc)
                            (renderTotalKarma topNAsc)
                     )
                 )]
-        (Right x)  -> do
-            if sidevote
-            then return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Not supported!"]
-            else do
-                let nick  = T.decodeUtf8 $ nickContent m
-                pool <- ask
-
-                count <- liftIO $ runSqlPool (partalKarma karmaType x) pool
-                return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ BL.toStrict $ TL.encodeUtf8 (renderAllKarma count)]
-karmaStats _ _ _ _ _ _ _ = return []
+        (Right x)  ->
+            case karmaType of
+                (KST x') -> do
+                    count <- (liftIO . runSqlPool (partalKarma x' x)) =<< ask
+                    return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ BL.toStrict $ TL.encodeUtf8 (renderAllKarma count)]
+                KSTSidevote -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Not supported!"]
+karmaStats _ _ _ _ = return []
 
 renderAllKarma :: [(T.Text, Int, Int, Int)] -> TL.Text
 renderAllKarma xs = TL.intercalate "; " $ map (\(name, p, n, s) -> format (stext % ", " % int % " (" % int % "++/" % int % "--/" % int % "+-)") name (p-n) p n s) xs
@@ -153,20 +150,16 @@ handleKarmaRank sidevotes conf m@(EMessage _ _) =
         (Right x)      -> do
             let nick  = T.decodeUtf8 $ nickContent m
             msg <- case x of
-                []   -> do
-                    pool <- ask
-                    renderRank pool sidevotes nick nick "Your"
-                [x'] -> do
-                    pool <- ask
-                    renderRank pool sidevotes nick x' x'
+                []   -> renderRank sidevotes nick nick "Your"
+                [x'] -> renderRank sidevotes nick x' x'
                 _    -> return "Can only rank one karma entry at a time!"
 
             return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) (BL.toStrict $ TL.encodeUtf8 msg)]
 handleKarmaRank _ _ _ = return []
 
-renderRank :: (MonadIO m) => ConnectionPool -> Bool -> T.Text -> T.Text -> T.Text -> m TL.Text
-renderRank pool sidevotes nick whom target = do
-    (recvRank, recvCount, giveRank, giveCount) <- liftIO $ flip runSqlPool pool (do
+renderRank :: (MonadIO m) => Bool -> T.Text -> T.Text -> T.Text -> ReaderT ConnectionPool m TL.Text
+renderRank sidevotes nick whom target = do
+    (recvRank, recvCount, giveRank, giveCount) <- ask >>= (liftIO . runSqlPool (do
         let call = if sidevotes
                    then sideVotesRankingDenormalized
                    else rankingDenormalized
@@ -177,7 +170,7 @@ renderRank pool sidevotes nick whom target = do
         giveCount <- countK KarmaGiven whom
 
         return (recvRank, recvCount, giveRank, giveCount)
-        )
+        ))
 
     return $ case (recvRank, giveRank) of
             (Nothing, Nothing) -> "No ranking available"
@@ -204,9 +197,6 @@ rawKarma conf m@(EMessage _ _) = do
 
     case parseInput conf nick msg of
         (KarmaReply n (Just k)) -> do
-            t <- liftIO getCurrentTime
-            pool <- ask
-
             -- TODO: not for certain if we want to preserve '~' in username or not
             let user  = T.decodeUtf8 <$> userNameContent m
             let host  = T.decodeUtf8 <$> hostMaskContent m
@@ -217,7 +207,8 @@ rawKarma conf m@(EMessage _ _) = do
             --  * the irc handler can handle this (by taking 1 msg -> generating several)
             let chan  = Just $ T.decodeUtf8 $ whichChannel m
 
-            liftIO $ runSqlPool (addKarma t n nick user host chan k) pool
+            t <- liftIO getCurrentTime
+            liftIO . runSqlPool (addKarma t n nick user host chan k) =<< ask
             return []
         _                       -> return []
 rawKarma _ _ = return []
