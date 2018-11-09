@@ -58,69 +58,43 @@ import Prelude hiding (readFile)
 
 
 --
--- Karma list of unit rendering
---
-renderAllKarma :: [(T.Text, Int, Int, Int)] -> TL.Text
-renderAllKarma xs = TL.intercalate "; " $ map (\(name, p, n, s) -> format (stext % ", " % int % " (" % int % "++/" % int % "--/" % int % "+-)") name (p-n) p n s) xs
-
-renderTotalKarma :: [(T.Text, Int)] -> TL.Text
-renderTotalKarma xs = TL.intercalate "; " $ map (uncurry (format (stext % " (" % int % ")"))) xs
-
-
-karmaSidevotesMatch :: BotEvent IRC.Message -> Bool
-karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!sidevotes")
-
-karmaSidevotes :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-karmaSidevotes _ m@(EMessage _ _) = do
-    let nick     = T.decodeUtf8 $ nickContent m
-    let countMax = 3
-
-    pool <- ask
-
-    (received, given) <- liftIO $ flip runSqlPool pool $ do
-            a <- topNSideVotesDenormalized KarmaReceived countMax
-            b <- topNSideVotesDenormalized KarmaGiven countMax
-            return (a, b)
-
-    return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) (
-        if null received || null given
-        then "There is no karma values recorded in the database!"
-        else BL.toStrict $ TL.encodeUtf8 (
-            format ("most sidevotes received: " % text % ". most sidevotes given: " % text % ". ")
-                   (renderTotalKarma received)
-                   (renderTotalKarma given)
-            )
-        )]
-karmaSidevotes _ _ = return []
-
---
 -- Karma Query
 --
 karmaMatch :: BotEvent IRC.Message -> Bool
 karmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!karma")
 
 karma :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-karma conf m = do
-    pool <- ask
-    karmaStats pool KarmaReceived 3 False conf m
-
+karma = karmaStats KarmaReceived 3 False False
 
 karmaGiversMatch :: BotEvent IRC.Message -> Bool
 karmaGiversMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!givers")
 
 karmaGivers :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-karmaGivers conf m = do
-    pool <- ask
-    karmaStats pool KarmaGiven 3 True conf m
+karmaGivers = karmaStats KarmaGiven 3 True False
+
+karmaSidevotesMatch :: BotEvent IRC.Message -> Bool
+karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!sidevotes")
+
+karmaSidevotes :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+karmaSidevotes = karmaStats KarmaGiven 3 True True
 
 
-karmaStats :: (MonadIO m) => ConnectionPool -> KarmaTable -> Int64 -> Bool -> Config -> BotEvent IRC.Message -> m [BotCommand IRC.Message]
-karmaStats pool karmaType countMax givers conf m@(EMessage _ _) =
+-- TODO: tritype (give|get|side, rather than two boolean)
+karmaStats :: (MonadIO m) => KarmaTable -> Int64 -> Bool -> Bool -> Config -> BotEvent IRC.Message -> m [BotCommand IRC.Message]
+karmaStats karmaType countMax givers sidevote conf m@(EMessage _ _) =
     case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)   -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
         (Right []) -> do
             let nick  = T.decodeUtf8 $ nickContent m
-            (topNDesc, topNAsc) <- liftIO $ flip runSqlPool pool $ do
+            pool <- ask
+
+            (topNDesc, topNAsc) <- liftIO $ flip runSqlPool pool $
+                if sidevote
+                then do
+                    a <- topNSideVotesDenormalized KarmaReceived countMax
+                    b <- topNSideVotesDenormalized KarmaGiven countMax
+                    return (a, b)
+                else do
                     a <- topNDenormalized karmaType countMax desc
                     b <- topNDenormalized karmaType countMax asc
                     return (a, b)
@@ -129,18 +103,31 @@ karmaStats pool karmaType countMax givers conf m@(EMessage _ _) =
                 if null topNDesc || null topNAsc
                 then "There is no karma values recorded in the database!"
                 else BL.toStrict $ TL.encodeUtf8 (
-                    format (if givers
-                            then "most positive: " % text % ". most negative: " % text % "."
-                            else "highest karma: " % text % ". lowest karma: " % text % ".")
+                    format (if sidevote
+                            then "most sidevotes received: " % text % ". most sidevotes given: " % text % ". "
+                            else if givers
+                                 then "most positive: " % text % ". most negative: " % text % "."
+                                 else "highest karma: " % text % ". lowest karma: " % text % ".")
                            (renderTotalKarma topNDesc)
                            (renderTotalKarma topNAsc)
                     )
                 )]
         (Right x)  -> do
-            let nick  = T.decodeUtf8 $ nickContent m
-            count <- liftIO $ runSqlPool (partalKarma karmaType x) pool
-            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ BL.toStrict $ TL.encodeUtf8 (renderAllKarma count)]
-karmaStats _ _ _ _ _ _ = return []
+            if sidevote
+            then return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Not supported!"]
+            else do
+                let nick  = T.decodeUtf8 $ nickContent m
+                pool <- ask
+
+                count <- liftIO $ runSqlPool (partalKarma karmaType x) pool
+                return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ BL.toStrict $ TL.encodeUtf8 (renderAllKarma count)]
+karmaStats _ _ _ _ _ _ _ = return []
+
+renderAllKarma :: [(T.Text, Int, Int, Int)] -> TL.Text
+renderAllKarma xs = TL.intercalate "; " $ map (\(name, p, n, s) -> format (stext % ", " % int % " (" % int % "++/" % int % "--/" % int % "+-)") name (p-n) p n s) xs
+
+renderTotalKarma :: [(T.Text, Int)] -> TL.Text
+renderTotalKarma xs = TL.intercalate "; " $ map (uncurry (format (stext % " (" % int % ")"))) xs
 
 
 --
