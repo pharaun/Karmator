@@ -93,14 +93,16 @@ karmaSidevotes _ m@(EMessage _ _) = do
         )]
 karmaSidevotes _ _ = return []
 
-
+--
+-- Karma Query
+--
 karmaMatch :: BotEvent IRC.Message -> Bool
 karmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!karma")
 
 karma :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 karma conf m = do
     pool <- ask
-    karmaStats conf pool KarmaReceived 3 False m
+    karmaStats pool KarmaReceived 3 False conf m
 
 
 karmaGiversMatch :: BotEvent IRC.Message -> Bool
@@ -109,11 +111,11 @@ karmaGiversMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!givers
 karmaGivers :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 karmaGivers conf m = do
     pool <- ask
-    karmaStats conf pool KarmaGiven 3 True m
+    karmaStats pool KarmaGiven 3 True conf m
 
 
-karmaStats :: (MonadIO m) => Config -> ConnectionPool -> KarmaTable -> Int64 -> Bool -> BotEvent IRC.Message -> m [BotCommand IRC.Message]
-karmaStats conf pool karmaType countMax givers m@(EMessage _ _) =
+karmaStats :: (MonadIO m) => ConnectionPool -> KarmaTable -> Int64 -> Bool -> Config -> BotEvent IRC.Message -> m [BotCommand IRC.Message]
+karmaStats pool karmaType countMax givers conf m@(EMessage _ _) =
     case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)   -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
         (Right []) -> do
@@ -141,80 +143,68 @@ karmaStats conf pool karmaType countMax givers m@(EMessage _ _) =
 karmaStats _ _ _ _ _ _ = return []
 
 
+--
+-- Rank commands
+--
 karmaRankMatch :: BotEvent IRC.Message -> Bool
 karmaRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!rank")
 
-
 karmaRank :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-karmaRank conf m@(EMessage _ _) =
-    case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
-        (Left _)       -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
-        (Right [])     -> do
-            let nick  = T.decodeUtf8 $ nickContent m
-            pool <- ask
-            msg <- renderRank pool False nick nick "Your"
-            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) msg]
-        (Right [x]) -> do
-            let nick  = T.decodeUtf8 $ nickContent m
-            pool <- ask
-            msg <- renderRank pool False nick x x
-            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) msg]
-        (Right _)      -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Can only rank one karma entry at a time!"]
-karmaRank _ _ = return []
-
-
--- TODO: probably should make this remain T.Text and move encoding else where
-renderRank :: (MonadIO m) => ConnectionPool -> Bool -> T.Text -> T.Text -> T.Text -> m B.ByteString
-renderRank pool sidevotes nick whom target = do
-    (recvRank, recvCount, giveRank, giveCount) <- liftIO $ flip runSqlPool pool $
-        if sidevotes
-        then (do
-            a <- sideVotesRankingDenormalized KarmaReceived whom
-            b <- countK KarmaReceived whom
-            c <- sideVotesRankingDenormalized KarmaGiven whom
-            d <- countK KarmaGiven whom
-            return (a, b, c, d)
-            )
-        else (do
-            a <- rankingDenormalized KarmaReceived whom
-            b <- countK KarmaReceived whom
-            c <- rankingDenormalized KarmaGiven whom
-            d <- countK KarmaGiven whom
-            return (a, b, c, d)
-            )
-
-    -- TODO: clean this up
-    return $ BL.toStrict $ TL.encodeUtf8 (
-        case (recvRank, giveRank) of
-            (Nothing, Nothing) -> "No ranking available"
-            (Just r,  Nothing) -> format (stext % " rank is " % int % " of " % int % " in receiving.") target r recvCount
-            (Nothing, Just g)  -> format (stext % " rank is " % int % " of " % int % " in giving.") target g giveCount
-            (Just r,  Just g)  -> format (stext % " rank is " % int % " of " % int % " in receiving and " % int % " of " % int % " in giving.") target r recvCount g giveCount
-        )
-
+karmaRank = handleKarmaRank False
 
 karmaSidevotesRankMatch :: BotEvent IRC.Message -> Bool
 karmaSidevotesRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!ranksidevote")
 
 karmaSidevotesRank :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-karmaSidevotesRank conf m@(EMessage _ _) =
+karmaSidevotesRank = handleKarmaRank True
+
+
+handleKarmaRank :: MonadIO m => Bool -> Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+handleKarmaRank sidevotes conf m@(EMessage _ _) =
     case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)       -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
-        (Right [])     -> do
+        (Right x)      -> do
             let nick  = T.decodeUtf8 $ nickContent m
-            pool <- ask
-            msg <- renderRank pool True nick nick "Your"
-            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) msg]
-        (Right [x]) -> do
-            let nick  = T.decodeUtf8 $ nickContent m
-            pool <- ask
-            msg <- renderRank pool True nick x x
-            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) msg]
-        (Right _)      -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Can only rank one karma entry at a time!"]
-karmaSidevotesRank _ _ = return []
+            msg <- case x of
+                []   -> do
+                    pool <- ask
+                    renderRank pool sidevotes nick nick "Your"
+                [x'] -> do
+                    pool <- ask
+                    renderRank pool sidevotes nick x' x'
+                _    -> return "Can only rank one karma entry at a time!"
 
+            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) (BL.toStrict $ TL.encodeUtf8 msg)]
+handleKarmaRank _ _ _ = return []
 
--- This takes care of sulping all irc messages to stuff into the karma parser
+renderRank :: (MonadIO m) => ConnectionPool -> Bool -> T.Text -> T.Text -> T.Text -> m TL.Text
+renderRank pool sidevotes nick whom target = do
+    (recvRank, recvCount, giveRank, giveCount) <- liftIO $ flip runSqlPool pool (do
+        let call = if sidevotes
+                   then sideVotesRankingDenormalized
+                   else rankingDenormalized
+
+        recvRank <- call KarmaReceived whom
+        recvCount <- countK KarmaReceived whom
+        giveRank <- call KarmaGiven whom
+        giveCount <- countK KarmaGiven whom
+
+        return (recvRank, recvCount, giveRank, giveCount)
+        )
+
+    return $ case (recvRank, giveRank) of
+            (Nothing, Nothing) -> "No ranking available"
+            (Just r,  Nothing) -> renderLine target r recvCount "receiving."
+            (Nothing, Just g)  -> renderLine target g giveCount "giving."
+            (Just r,  Just g)  -> format (text % " and " % text)
+                                         (renderLine target r recvCount "receiving")
+                                         (renderLine target g giveCount "giving.")
+  where
+    renderLine = format (stext % " rank is " % int % " of " % int % " in " % text)
+
+--
+-- Karma Ingestion
+--
 rawKarmaMatch :: BotEvent IRC.Message -> Bool
 rawKarmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (not . prefixMessage "!")
 
@@ -224,19 +214,22 @@ rawKarma conf m@(EMessage _ _) = do
     -- TODO: error handling
     let msg   = T.decodeUtf8 $ messageContent m
     let nick  = T.decodeUtf8 $ nickContent m
-    -- TODO: not for certain if we want to preserve '~' in username or not
-    let user  = T.decodeUtf8 <$> userNameContent m
-    let host  = T.decodeUtf8 <$> hostMaskContent m
-    -- TODO: identify how this handles privmsg
-    -- TODO: identify how it handles multiple channel (Do we want list here) also is privmsg specified or Null?
-    --  * It lists the bot's nick as a channel, which works for me.  !karma/etc are busted as a privmsg tho
-    let chan  = Just $ T.decodeUtf8 $ whichChannel m
-    let karma = parseInput conf nick msg
 
-    case karma of
+    case parseInput conf nick msg of
         (KarmaReply n (Just k)) -> do
             t <- liftIO getCurrentTime
             pool <- ask
+
+            -- TODO: not for certain if we want to preserve '~' in username or not
+            let user  = T.decodeUtf8 <$> userNameContent m
+            let host  = T.decodeUtf8 <$> hostMaskContent m
+
+            -- TODO: identify how this handles privmsg
+            -- TODO: identify how it handles multiple channel (Do we want list here) also is privmsg specified or Null?
+            --  * It lists the bot's nick as a channel, which works for me.  !karma/etc are busted as a privmsg tho
+            --  * the irc handler can handle this (by taking 1 msg -> generating several)
+            let chan  = Just $ T.decodeUtf8 $ whichChannel m
+
             liftIO $ runSqlPool (addKarma t n nick user host chan k) pool
             return []
         _                       -> return []
@@ -247,30 +240,28 @@ parseInput config jnick jinput =
     -- Raw input, no json needed
     if filterBot config jnick
     then KarmaReply jnick Nothing
-    else do
-        -- Clean up the nick
-        let nick = case parse nickDeFuzzifier "(stdin)" jnick of
-                (Left _)  -> jnick
-                (Right n) -> n
-
         -- Parse the message
-        let karma = parse (karmaParse config) "(stdin)" jinput
+    else case (parse (karmaParse config) "(stdin)" jinput) of
+        (Left _)  -> KarmaReply (cleanNick jnick) Nothing -- Failed to find a karma entry
 
-        case karma of
-            (Left _)  -> KarmaReply nick Nothing -- Failed to find a karma entry
-            (Right k) -> do
-                -- Scan the extracted karma expression for the nick
-                let filteredKarma = filterKarma [nick, jnick] k
+        (Right k) ->
+            -- Scan the extracted karma expression for the nick
+            if null (filterKarma [cleanNick jnick, jnick] k)
+            then KarmaReply (cleanNick jnick) Nothing
+            else KarmaReply (cleanNick jnick) (Just $ filterKarma [cleanNick jnick, jnick] k)
+  where
+    -- Cleanup the nickname
+    cleanNick nick = case parse nickDeFuzzifier "(stdin)" nick of
+        (Left _)  -> nick
+        (Right n) -> n
 
-                if null filteredKarma
-                then KarmaReply nick Nothing
-                else KarmaReply nick (Just filteredKarma)
-
-filterKarma :: [T.Text] -> [Karma] -> [Karma]
-filterKarma n = filter (\Karma{kMessage=msg} -> msg `DL.notElem` n)
+    filterKarma :: [T.Text] -> [Karma] -> [Karma]
+    filterKarma n = filter (\Karma{kMessage=msg} -> msg `DL.notElem` n)
 
 
+--
 -- Load the config
+--
 getKarmaConfig :: FilePath -> IO Config
 getKarmaConfig conf = do
     config <- runExceptT (do
