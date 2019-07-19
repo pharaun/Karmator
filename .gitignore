@@ -12,3 +12,5 @@ dist/
 bot.cfg
 .stack-work/
 sqlite3.exe
+target
+Cargo.lock
