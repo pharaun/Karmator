@@ -5,3 +5,5 @@ authors = ["Anja Berens <pharaun666@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+clap = "~2.33.0"
+rusqlite = { version = "~0.19.0", features = [ "bundled" ] }
