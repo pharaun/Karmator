@@ -1,5 +1,5 @@
 [package]
-name = "karmator-run"
+name = "karmator-batches"
 version = "0.1.0"
 authors = ["Anja Berens <pharaun666@gmail.com>"]
 edition = "2018"
