@@ -92,7 +92,7 @@ fn str_amount(amount: i8) -> &'static str {
 }
 
 fn run(matches: &ArgMatches, filename: &str) -> Result<(), Box<dyn Error>> {
-    let min = value_t!(matches, "min", u32).unwrap_or(10);
+    let min = value_t!(matches, "min", u32).unwrap_or(20);
     let delete = matches.is_present("delete");
 
     let conn =
