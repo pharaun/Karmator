@@ -12,3 +12,5 @@ Basically its broken up in a couple parts:
 3. karmator-bin - the actual currently implemented bot bits n' pieces
 
 4. karmator-karma - *TBD* may end up splitting out the karma + database logic out to its own chunk of work
+
+5. karmator-batches - This is where all of the offline batches are stored such as the vote streak detectors for detecting people voting for one thing multiple times in a row.
