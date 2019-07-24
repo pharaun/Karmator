@@ -57,7 +57,13 @@ commandRoute c p t pd nc = choice (
         -- Bot Help text
         match $ customCommandMatch "!help"
         debug "customCommand - !help"
-        pureHandler "!help" (return . (customCommand "Available commands: !uptime !version !sidevotes !karma !givers !rank !ranksidevote"))
+        pureHandler "!help" (return . (customCommand "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote"))
+
+    , do
+        -- Bot Help text
+        match $ customCommandMatch "!github"
+        debug "customCommand - !github"
+        pureHandler "!help" (return . (customCommand "Github repo: https://github.com/pharaun/Karmator"))
 
     -- Karma handlers
     -- Need to "create a database connection" then pass it into all karma handlers
