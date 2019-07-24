@@ -1,32 +1,39 @@
 #[macro_use]
 extern crate clap;
 
-use clap::{Arg, App, SubCommand, ArgMatches};
-use std::path::Path;
+use clap::{App, Arg, ArgMatches, SubCommand};
 use rusqlite as rs;
+use std::path::Path;
 
 use std::error::Error;
 use std::vec::Vec;
-
 
 fn main() {
     let matches = App::new("Karmator db maintance batch")
         .version(crate_version!())
         .author(crate_authors!("\n"))
         .about("Handles the maintance work on the karmator db")
-        .arg(Arg::with_name("FILE")
+        .arg(
+            Arg::with_name("FILE")
                 .help("Database file to operate on")
                 .required(true)
-                .index(1))
-        .subcommand(SubCommand::with_name("runs")
+                .index(1),
+        )
+        .subcommand(
+            SubCommand::with_name("runs")
                 .about("Detect runs of votes")
-                .arg(Arg::with_name("min")
-                    .short("m")
-                    .help("Min count of runs before outputting")
-                    .takes_value(true))
-                .arg(Arg::with_name("delete")
-                    .long("delete")
-                    .help("Delete the runs detected")))
+                .arg(
+                    Arg::with_name("min")
+                        .short("m")
+                        .help("Min count of runs before outputting")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("delete")
+                        .long("delete")
+                        .help("Delete the runs detected"),
+                ),
+        )
         .get_matches();
 
     let filename = matches.value_of("FILE").unwrap_or("db.sqlite");
@@ -35,10 +42,9 @@ fn main() {
         _ => {
             println!("{}", matches.usage());
             Ok(())
-        },
+        }
     };
 }
-
 
 #[derive(Debug, Clone)]
 struct Vote {
@@ -49,9 +55,9 @@ struct Vote {
 }
 impl PartialEq for Vote {
     fn eq(&self, other: &Self) -> bool {
-        (self.by_whom_name == other.by_whom_name) &&
-        (self.for_what_name == other.for_what_name) &&
-        (self.amount == other.amount)
+        (self.by_whom_name == other.by_whom_name)
+            && (self.for_what_name == other.for_what_name)
+            && (self.amount == other.amount)
     }
 }
 
@@ -79,9 +85,9 @@ fn get_run_val(srv: &Vote, pv: &Vote, count: u32) -> RunVal {
 fn str_amount(amount: i8) -> &'static str {
     match amount {
         -1 => "Down",
-        0  => "Side",
-        1  => "Up",
-        _  => panic!("invalid amount"),
+        0 => "Side",
+        1 => "Up",
+        _ => panic!("invalid amount"),
     }
 }
 
@@ -89,10 +95,9 @@ fn run(matches: &ArgMatches, filename: &str) -> Result<(), Box<dyn Error>> {
     let min = value_t!(matches, "min", u32).unwrap_or(10);
     let delete = matches.is_present("delete");
 
-    let conn = rs::Connection::open_with_flags(
-        Path::new(filename),
-        rs::OpenFlags::SQLITE_OPEN_READ_WRITE,
-    ).expect(&format!("Connection error: {}", filename));
+    let conn =
+        rs::Connection::open_with_flags(Path::new(filename), rs::OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .expect(&format!("Connection error: {}", filename));
 
     let mut stmt = conn.prepare("SELECT id, by_whom_name, for_what_name, amount FROM votes")?;
     let vote_iter = stmt.query_map(rs::params![], |row| {
@@ -119,7 +124,7 @@ fn run(matches: &ArgMatches, filename: &str) -> Result<(), Box<dyn Error>> {
                 start_run_vote = Some(vote.clone());
                 prev_vote = Some(vote);
                 count = 1; // Run of 1
-            },
+            }
             (Some(srv), Some(pv)) => {
                 if pv == &vote {
                     // Current vote + prev vote are the same, inc prev vote
@@ -133,13 +138,17 @@ fn run(matches: &ArgMatches, filename: &str) -> Result<(), Box<dyn Error>> {
                     prev_vote = Some(vote);
                     count = 1; // Run of 1
                 }
-            },
+            }
             (_, _) => panic!("Shouldn't happen"),
         };
     }
 
     // Record the last run
-    runs.push(get_run_val(&start_run_vote.unwrap(), &prev_vote.unwrap(), count));
+    runs.push(get_run_val(
+        &start_run_vote.unwrap(),
+        &prev_vote.unwrap(),
+        count,
+    ));
 
     if delete {
         // Scan and delete the offenders
@@ -157,15 +166,19 @@ fn run(matches: &ArgMatches, filename: &str) -> Result<(), Box<dyn Error>> {
         // Now we can scan for anything that > min and print them
         println!(
             "{: >8}, {: >8}, {: >14.14}, {: >14.14}, {: >6}, {: >5}",
-             "start_id", "end_id", "by_whom_name", "for_what_name", "amount", "count"
+            "start_id", "end_id", "by_whom_name", "for_what_name", "amount", "count"
         );
         for r in &runs {
             if r.count > min {
                 println!(
                     "{: >8}, {: >8}, {: >14.14}, {: >14.14}, {: >6}, {: >5}",
-                    r.oldest_id, r.newest_id, r.by_whom_name, r.for_what_name, str_amount(r.amount), r.count
+                    r.oldest_id,
+                    r.newest_id,
+                    r.by_whom_name,
+                    r.for_what_name,
+                    str_amount(r.amount),
+                    r.count
                 );
-
             }
         }
     }
