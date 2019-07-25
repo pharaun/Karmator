@@ -8,12 +8,16 @@ module Plugins.Ping
     ) where
 
 import Karmator.Types
-import Karmator.Filter
+import Plugins.Filter
 import qualified Network.IRC as IRC
+import qualified Data.ByteString as BS
 
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM.TMVar
 import Control.Monad.STM
+
+-- Import the instance
+import qualified Karmator.Server.IRC as IRC
 
 
 --
@@ -32,7 +36,7 @@ data PingDelay = PingDelay
     }
 
 
-pingMatch :: BotEvent IRC.Message -> Bool
+pingMatch :: BotEvent BS.ByteString IRC.Message -> Bool
 pingMatch = exactCommand "PING"
 
 

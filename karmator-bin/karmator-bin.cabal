@@ -19,6 +19,7 @@ source-repository head
 executable karmator
   other-modules:       Plugins.Generic
                        Plugins.Ping
+                       Plugins.Filter
                        Plugins.Channels
                        Plugins.Karma
                        Plugins.Karma.Database
@@ -62,9 +63,13 @@ executable karmator
                      , template-haskell
                      , stm
                      , stm-delay
+                     , safe >= 0.3
 
                      -- Builds
                      , gitrev
+
+                     -- Replacement for parsec
+                     -- , megaparsec
 
 test-suite karmator-bin-tests
   other-modules:       Plugins.Karma.Karma
@@ -88,3 +93,5 @@ test-suite karmator-bin-tests
                      , test-framework-hunit
                      , test-framework-quickcheck2
 
+                     -- Replacement for parsec
+                     -- , megaparsec

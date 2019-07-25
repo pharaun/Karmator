@@ -32,12 +32,15 @@ import qualified Data.Text.Encoding as T
 
 import Karmator.State
 import Karmator.Types
-import Karmator.Filter
+import Plugins.Filter
 import qualified Network.IRC as IRC
 import qualified Network.IRC.Patch as IRC
 
 -- TODO: temp
 import Plugins.Karma.Karma (chanParse)
+
+-- Import the instance
+import qualified Karmator.Server.IRC as IRC
 
 
 --autoJoinChannel network = PersistState
@@ -66,10 +69,10 @@ moduleKey = "Plugins.Channels"
 --
 -- Invite
 --
-inviteMatch :: BotEvent IRC.Message -> Bool
+inviteMatch :: BotEvent BS.ByteString IRC.Message -> Bool
 inviteMatch             = exactCommand "INVITE"
 
-inviteJoin :: MonadIO m => String -> Set B.ByteString -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+inviteJoin :: MonadIO m => String -> Set B.ByteString -> BotEvent BS.ByteString IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 inviteJoin network chanBlacklist mm@(EMessage _ m) = do
     let channel = head $ tail $ IRC.msg_params m
 
@@ -88,6 +91,7 @@ inviteJoin network chanBlacklist mm@(EMessage _ m) = do
 inviteJoin _ _ _ = return []
 
 
+joinMatch :: BotEvent BS.ByteString IRC.Message -> Bool
 joinMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!join")
 joinJoin  network chanBlacklist maxJoin m@(EMessage _ _) =
     case parse chanParse "(irc)" $ T.decodeUtf8 $ messageContent m of
@@ -135,7 +139,10 @@ joinJoin _ _ _ _ = return []
 --       Parameters: <channel> *( "," <channel> ) <user> *( "," <user> )
 --                   [<comment>]
 --
+kickMatch :: BS.ByteString -> BotEvent BS.ByteString IRC.Message -> Bool
 kickMatch nick = liftM2 (&&) (exactCommand "KICK") (nickMatch nick)
+
+partMatch :: BotEvent BS.ByteString IRC.Message -> Bool
 partMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!part")
 
 -- TODO: part works if you are in that said channel, can't give a '!part #chan' like '!join #chan'
@@ -160,6 +167,7 @@ kickPartLeave _ _ = return []
 --
 -- List of channels to join
 --
+listMatch :: BotEvent BS.ByteString IRC.Message -> Bool
 listMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!list")
 listChannel network m = do
     pool <- ask
@@ -177,9 +185,10 @@ listChannel network m = do
 --
 -- TODO: make network aware
 --
+motdMatch :: BotEvent BS.ByteString IRC.Message -> Bool
 motdMatch = exactCommand "004"
 
-motdJoin :: MonadIO m => String -> [B.ByteString] -> Set B.ByteString -> Int -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+motdJoin :: MonadIO m => String -> [B.ByteString] -> Set B.ByteString -> Int -> BotEvent BS.ByteString IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 motdJoin network cs chanBlacklist maxJoin _ = do
     pool <- ask
     chan <- liftIO $ runSqlPool (getState moduleKey readSet (joinKey network)) pool

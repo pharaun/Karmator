@@ -18,7 +18,7 @@ import Control.Monad.Reader
 import qualified Data.ByteString.Char8 as C8
 
 import Karmator.Types
-import Karmator.Filter
+import Plugins.Filter
 import qualified Network.IRC as IRC
 import qualified Network.IRC.Patch as IRC
 
@@ -30,10 +30,14 @@ import Language.Haskell.TH
 -- Git sha
 import Development.GitRev (gitHash)
 
+-- Import the instance
+import qualified Data.ByteString as BS
+import qualified Karmator.Server.IRC as IRC
 
 --
 -- Uptime
 --
+uptimeMatch :: BotEvent BS.ByteString IRC.Message -> Bool
 uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!uptime")
 uptime t m  = do
     now <- liftIO getClockTime
@@ -58,6 +62,7 @@ pretty td = join . intersperse " " . filter (not . null) . map f $
 --
 -- Version
 --
+versionMatch :: BotEvent BS.ByteString IRC.Message -> Bool
 versionMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!version")
 version m = [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ C8.pack versionText]
 
@@ -76,5 +81,6 @@ versionText = concat
 -- Create your own custom Text command (ie !help) will return a predefined
 -- text string
 --
+customCommandMatch :: BS.ByteString -> BotEvent BS.ByteString IRC.Message -> Bool
 customCommandMatch c = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage c)
 customCommand t m = [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ C8.pack t]

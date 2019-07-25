@@ -43,11 +43,11 @@ import Karmator.Types
 -- Establish and run a server connection
 --
 runServer
-    :: (ServerState a b c -> IO ServerEvent)
-    -> (ServerState a b c -> IO ())
-    -> c
+    :: (ServerState a b c d -> IO ServerEvent)
+    -> (ServerState a b c d -> IO ())
+    -> d
     -> ServerConfig a
-    -> TQueue (BotEvent b, TQueue (BotCommand b))
+    -> TQueue (BotEvent b c, TQueue (BotCommand c))
     -> IO ()
 runServer establish lose initialState sc queue = PNT.withSocketsDo $
     -- Establish the logfile
@@ -82,7 +82,7 @@ runServer establish lose initialState sc queue = PNT.withSocketsDo $
 --
 -- Pump Message into Bot Queue
 --
-messagePump :: (Monad m, MonadIO m) => ServerState a b c -> Consumer (BotEvent b) m ()
+messagePump :: (Monad m, MonadIO m) => ServerState a b c d -> Consumer (BotEvent b c) m ()
 messagePump ss = forever $ do
     msg <- await
     liftIO $ atomically $ writeTQueue (botQueue ss) (msg, replyQueue ss)
@@ -90,7 +90,7 @@ messagePump ss = forever $ do
 --
 -- Vacuum, fetch replies and send to network
 --
-messageVacuum :: (Monad m, MonadIO m) => ServerState a b c -> Producer (BotCommand b) m ()
+messageVacuum :: (Monad m, MonadIO m) => ServerState a b c d -> Producer (BotCommand c) m ()
 messageVacuum ss = forever (liftIO (atomically $ readTQueue (replyQueue ss)) >>= yield)
 
 
@@ -98,7 +98,7 @@ messageVacuum ss = forever (liftIO (atomically $ readTQueue (replyQueue ss)) >>=
 -- Emit connection established and set that we successfully connected (socket/tls level)
 -- TODO: merge with ircConfig this does nothing unique with the config
 --
-emitConnectionEstablished :: ServerState a b c -> IO ()
+emitConnectionEstablished :: ServerState a b c d -> IO ()
 emitConnectionEstablished ServerState{botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $
     writeTQueue queue (ConnectionEstablished, sq) >> writeTVar suc True
 
@@ -106,7 +106,7 @@ emitConnectionEstablished ServerState{botQueue=queue, replyQueue=sq, connectionS
 -- Emit connection loss only if we "successfully" connected
 -- TODO: merge with ircConfig this does nothing unique with the config
 --
-emitConnectionLoss :: ServerState a b c -> IO ()
+emitConnectionLoss :: ServerState a b c d -> IO ()
 emitConnectionLoss ServerState{botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $ do
     success <- readTVar suc
     when success (writeTQueue queue (ConnectionLost, sq) >> writeTVar suc False)

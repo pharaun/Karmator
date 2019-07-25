@@ -70,7 +70,7 @@ import qualified Karmator.Server as KS
 -- Server Specific configs
 --
 data SlackConfig = SlackConfig
-    { network :: String
+    { network :: BS.ByteString
     , apiToken :: String
     }
     deriving (Show)
@@ -168,7 +168,7 @@ runServer = KS.runServer establishConnection emitConnectionLoss newSlackMap
 --
 -- slack-api - raises an exception if there was a network error (caught by syncIO)
 --
-establishConnection :: ServerState SlackConfig IRC.Message SlackMap -> IO ServerEvent
+establishConnection :: ServerState SlackConfig BS.ByteString IRC.Message SlackMap -> IO ServerEvent
 establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} = do
     let conf = WS.SlackConfig{ WS._slackApiToken = apiToken sc}
 
@@ -179,7 +179,7 @@ establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} = do
     -- Emit connection established here
     --emitConnectionEstablished ss
 -- )
-handleSlack :: ServerState SlackConfig IRC.Message SlackMap -> WS.SlackHandle -> IO ServerEvent
+handleSlack :: ServerState SlackConfig BS.ByteString IRC.Message SlackMap -> WS.SlackHandle -> IO ServerEvent
 handleSlack ss@ServerState{config=ssc, logStream=l, botState=bs} h = do
     emitConnectionEstablished ss
 
@@ -215,7 +215,7 @@ slackConsumer h = forever $ do
 --
 -- Transform Slack events into Irc messages to pump it
 --
-slackToIrc :: MonadIO m => String -> TVar SlackMap -> WS.SlackHandle -> Handle -> Pipe WS.Event (BotEvent IRC.Message) m r
+slackToIrc :: MonadIO m => BS.ByteString -> TVar SlackMap -> WS.SlackHandle -> Handle -> Pipe WS.Event (BotEvent BS.ByteString IRC.Message) m r
 slackToIrc snet sm h l = forever $ do
     e <- await
 
@@ -348,7 +348,7 @@ onlyMessages = forever $ do
 --
 -- Log Irc message
 --
-eIrcFormat :: BotEvent IRC.Message -> String
+eIrcFormat :: BotEvent BS.ByteString IRC.Message -> String
 eIrcFormat x =
     case x of
         EMessage _ x' -> C8.unpack (IRC.encode x')
@@ -372,6 +372,33 @@ getServerConfig c s = do
     reconn    <- get c s "reconn"
     reWait    <- get c s "reconn_wait" -- In seconds
 
-    let network = DL.dropWhile ('.' ==) s
+    let network = C8.pack $ DL.dropWhile ('.' ==) s
     let config = SlackConfig network apitoken
     return $ ServerConfig config reconn (reWait * 1000000) logfile logslack
+
+
+--
+-- Matchers for the IRC instance
+--
+--instance BotEventMatch BS.ByteString IRC.Message where
+--    exactCommand c (EMessage _ m) = c == IRC.msg_command m
+--    exactCommand _ _              = False
+--
+--    prefixMessage c (EMessage _ m) = c `BS.isPrefixOf` (BS.dropWhile (space ==) $
+--                                     headDef "" (tailSafe $ IRC.msg_params m))
+--      where
+--        space = BS.head " "
+--    prefixMessage _ _              = False
+--
+--    commandMessage c (EMessage _ m) = c == (BS.takeWhile (space /=) $
+--                                      BS.dropWhile (space ==) $
+--                                      headDef "" (tailSafe $ IRC.msg_params m))
+--      where
+--        space = BS.head " "
+--    commandMessage _ _              = False
+--
+--    nickMatch n (EMessage _ m) = n == (head $ tail $ IRC.msg_params m)
+--    nickMatch _ _              = False
+--
+--    networkMatch n (EMessage n' _) = n == n'
+--    networkMatch _ _               = False

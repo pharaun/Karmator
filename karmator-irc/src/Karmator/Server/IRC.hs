@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, MultiParamTypeClasses #-}
 module Karmator.Server.IRC
     ( runServer
     , IrcConfig
@@ -64,7 +64,7 @@ import qualified Karmator.Server as KS
 -- Config specific bit for this server
 --
 data IrcConfig = IrcConfig
-    { network :: String
+    { network :: BS.ByteString
     , server :: String
     , port :: PortNumber
     , nicks :: [BS.ByteString] -- First one then alternatives in descending order
@@ -105,7 +105,7 @@ runServer = KS.runServer establishConnection emitConnectionLoss ()
 --
 -- NSB.sendAll - raises an exception if there was a network error (caught by syncIO)
 --
-establishConnection :: ServerState IrcConfig IRC.Message () -> IO ServerEvent
+establishConnection :: ServerState IrcConfig BS.ByteString IRC.Message () -> IO ServerEvent
 establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} =
     case tlsSettings sc of
         Nothing  -> PNT.connect (server sc) (show $ port sc) $ \(sock, _)        -> handleIRC (PNT.fromSocket sock 8192) (PNT.toSocket sock) ss
@@ -114,7 +114,7 @@ establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} =
 --
 -- The IRC handler and protocol
 --
-handleIRC :: Producer BS.ByteString IO () -> Consumer BS.ByteString IO () -> ServerState IrcConfig IRC.Message () -> IO ServerEvent
+handleIRC :: Producer BS.ByteString IO () -> Consumer BS.ByteString IO () -> ServerState IrcConfig BS.ByteString IRC.Message () -> IO ServerEvent
 handleIRC recv send ss@ServerState{config=ssc@ServerConfig{serverSpecific=sc}, logStream=l} = do
     -- Emit connection established here
     emitConnectionEstablished ss
@@ -140,7 +140,7 @@ handleIRC recv send ss@ServerState{config=ssc@ServerConfig{serverSpecific=sc}, l
 --
 -- Parses incoming irc messages and emits any errors to a log and keep going
 --
-ircParserErrorLogging :: MonadIO m => String -> Handle -> Producer BS.ByteString m () -> Producer (BotEvent IRC.Message) m ()
+ircParserErrorLogging :: MonadIO m => BS.ByteString -> Handle -> Producer BS.ByteString m () -> Producer (BotEvent BS.ByteString IRC.Message) m ()
 ircParserErrorLogging network' l producer = do
     (result, rest) <- lift $ runStateT (PA.parse IRC.message) producer
 
@@ -165,7 +165,7 @@ ircParserErrorLogging network' l producer = do
 -- TODO: move this into an Auth Route for handling more complicated
 -- handshake sequence.
 --
-handshake :: Monad m => ServerState IrcConfig a () -> Producer IRC.Message m ()
+handshake :: Monad m => ServerState IrcConfig BS.ByteString a () -> Producer IRC.Message m ()
 handshake ServerState{config=ServerConfig{serverSpecific=sc}} = do
     let nick = headNote "Server.hs: handshake - please set atleast one nickname" $ nicks sc
     let user = userName sc
@@ -228,7 +228,7 @@ logParsingException h (PA.ParsingError c m) = BS.hPutStr h $ BS.concat
 getServerConfig
     :: ConfigParser
     -> String
-    -> ExceptT CPError IO (ServerConfig IrcConfig, (String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString]))
+    -> ExceptT CPError IO (ServerConfig IrcConfig, (BS.ByteString, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString]))
 getServerConfig c s = do
     host      <- get c s "host"
     port      <- get c s "port"
@@ -271,6 +271,33 @@ getServerConfig c s = do
                             }
                         }
 
-    let network = DL.dropWhile ('.' ==) s
+    let network = C8.pack $ DL.dropWhile ('.' ==) s
     let config = IrcConfig network host (fromInteger port) nicks user pass tls
     return (ServerConfig config reconn (reWait * 1000000) logfile logirc, (network, channel, Set.fromList chan_bl, chan_join, nicks))
+
+
+--
+-- Matchers for the IRC instance
+--
+instance BotEventMatch BS.ByteString IRC.Message where
+    exactCommand c (EMessage _ m) = c == IRC.msg_command m
+    exactCommand _ _              = False
+
+    prefixMessage c (EMessage _ m) = c `BS.isPrefixOf` (BS.dropWhile (space ==) $
+                                     headDef "" (tailSafe $ IRC.msg_params m))
+      where
+        space = BS.head " "
+    prefixMessage _ _              = False
+
+    commandMessage c (EMessage _ m) = c == (BS.takeWhile (space /=) $
+                                      BS.dropWhile (space ==) $
+                                      headDef "" (tailSafe $ IRC.msg_params m))
+      where
+        space = BS.head " "
+    commandMessage _ _              = False
+
+    nickMatch n (EMessage _ m) = n == (headDef "" $ tailSafe $ IRC.msg_params m)
+    nickMatch _ _              = False
+
+    networkMatch n (EMessage n' _) = n == n'
+    networkMatch _ _               = False

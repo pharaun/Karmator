@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, ExistentialQuantification, DeriveFunctor, FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings, ExistentialQuantification, DeriveFunctor, FlexibleInstances, MultiParamTypeClasses #-}
 module Karmator.Types
     ( ServerConfig(..)
     , ServerState(..)
@@ -10,6 +10,7 @@ module Karmator.Types
     -- Events
     , ServerEvent(..)
     , BotEvent(..)
+    , BotEventMatch(..)
     , BotCommand(..)
 
     -- Internal
@@ -48,16 +49,16 @@ data ServerConfig a = ServerConfig
 
 
 -- Ephemeral State:
-data ServerState a b c = ServerState
+data ServerState a b c d = ServerState
     { config :: ServerConfig a
     , logStream :: Handle
 
-    , botQueue :: TQueue (BotEvent b, TQueue (BotCommand b))
-    , replyQueue :: TQueue (BotCommand b)
+    , botQueue :: TQueue (BotEvent b c, TQueue (BotCommand c))
+    , replyQueue :: TQueue (BotCommand c)
 
     , connectionSuccess :: TVar Bool
 
-    , botState :: TVar c
+    , botState :: TVar d
     }
 
 -- Server Connect Loop Events
@@ -77,11 +78,24 @@ data ServerEvent
 --   1. Bot init
 --   2. Bot shutdown
 --   3. Auth completed (failed?)
-data BotEvent a
+data BotEvent a b
     = ConnectionEstablished
     | ConnectionLost
-    | EMessage String a
+    | EMessage a b
     deriving (Show)
+
+--
+-- Event Match for common matchers
+--
+class BotEventMatch a b where
+    exactCommand   :: a -> BotEvent a b -> Bool
+    -- TODO: does not support multi-channel privmsg
+    prefixMessage  :: a -> BotEvent a b -> Bool
+    -- TODO: does not support multi-channel privmsg
+    -- TODO: add in a config prefix for defining a command
+    commandMessage :: a -> BotEvent a b -> Bool
+    nickMatch      :: a -> BotEvent a b -> Bool
+    networkMatch   :: a -> BotEvent a b -> Bool
 
 -- Bot/Server Commands
 --  1. Disconnect - if sent to a server, disconnect
@@ -111,9 +125,9 @@ data Segment m p i o n
     | Handler (CmdRef m p i o)
     deriving (Functor, Show)
 
-type RouteT m p a b = FreeT (Segment m p (BotEvent b) [BotCommand b]) m a
+type RouteT m p a b c = FreeT (Segment m p (BotEvent b c) [BotCommand c]) m a
 -- TODO: maybe neat to add in support for varying persistance method, but for now force one
-type Route a b = RouteT IO ConnectionPool a b
+type Route a b c = RouteT IO ConnectionPool a b c
 
 
 -- Handler Type
@@ -131,7 +145,7 @@ instance Show (CmdRef m p i o) where
     show (PCmdRef n _ _)    = "Persistance Command: " ++ show n
     show (PSCmdRef n _ _ _) = "Persistance Stateful Command: " ++ show n
 
-type CmdHandler a = CmdRef IO ConnectionPool (BotEvent a) [BotCommand a]
+type CmdHandler a b = CmdRef IO ConnectionPool (BotEvent a b) [BotCommand b]
 
 
 -- TODO: Delayed messages and external handler, could in theory be a new serverRunner,

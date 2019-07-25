@@ -18,7 +18,6 @@ source-repository head
 
 library
   exposed-modules:     Karmator.Server.IRC
-                       Karmator.Filter
                        Network.IRC.Patch
   default-language:    Haskell2010
   ghc-options:        -Wall -fno-warn-missing-signatures -O2
@@ -31,6 +30,7 @@ library
                      , bytestring >= 0.10
                      , utf8-string
                      , text >= 1.2.0.0
+                     , safe >= 0.3
                      , free
                      , irc >= 0.6
                      , mtl
@@ -46,7 +46,6 @@ library
                      , transformers >=0.4
                      , x509-system
                      , errors >= 1.4.0
-                     , safe >= 0.3
                      , exceptions >= 0.6
                      -- Stateful management stuff
                      , persistent >=2.1.1.7
