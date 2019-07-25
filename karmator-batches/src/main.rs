@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate clap;
 
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{App, Arg, ArgMatches, SubCommand, AppSettings};
 use rusqlite as rs;
 use std::path::Path;
 
@@ -13,6 +13,7 @@ fn main() {
         .version(crate_version!())
         .author(crate_authors!("\n"))
         .about("Handles the maintance work on the karmator db")
+        .setting(AppSettings::ColoredHelp)
         .arg(
             Arg::with_name("FILE")
                 .help("Database file to operate on")
