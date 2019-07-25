@@ -11,6 +11,7 @@ import Karmator.Types
 import Plugins.Filter
 import qualified Network.IRC as IRC
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as C8
 
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM.TMVar
@@ -36,8 +37,8 @@ data PingDelay = PingDelay
     }
 
 
-pingMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-pingMatch = exactCommand "PING"
+pingMatch :: BotEvent IRC.Message -> Bool
+pingMatch = exactCommand $ C8.pack "PING"
 
 
 --
@@ -52,7 +53,7 @@ pingMatch = exactCommand "PING"
 
 -- TODO: Unsafe head
 --ping :: Monad m => (TVar PingDelay) -> BotEvent -> m [BotCommand]
-ping _ (EMessage _ m) = return [CMessage $ IRC.pong $ head $ IRC.msg_params m]
+ping _ (EMessage m) = return [CMessage $ IRC.pong $ head $ IRC.msg_params m]
 ping _ _ = return []
 
 

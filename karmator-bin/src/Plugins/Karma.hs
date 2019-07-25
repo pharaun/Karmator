@@ -35,6 +35,7 @@ import Formatting
 import Text.Parsec
 import qualified Data.ByteString as B
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.List as DL
 import qualified Data.Text as T
@@ -64,32 +65,32 @@ import qualified Karmator.Server.IRC as IRC
 --
 -- Karma Query
 --
-karmaMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-karmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!karma")
+karmaMatch :: BotEvent IRC.Message -> Bool
+karmaMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!karma")
 
-karma :: MonadIO m => Config -> BotEvent BS.ByteString IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+karma :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 --karma = karmaStats KarmaReceived 3 False False
 karma = karmaStats (KST KarmaReceived) 3
 
-karmaGiversMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-karmaGiversMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!givers")
+karmaGiversMatch :: BotEvent IRC.Message -> Bool
+karmaGiversMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!givers")
 
-karmaGivers :: MonadIO m => Config -> BotEvent BS.ByteString IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+karmaGivers :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 --karmaGivers = karmaStats KarmaGiven 3 True False
 karmaGivers = karmaStats (KST KarmaGiven) 3
 
-karmaSidevotesMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-karmaSidevotesMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!sidevotes")
+karmaSidevotesMatch :: BotEvent IRC.Message -> Bool
+karmaSidevotesMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!sidevotes")
 
-karmaSidevotes :: MonadIO m => Config -> BotEvent BS.ByteString IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+karmaSidevotes :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 --karmaSidevotes = karmaStats KarmaGiven 3 True True
 karmaSidevotes = karmaStats KSTSidevote 3
 
 
 data KarmaStatsType = KST KarmaTable | KSTSidevote
 
-karmaStats :: (MonadIO m) => KarmaStatsType -> Int64 -> Config -> BotEvent BS.ByteString IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-karmaStats karmaType countMax conf m@(EMessage _ _) =
+karmaStats :: (MonadIO m) => KarmaStatsType -> Int64 -> Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+karmaStats karmaType countMax conf m@(EMessage _) =
     case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)   -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
         (Right []) -> do
@@ -134,21 +135,21 @@ renderTotalKarma xs = TL.intercalate "; " $ map (uncurry (format (stext % " (" %
 --
 -- Rank commands
 --
-karmaRankMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-karmaRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!rank")
+karmaRankMatch :: BotEvent IRC.Message -> Bool
+karmaRankMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!rank")
 
-karmaRank :: MonadIO m => Config -> BotEvent BS.ByteString IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+karmaRank :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 karmaRank = handleKarmaRank False
 
-karmaSidevotesRankMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-karmaSidevotesRankMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!ranksidevote")
+karmaSidevotesRankMatch :: BotEvent IRC.Message -> Bool
+karmaSidevotesRankMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!ranksidevote")
 
-karmaSidevotesRank :: MonadIO m => Config -> BotEvent BS.ByteString IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+karmaSidevotesRank :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 karmaSidevotesRank = handleKarmaRank True
 
 
-handleKarmaRank :: MonadIO m => Bool -> Config -> BotEvent BS.ByteString IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-handleKarmaRank sidevotes conf m@(EMessage _ _) =
+handleKarmaRank :: MonadIO m => Bool -> Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+handleKarmaRank sidevotes conf m@(EMessage _) =
     case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)       -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
         (Right x)      -> do
@@ -189,11 +190,11 @@ renderRank sidevotes nick whom target = do
 --
 -- Karma Ingestion
 --
-rawKarmaMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-rawKarmaMatch = liftM2 (&&) (exactCommand "PRIVMSG") (not . prefixMessage "!")
+rawKarmaMatch :: BotEvent IRC.Message -> Bool
+rawKarmaMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (not . prefixMessage (C8.pack "!"))
 
-rawKarma :: MonadIO m => Config -> BotEvent BS.ByteString IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-rawKarma conf m@(EMessage _ _) = do
+rawKarma :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+rawKarma conf m@(EMessage _) = do
     -- ByteString -> utf8
     -- TODO: error handling
     let msg   = T.decodeUtf8 $ messageContent m

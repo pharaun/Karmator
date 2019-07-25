@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Plugins.Generic
     ( uptimeMatch
     , uptime
@@ -37,8 +37,8 @@ import qualified Karmator.Server.IRC as IRC
 --
 -- Uptime
 --
-uptimeMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-uptimeMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!uptime")
+uptimeMatch :: BotEvent IRC.Message -> Bool
+uptimeMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!uptime")
 uptime t m  = do
     now <- liftIO getClockTime
     return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) (C8.pack $ pretty $ diffClockTimes now t)]
@@ -62,8 +62,8 @@ pretty td = join . intersperse " " . filter (not . null) . map f $
 --
 -- Version
 --
-versionMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-versionMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!version")
+versionMatch :: BotEvent IRC.Message -> Bool
+versionMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!version")
 version m = [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ C8.pack versionText]
 
 versionText = concat
@@ -81,6 +81,6 @@ versionText = concat
 -- Create your own custom Text command (ie !help) will return a predefined
 -- text string
 --
-customCommandMatch :: BS.ByteString -> BotEvent BS.ByteString IRC.Message -> Bool
-customCommandMatch c = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage c)
+customCommandMatch :: BS.ByteString -> BotEvent IRC.Message -> Bool
+customCommandMatch c = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage c)
 customCommand t m = [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ C8.pack t]

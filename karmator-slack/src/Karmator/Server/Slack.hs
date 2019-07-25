@@ -70,8 +70,7 @@ import qualified Karmator.Server as KS
 -- Server Specific configs
 --
 data SlackConfig = SlackConfig
-    { network :: BS.ByteString
-    , apiToken :: String
+    { apiToken :: String
     }
     deriving (Show)
 
@@ -168,7 +167,7 @@ runServer = KS.runServer establishConnection emitConnectionLoss newSlackMap
 --
 -- slack-api - raises an exception if there was a network error (caught by syncIO)
 --
-establishConnection :: ServerState SlackConfig BS.ByteString IRC.Message SlackMap -> IO ServerEvent
+establishConnection :: ServerState SlackConfig IRC.Message SlackMap -> IO ServerEvent
 establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} = do
     let conf = WS.SlackConfig{ WS._slackApiToken = apiToken sc}
 
@@ -179,15 +178,15 @@ establishConnection ss@ServerState{config=ServerConfig{serverSpecific=sc}} = do
     -- Emit connection established here
     --emitConnectionEstablished ss
 -- )
-handleSlack :: ServerState SlackConfig BS.ByteString IRC.Message SlackMap -> WS.SlackHandle -> IO ServerEvent
+handleSlack :: ServerState SlackConfig IRC.Message SlackMap -> WS.SlackHandle -> IO ServerEvent
 handleSlack ss@ServerState{config=ssc, logStream=l, botState=bs} h = do
     emitConnectionEstablished ss
 
     -- Start bot streaming
     loser <- race
---        (runEffect (slackProducer h >-> logShow "" l >-> slackToIrc (network $ serverSpecific ssc) bs h l >-> logFormat "\t" eIrcFormat l >-> messagePump ss))
+--        (runEffect (slackProducer h >-> logShow "" l >-> slackToIrc bs h l >-> logFormat "\t" eIrcFormat l >-> messagePump ss))
 --        (runEffect (messageVacuum ss >-> onlyMessages >-> logFormat "\t\t" ircFormat l >-> ircToSlack h bs >-> logShow "\t\t\t" l >-> slackConsumer h))
-        (runEffect (slackProducer h >-> slackToIrc (network $ serverSpecific ssc) bs h l >-> messagePump ss))
+        (runEffect (slackProducer h >-> slackToIrc bs h l >-> messagePump ss))
         (runEffect (messageVacuum ss >-> onlyMessages >-> ircToSlack h bs >-> slackConsumer h))
 
     -- Identify who terminated first (the send or the recv)
@@ -215,8 +214,8 @@ slackConsumer h = forever $ do
 --
 -- Transform Slack events into Irc messages to pump it
 --
-slackToIrc :: MonadIO m => BS.ByteString -> TVar SlackMap -> WS.SlackHandle -> Handle -> Pipe WS.Event (BotEvent BS.ByteString IRC.Message) m r
-slackToIrc snet sm h l = forever $ do
+slackToIrc :: MonadIO m => TVar SlackMap -> WS.SlackHandle -> Handle -> Pipe WS.Event (BotEvent IRC.Message) m r
+slackToIrc sm h l = forever $ do
     e <- await
 
     -- TODO: handle BotIds
@@ -234,7 +233,7 @@ slackToIrc snet sm h l = forever $ do
             msg' <- remapMessage sm h l msg
             let message = IRC.Message (Just prefix) (C8.pack "PRIVMSG") [TE.encodeUtf8 cid, TE.encodeUtf8 msg']
 
-            yield (EMessage snet message)
+            yield (EMessage message)
             )
         _ -> return ()
 
@@ -348,10 +347,10 @@ onlyMessages = forever $ do
 --
 -- Log Irc message
 --
-eIrcFormat :: BotEvent BS.ByteString IRC.Message -> String
+eIrcFormat :: BotEvent IRC.Message -> String
 eIrcFormat x =
     case x of
-        EMessage _ x' -> C8.unpack (IRC.encode x')
+        EMessage x' -> C8.unpack (IRC.encode x')
         _ -> ""
 
 ircFormat :: IRC.Message -> String
@@ -372,9 +371,9 @@ getServerConfig c s = do
     reconn    <- get c s "reconn"
     reWait    <- get c s "reconn_wait" -- In seconds
 
-    let network = C8.pack $ DL.dropWhile ('.' ==) s
-    let config = SlackConfig network apitoken
-    return $ ServerConfig config reconn (reWait * 1000000) logfile logslack
+    let network = DL.dropWhile ('.' ==) s
+    let config = SlackConfig apitoken
+    return $ ServerConfig config network reconn (reWait * 1000000) logfile logslack
 
 
 --

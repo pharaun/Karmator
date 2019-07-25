@@ -43,11 +43,11 @@ import Karmator.Types
 -- Establish and run a server connection
 --
 runServer
-    :: (ServerState a b c d -> IO ServerEvent)
-    -> (ServerState a b c d -> IO ())
-    -> d
+    :: (ServerState a b c -> IO ServerEvent)
+    -> (ServerState a b c -> IO ())
+    -> c
     -> ServerConfig a
-    -> TQueue (BotEvent b c, TQueue (BotCommand c))
+    -> TQueue (String, BotEvent b, TQueue (BotCommand b))
     -> IO ()
 runServer establish lose initialState sc queue = PNT.withSocketsDo $
     -- Establish the logfile
@@ -82,15 +82,15 @@ runServer establish lose initialState sc queue = PNT.withSocketsDo $
 --
 -- Pump Message into Bot Queue
 --
-messagePump :: (Monad m, MonadIO m) => ServerState a b c d -> Consumer (BotEvent b c) m ()
+messagePump :: (Monad m, MonadIO m) => ServerState a b c -> Consumer (BotEvent b) m ()
 messagePump ss = forever $ do
     msg <- await
-    liftIO $ atomically $ writeTQueue (botQueue ss) (msg, replyQueue ss)
+    liftIO $ atomically $ writeTQueue (botQueue ss) ((networkTag $ config ss), msg, replyQueue ss)
 
 --
 -- Vacuum, fetch replies and send to network
 --
-messageVacuum :: (Monad m, MonadIO m) => ServerState a b c d -> Producer (BotCommand c) m ()
+messageVacuum :: (Monad m, MonadIO m) => ServerState a b c -> Producer (BotCommand b) m ()
 messageVacuum ss = forever (liftIO (atomically $ readTQueue (replyQueue ss)) >>= yield)
 
 
@@ -98,18 +98,18 @@ messageVacuum ss = forever (liftIO (atomically $ readTQueue (replyQueue ss)) >>=
 -- Emit connection established and set that we successfully connected (socket/tls level)
 -- TODO: merge with ircConfig this does nothing unique with the config
 --
-emitConnectionEstablished :: ServerState a b c d -> IO ()
-emitConnectionEstablished ServerState{botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $
-    writeTQueue queue (ConnectionEstablished, sq) >> writeTVar suc True
+emitConnectionEstablished :: ServerState a b c -> IO ()
+emitConnectionEstablished ServerState{config=ServerConfig{networkTag=nt}, botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $
+    writeTQueue queue (nt, ConnectionEstablished, sq) >> writeTVar suc True
 
 --
 -- Emit connection loss only if we "successfully" connected
 -- TODO: merge with ircConfig this does nothing unique with the config
 --
-emitConnectionLoss :: ServerState a b c d -> IO ()
-emitConnectionLoss ServerState{botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $ do
+emitConnectionLoss :: ServerState a b c -> IO ()
+emitConnectionLoss ServerState{config=ServerConfig{networkTag=nt}, botQueue=queue, replyQueue=sq, connectionSuccess=suc} = atomically $ do
     success <- readTVar suc
-    when success (writeTQueue queue (ConnectionLost, sq) >> writeTVar suc False)
+    when success (writeTQueue queue (nt, ConnectionLost, sq) >> writeTVar suc False)
 
 --
 -- Log anything that is showable

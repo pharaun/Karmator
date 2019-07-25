@@ -21,6 +21,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Control.Monad.Reader
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as C8
 import Database.Persist.Sql
 import Data.ByteString.UTF8 (fromString, toString)
 import Data.List.Split (chunksOf)
@@ -69,11 +70,11 @@ moduleKey = "Plugins.Channels"
 --
 -- Invite
 --
-inviteMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-inviteMatch             = exactCommand "INVITE"
+inviteMatch :: BotEvent IRC.Message -> Bool
+inviteMatch             = exactCommand $ C8.pack "INVITE"
 
-inviteJoin :: MonadIO m => String -> Set B.ByteString -> BotEvent BS.ByteString IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-inviteJoin network chanBlacklist mm@(EMessage _ m) = do
+inviteJoin :: MonadIO m => String -> Set B.ByteString -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+inviteJoin network chanBlacklist mm@(EMessage m) = do
     let channel = head $ tail $ IRC.msg_params m
 
     if Set.member channel chanBlacklist
@@ -91,9 +92,9 @@ inviteJoin network chanBlacklist mm@(EMessage _ m) = do
 inviteJoin _ _ _ = return []
 
 
-joinMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-joinMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!join")
-joinJoin  network chanBlacklist maxJoin m@(EMessage _ _) =
+joinMatch :: BotEvent IRC.Message -> Bool
+joinMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack"!join")
+joinJoin  network chanBlacklist maxJoin m@(EMessage _) =
     case parse chanParse "(irc)" $ T.decodeUtf8 $ messageContent m of
         (Left _)        -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Channel parse failed"]
         (Right [])      -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Please specify a channel to join"]
@@ -139,15 +140,15 @@ joinJoin _ _ _ _ = return []
 --       Parameters: <channel> *( "," <channel> ) <user> *( "," <user> )
 --                   [<comment>]
 --
-kickMatch :: BS.ByteString -> BotEvent BS.ByteString IRC.Message -> Bool
-kickMatch nick = liftM2 (&&) (exactCommand "KICK") (nickMatch nick)
+kickMatch :: BS.ByteString -> BotEvent IRC.Message -> Bool
+kickMatch nick = liftM2 (&&) (exactCommand $ C8.pack "KICK") (nickMatch nick)
 
-partMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-partMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!part")
+partMatch :: BotEvent IRC.Message -> Bool
+partMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!part")
 
 -- TODO: part works if you are in that said channel, can't give a '!part #chan' like '!join #chan'
 -- TODO: do we want to prevent !part from working for a "mandatory" channels (in the config)?
-kickPartLeave network mm@(EMessage _ m) = do
+kickPartLeave network mm@(EMessage m) = do
     let channel = head $ IRC.msg_params m
 
     pool <- ask
@@ -167,8 +168,8 @@ kickPartLeave _ _ = return []
 --
 -- List of channels to join
 --
-listMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-listMatch = liftM2 (&&) (exactCommand "PRIVMSG") (commandMessage "!list")
+listMatch :: BotEvent IRC.Message -> Bool
+listMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!list")
 listChannel network m = do
     pool <- ask
     chan <- liftIO $ runSqlPool (getState moduleKey readSet (joinKey network)) pool
@@ -185,10 +186,10 @@ listChannel network m = do
 --
 -- TODO: make network aware
 --
-motdMatch :: BotEvent BS.ByteString IRC.Message -> Bool
-motdMatch = exactCommand "004"
+motdMatch :: BotEvent IRC.Message -> Bool
+motdMatch = exactCommand $ C8.pack "004"
 
-motdJoin :: MonadIO m => String -> [B.ByteString] -> Set B.ByteString -> Int -> BotEvent BS.ByteString IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+motdJoin :: MonadIO m => String -> [B.ByteString] -> Set B.ByteString -> Int -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
 motdJoin network cs chanBlacklist maxJoin _ = do
     pool <- ask
     chan <- liftIO $ runSqlPool (getState moduleKey readSet (joinKey network)) pool

@@ -40,7 +40,7 @@ import qualified Karmator.Server.Slack as Slack
 --
 -- TODO: maybe one possible thing is to offload all of the ConnectionPool into the bot config (since it'll be in the core)
 --
-commandRoute :: Config -> ConnectionPool -> ClockTime -> (TVar PingDelay) -> [(BS.ByteString, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])] -> Route [CmdHandler BS.ByteString IRC.Message] BS.ByteString IRC.Message
+commandRoute :: Config -> ConnectionPool -> ClockTime -> (TVar PingDelay) -> [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])] -> Route [CmdHandler IRC.Message] IRC.Message
 commandRoute c p t pd nc = choice (
     [ do
         match uptimeMatch
@@ -183,7 +183,7 @@ getArgs = execParser opts
         )
 
 -- Load the bot config
-getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig IRC.IrcConfig], [(BS.ByteString, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])], [ServerConfig Slack.SlackConfig])
+getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig IRC.IrcConfig], [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])], [ServerConfig Slack.SlackConfig])
 getBotConfig conf = do
     config <- runExceptT (do
         c <- join $ liftIO $ readfile emptyCP conf
