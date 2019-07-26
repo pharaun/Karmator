@@ -2,7 +2,7 @@ name:                karmator-bin
 author:              Anja Berens
 maintainer:          pharaun666@gmail.com
 copyright:           (c) Anja Berens
-version:             0.5.0.0
+version:             0.6.0.0
 license:             BSD3
 --license-file:        LICENSE
 build-type:          Simple
