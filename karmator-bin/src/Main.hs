@@ -29,13 +29,29 @@ import Plugins.Ping
 import Plugins.Channels
 import Plugins.Generic
 import Plugins.Karma
-import Plugins.Karma.Types (Config)
+import Plugins.Karma.Types (Config(..))
 
 import qualified Network.IRC as IRC
 import qualified Karmator.Server.IRC as IRC
 
 import qualified Slack.Message as Slack
 import qualified Karmator.Server.Slack as Slack
+
+--
+-- Config bits
+--
+import Data.ConfigFile
+import Data.Set (Set)
+import qualified Data.Set as Set
+-- TODO: detect osx vs unix and get the cert store that way
+import qualified System.X509.Unix as TLS
+--import qualified System.X509.MacOS as TLS
+import qualified Data.X509.Validation as TLS
+import qualified Data.ByteString.Char8 as C8
+import qualified Data.ByteString.Base16 as B16
+import qualified Network.TLS as TLS
+import qualified Pipes.Network.TCP.TLS as TLS
+import qualified Network.Simple.TCP.TLS as TLS
 
 
 --
@@ -220,12 +236,15 @@ getBotConfig conf = do
 
         -- Get a list of section, each is a server config
         (ircServers, networkChannels) <- liftM splitConf
-                                       $ mapM (IRC.getServerConfig c)
+                                       $ mapM (\s -> (do
+                                                (z, l) <- getIrcServerConfig c s
+                                                y <- getCommonServerConfig c s z
+                                                return (y, l)))
                                        $ filter ("bot" /=)
                                        $ filter (DL.isPrefixOf "irc.")
                                        $ sections c
 
-        slackServers <- mapM (Slack.getServerConfig c)
+        slackServers <- mapM (\s -> getSlackServerConfig c s >>= getCommonServerConfig c s)
                       $ filter ("bot" /=)
                       $ filter (DL.isPrefixOf "slack.")
                       $ sections c
@@ -238,3 +257,99 @@ getBotConfig conf = do
   where
     splitConf xs = (map fst xs, map snd xs)
 
+
+--
+-- Load the karma config
+--
+getKarmaConfig :: ConfigParser -> ExceptT CPError IO Config
+getKarmaConfig c = do
+    strictMatch <- get c "bot.karma" "nick.strict_match"
+    prefixMatch <- get c "bot.karma" "nick.prefix_match"
+    suffixMatch <- get c "bot.karma" "nick.suffix_match"
+
+    -- Force the Parser to invoke Read on the Partial/KarmaTypes
+    partialKarma <- get c "bot.karma" "karma.partial"
+    totalKarma   <- get c "bot.karma" "karma.total"
+
+    return $ Config strictMatch prefixMatch suffixMatch partialKarma totalKarma
+
+
+--
+-- Server Config
+--
+getCommonServerConfig
+    :: ConfigParser
+    -> String
+    -> a
+    -> ExceptT CPError IO (ServerConfig a)
+getCommonServerConfig c s nc = do
+    logfile   <- get c s "common.logfile"
+    lognet    <- get c s "common.lognet"
+    reconn    <- get c s "common.reconn"
+    reWait    <- get c s "common.reconn_wait" -- In seconds
+
+    let network = DL.dropWhile ('.' ==) s
+    -- TODO: make this take a func, and invoke the config for the network
+    -- config, but need to standardize the irc config first
+    return $ ServerConfig nc network reconn (reWait * 1000000) logfile lognet
+
+
+--
+-- Irc Server Config
+--
+getIrcServerConfig
+    :: ConfigParser
+    -> String
+    -> ExceptT CPError IO (IRC.IrcConfig, (String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString]))
+getIrcServerConfig c s = do
+    host      <- get c s "host"
+    port      <- get c s "port"
+    nicks     <- get c s "nicks"
+    user      <- get c s "user"
+    pass      <- get c s "pass"
+    channel   <- get c s "channel" :: ExceptT CPError IO [BS.ByteString] -- Mandatory channels per host
+    chan_bl   <- get c s "channel_blacklist" :: ExceptT CPError IO [BS.ByteString] -- Channel blacklist per host
+    chan_join <- get c s "channel_joins" :: ExceptT CPError IO Int
+    tlsHost   <- get c s "tls_host"
+    tlsHash   <- get c s "tls_fingerprint" -- Hex sha256
+
+    tls <- case tlsHost of
+        Nothing -> return Nothing
+        Just th -> do
+            -- Setup the TLS configuration
+            tls <- liftIO $ TLS.makeClientSettings Nothing host (show port) True <$> TLS.getSystemCertificateStore
+            let tls' = tls
+                    { TLS.clientServerIdentification = (th, C8.pack $ show port)
+                    , TLS.clientHooks = (TLS.clientHooks tls)
+                        { TLS.onCertificateRequest = \_ -> return Nothing
+                        }
+                    }
+
+            case tlsHash of
+                Nothing    -> return $ Just tls'
+                Just thash -> do
+                    -- Setup hash
+                    let unpackedHash = fst $ B16.decode $ C8.pack thash
+                    let sid = (th, C8.pack $ show port)
+                    let cache = TLS.exceptionValidationCache [(sid, TLS.Fingerprint unpackedHash)]
+
+                    return $ Just $ tls'
+                        { TLS.clientShared = (TLS.clientShared tls')
+                            { TLS.sharedValidationCache = cache
+                            }
+                        }
+
+    let network = DL.dropWhile ('.' ==) s
+    let config = IRC.IrcConfig host (fromInteger port) nicks user pass tls
+    return (config, (network, channel, Set.fromList chan_bl, chan_join, nicks))
+
+--
+-- Config
+--
+getSlackServerConfig
+    :: ConfigParser
+    -> String
+    -> ExceptT CPError IO Slack.SlackConfig
+getSlackServerConfig c s = do
+    apitoken  <- get c s "api_token"
+    return $ Slack.SlackConfig apitoken

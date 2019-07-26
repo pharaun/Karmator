@@ -1,8 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Karmator.Server.Slack
     ( runServer
-    , SlackConfig
-    , getServerConfig
+    , SlackConfig(..)
     ) where
 
 import Safe
@@ -197,21 +196,3 @@ eIrcFormat x =
 
 ircFormat :: Slack.Message -> String
 ircFormat = show
-
---
--- Config
---
-getServerConfig
-    :: ConfigParser
-    -> String
-    -> ExceptT CPError IO (ServerConfig SlackConfig)
-getServerConfig c s = do
-    apitoken  <- get c s "api_token"
-    logfile   <- get c s "logfile"
-    logslack  <- get c s "logslack"
-    reconn    <- get c s "reconn"
-    reWait    <- get c s "reconn_wait" -- In seconds
-
-    let network = DL.dropWhile ('.' ==) s
-    let config = SlackConfig apitoken
-    return $ ServerConfig config network reconn (reWait * 1000000) logfile logslack

@@ -20,8 +20,6 @@ module Plugins.Karma
 
     , rawKarmaMatch
     , rawKarma
-
-    , getKarmaConfig
     ) where
 
 import Data.Maybe (fromMaybe)
@@ -249,19 +247,3 @@ parseInput config jnick jinput =
 
     filterKarma :: [T.Text] -> [Karma] -> [Karma]
     filterKarma n = filter (\Karma{kMessage=msg} -> msg `DL.notElem` n)
-
-
---
--- Load the config
---
-getKarmaConfig :: ConfigParser -> ExceptT CPError IO Config
-getKarmaConfig c = do
-    strictMatch <- get c "bot.karma" "nick.strict_match"
-    prefixMatch <- get c "bot.karma" "nick.prefix_match"
-    suffixMatch <- get c "bot.karma" "nick.suffix_match"
-
-    -- Force the Parser to invoke Read on the Partial/KarmaTypes
-    partialKarma <- get c "bot.karma" "karma.partial"
-    totalKarma   <- get c "bot.karma" "karma.total"
-
-    return $ Config strictMatch prefixMatch suffixMatch partialKarma totalKarma

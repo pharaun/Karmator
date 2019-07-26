@@ -1,8 +1,7 @@
 {-# LANGUAGE OverloadedStrings, MultiParamTypeClasses #-}
 module Karmator.Server.IRC
     ( runServer
-    , IrcConfig
-    , getServerConfig
+    , IrcConfig(..)
     ) where
 
 import Network
@@ -220,59 +219,6 @@ logParsingException h (PA.ParsingError c m) = BS.hPutStr h $ BS.concat
     , "\n"
     , "===========\n"
     ]
-
---
--- Bot Config
---
-getServerConfig
-    :: ConfigParser
-    -> String
-    -> ExceptT CPError IO (ServerConfig IrcConfig, (String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString]))
-getServerConfig c s = do
-    host      <- get c s "host"
-    port      <- get c s "port"
-    nicks     <- get c s "nicks"
-    user      <- get c s "user"
-    pass      <- get c s "pass"
-    channel   <- get c s "channel" :: ExceptT CPError IO [BS.ByteString] -- Mandatory channels per host
-    chan_bl   <- get c s "channel_blacklist" :: ExceptT CPError IO [BS.ByteString] -- Channel blacklist per host
-    chan_join <- get c s "channel_joins" :: ExceptT CPError IO Int
-    tlsHost   <- get c s "tls_host"
-    tlsHash   <- get c s "tls_fingerprint" -- Hex sha256
-    logfile   <- get c s "logfile"
-    logirc    <- get c s "logirc"
-    reconn    <- get c s "reconn"
-    reWait    <- get c s "reconn_wait" -- In seconds
-
-    tls <- case tlsHost of
-        Nothing -> return Nothing
-        Just th -> do
-            -- Setup the TLS configuration
-            tls <- liftIO $ TLS.makeClientSettings Nothing host (show port) True <$> TLS.getSystemCertificateStore
-            let tls' = tls
-                    { TLS.clientServerIdentification = (th, C8.pack $ show port)
-                    , TLS.clientHooks = (TLS.clientHooks tls)
-                        { TLS.onCertificateRequest = \_ -> return Nothing
-                        }
-                    }
-
-            case tlsHash of
-                Nothing    -> return $ Just tls'
-                Just thash -> do
-                    -- Setup hash
-                    let unpackedHash = fst $ B16.decode $ C8.pack thash
-                    let sid = (th, C8.pack $ show port)
-                    let cache = TLS.exceptionValidationCache [(sid, TLS.Fingerprint unpackedHash)]
-
-                    return $ Just $ tls'
-                        { TLS.clientShared = (TLS.clientShared tls')
-                            { TLS.sharedValidationCache = cache
-                            }
-                        }
-
-    let network = DL.dropWhile ('.' ==) s
-    let config = IrcConfig host (fromInteger port) nicks user pass tls
-    return (ServerConfig config network reconn (reWait * 1000000) logfile logirc, (network, channel, Set.fromList chan_bl, chan_join, nicks))
 
 
 --
