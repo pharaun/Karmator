@@ -47,7 +47,7 @@ import qualified Slack.Message as Slack
 customCommandMatch :: BS.ByteString -> BotEvent Slack.Message -> Bool
 customCommandMatch c = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage c)
 
-customCommand t (EMessage m) = [CMessage $ Slack.Message (Slack.msg_type m) (Slack.msg_channel m) (Slack.msg_user m) (Slack.msg_uid m) t (Slack.msg_ts m) (Slack.msg_thread_ts m)]
+customCommand t (EMessage m) = [CMessage $ Slack.Message (Slack.msg_type m) (Slack.msg_channel m) (Slack.msg_cid m) (Slack.msg_user m) (Slack.msg_uid m) t (Slack.msg_ts m) (Slack.msg_thread_ts m)]
 customCommand _ _            = []
 
 --

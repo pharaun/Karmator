@@ -51,7 +51,8 @@ import Karmator.Types
 --
 data Message = Message
     { msg_type :: T.Text -- Message type
-    , msg_channel :: T.Text -- Channel, Private Group, DM
+    , msg_channel :: Maybe T.Text -- Channel, Private Group, DM
+    , msg_cid :: T.Text -- Channel id
     , msg_user :: Maybe T.Text -- User speaking
     , msg_uid :: T.Text -- User id
     , msg_text :: T.Text -- Text content

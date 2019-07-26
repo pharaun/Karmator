@@ -218,7 +218,8 @@ rawKarma conf m@(EMessage m') = do
             --  * It lists the bot's nick as a channel, which works for me.  !karma/etc are busted as a privmsg tho
             --  * the irc handler can handle this (by taking 1 msg -> generating several)
             --let chan  = Just $ T.decodeUtf8 $ whichChannel m
-            let chan = Just $ Slack.msg_channel m'
+            --let chan = Slack.msg_channel m'
+            let chan = Just $ Slack.msg_cid m'
 
             t <- liftIO getCurrentTime
             liftIO . runSqlPool (addKarma t n nick user host chan k) =<< ask

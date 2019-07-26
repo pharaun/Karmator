@@ -133,12 +133,13 @@ slackToIrc sm h l = forever $ do
         WS.Message (WS.Id {WS._getId = cid}) (WS.UserComment (WS.Id {WS._getId = uid})) msg ts _ _ -> (do
             -- All fields are Text, get a nice converter to pack into utf8 bytestring
             user <- liftIO $ getUserName l h sm uid
+            -- TODO: channel <- liftIO $ getChannelName l h sm cid
 
             -- Parse message for <@id> and replace with userName
             msg' <- remapMessage sm h l msg
 
             -- TODO: find+identify if its threaded and populate this field
-            let message = Slack.Message "PRIVMSG" cid user uid msg' ts Nothing
+            let message = Slack.Message "PRIVMSG" Nothing cid user uid msg' ts Nothing
             yield (EMessage message)
             )
         _ -> return ()
@@ -156,18 +157,11 @@ ircToSlack h sm = forever $ do
     case m of
         -- TODO: put the user name back into the prefix for use here
         msg@Slack.Message{} -> (do
-            let cid = Slack.msg_channel msg
+            let cid = Slack.msg_cid msg
             let msg' = remapAtHere $ Slack.msg_text msg
 
             -- TODO: make this handle threads
-            case (Slack.msg_user msg) of
-                Just uid           -> (do
-                    uid' <- liftIO $ getUserId h sm uid
-                    case uid' of
-                        Just uid'' -> yield (cid, T.concat [ "<@", uid'', ">: ", msg' ])
-                        Nothing    -> yield (cid, msg')
-                    )
-                Nothing            -> yield (cid, msg')
+            yield (cid, T.concat [ "<@", (Slack.msg_uid msg), ">: ", msg' ])
             )
         _ -> return ()
 
