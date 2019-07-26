@@ -26,21 +26,24 @@ import Karmator.State
 
 -- Plugins
 import Plugins.Ping
-import Plugins.Generic
 import Plugins.Channels
+import Plugins.Generic
 import Plugins.Karma
 import Plugins.Karma.Types (Config)
 
 import qualified Network.IRC as IRC
 import qualified Karmator.Server.IRC as IRC
+
+import qualified Slack.Message as Slack
 import qualified Karmator.Server.Slack as Slack
+
 
 --
 -- Routes configuration
 --
 -- TODO: maybe one possible thing is to offload all of the ConnectionPool into the bot config (since it'll be in the core)
 --
-commandRoute :: Config -> ConnectionPool -> ClockTime -> (TVar PingDelay) -> [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])] -> Route [CmdHandler IRC.Message] IRC.Message
+commandRoute :: Config -> ConnectionPool -> ClockTime -> (TVar PingDelay) -> [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])] -> Route [CmdHandler Slack.Message] Slack.Message
 commandRoute c p t pd nc = choice (
     [ do
         match uptimeMatch
@@ -157,7 +160,9 @@ main = do
             pd <- pingInit
 
             -- Run the bot
-            let serverRunners = map IRC.runServer ircServers ++ map Slack.runServer slackServers
+            --let serverRunners = map IRC.runServer ircServers ++ map Slack.runServer slackServers
+            -- TODO: make this emit 2 runners (one for the irc network type, and 1 for slack network type)
+            let serverRunners = map Slack.runServer slackServers
             runBot serverRunners (commandRoute c pool t pd networkChannels)
 
             return ()
@@ -182,7 +187,16 @@ getArgs = execParser opts
         <> help "The bot version"
         )
 
+
 -- Load the bot config
+-- TODO: do something like:
+--  * Return a list [(type, [network tag])] for ie irc vs slack, and the
+--      tags defined for each
+--  * Then each server (knows its type, and its network tag) it can now
+--      grab the server config
+--  * Then (ie bot, plugin, etc) can poke the config to grab their block
+--      getBlock(system, subsystem) ie (plugin, karma) -> gets its block
+--      then it parses that block into the settings it care for
 getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig IRC.IrcConfig], [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])], [ServerConfig Slack.SlackConfig])
 getBotConfig conf = do
     config <- runExceptT (do
@@ -190,6 +204,13 @@ getBotConfig conf = do
 
         -- Bot config
         -- TODO: look for a neat way to integrate handler/plugin config loaders here
+        -- Maybe "[bot.database] database - settings"
+        --       "[bot.karma] karma - settings"
+        --       "[irc.networktag] irc server - settings"
+        --       "[slack.networktag] slack server - settings"
+        --
+        -- Then stuff can register/add any config they need/want under
+        -- these namespaces
         database  <- get c "bot" "database"
         karmaConf <- get c "bot" "karma_config"
 

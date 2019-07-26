@@ -24,6 +24,7 @@ module Plugins.Karma
     , getKarmaConfig
     ) where
 
+import Data.Maybe (fromMaybe)
 import Control.Applicative
 import Control.Monad.Except
 import Data.Int
@@ -60,39 +61,38 @@ import Prelude hiding (readFile)
 
 -- Import the instance
 import qualified Karmator.Server.IRC as IRC
-
+import qualified Slack.Message as Slack
+import Plugins.Generic (customCommand, customCommandMatch)
 
 --
 -- Karma Query
 --
-karmaMatch :: BotEvent IRC.Message -> Bool
-karmaMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!karma")
+karmaMatch = customCommandMatch "!karma"
 
-karma :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+karma :: MonadIO m => Config -> BotEvent Slack.Message -> ReaderT ConnectionPool m [BotCommand Slack.Message]
 --karma = karmaStats KarmaReceived 3 False False
 karma = karmaStats (KST KarmaReceived) 3
 
-karmaGiversMatch :: BotEvent IRC.Message -> Bool
-karmaGiversMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!givers")
+karmaGiversMatch = customCommandMatch "!givers"
 
-karmaGivers :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+karmaGivers :: MonadIO m => Config -> BotEvent Slack.Message -> ReaderT ConnectionPool m [BotCommand Slack.Message]
 --karmaGivers = karmaStats KarmaGiven 3 True False
 karmaGivers = karmaStats (KST KarmaGiven) 3
 
-karmaSidevotesMatch :: BotEvent IRC.Message -> Bool
-karmaSidevotesMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!sidevotes")
+karmaSidevotesMatch = customCommandMatch "!sidevotes"
 
-karmaSidevotes :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+karmaSidevotes :: MonadIO m => Config -> BotEvent Slack.Message -> ReaderT ConnectionPool m [BotCommand Slack.Message]
 --karmaSidevotes = karmaStats KarmaGiven 3 True True
 karmaSidevotes = karmaStats KSTSidevote 3
 
 
 data KarmaStatsType = KST KarmaTable | KSTSidevote
 
-karmaStats :: (MonadIO m) => KarmaStatsType -> Int64 -> Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-karmaStats karmaType countMax conf m@(EMessage _) =
-    case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
-        (Left _)   -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
+karmaStats :: (MonadIO m) => KarmaStatsType -> Int64 -> Config -> BotEvent Slack.Message -> ReaderT ConnectionPool m [BotCommand Slack.Message]
+karmaStats karmaType countMax conf m@(EMessage m') =
+    --case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
+    case parse karmaCommandParse "(irc)" $ Slack.msg_text m' of
+        (Left _)   -> return (customCommand "Karma command parse failed" m)
         (Right []) -> do
             (topNDesc, topNAsc) <- ask >>= (liftIO . runSqlPool
                 (case karmaType of
@@ -105,10 +105,10 @@ karmaStats karmaType countMax conf m@(EMessage _) =
                         b <- topNSideVotesDenormalized KarmaGiven countMax
                         return (a, b)))
 
-            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) (
+            return (customCommand (
                 if null topNDesc || null topNAsc
                 then "There is no karma values recorded in the database!"
-                else BL.toStrict $ TL.encodeUtf8 (
+                else TL.toStrict (
                     format (case karmaType of
                                 (KST KarmaGiven)    -> "most positive: " % text % ". most negative: " % text % "."
                                 (KST KarmaReceived) -> "highest karma: " % text % ". lowest karma: " % text % "."
@@ -116,14 +116,15 @@ karmaStats karmaType countMax conf m@(EMessage _) =
                            (renderTotalKarma topNDesc)
                            (renderTotalKarma topNAsc)
                     )
-                )]
+                ) m)
         (Right x)  ->
             case karmaType of
                 (KST x') -> do
                     count <- (liftIO . runSqlPool (partalKarma x' x)) =<< ask
-                    return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) $ BL.toStrict $ TL.encodeUtf8 (renderAllKarma count)]
-                KSTSidevote -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Not supported!"]
+                    return (customCommand (TL.toStrict $ renderAllKarma count) m)
+                KSTSidevote -> return (customCommand "Not supported!" m)
 karmaStats _ _ _ _ = return []
+
 
 renderAllKarma :: [(T.Text, Int, Int, Int)] -> TL.Text
 renderAllKarma xs = TL.intercalate "; " $ map (\(name, p, n, s) -> format (stext % ", " % int % " (" % int % "++/" % int % "--/" % int % "+-)") name (p-n) p n s) xs
@@ -135,31 +136,31 @@ renderTotalKarma xs = TL.intercalate "; " $ map (uncurry (format (stext % " (" %
 --
 -- Rank commands
 --
-karmaRankMatch :: BotEvent IRC.Message -> Bool
-karmaRankMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!rank")
+karmaRankMatch = customCommandMatch "!rank"
 
-karmaRank :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+karmaRank :: MonadIO m => Config -> BotEvent Slack.Message -> ReaderT ConnectionPool m [BotCommand Slack.Message]
 karmaRank = handleKarmaRank False
 
-karmaSidevotesRankMatch :: BotEvent IRC.Message -> Bool
-karmaSidevotesRankMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (commandMessage $ C8.pack "!ranksidevote")
+karmaSidevotesRankMatch = customCommandMatch "!ranksidevote"
 
-karmaSidevotesRank :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
+karmaSidevotesRank :: MonadIO m => Config -> BotEvent Slack.Message -> ReaderT ConnectionPool m [BotCommand Slack.Message]
 karmaSidevotesRank = handleKarmaRank True
 
 
-handleKarmaRank :: MonadIO m => Bool -> Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-handleKarmaRank sidevotes conf m@(EMessage _) =
-    case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
-        (Left _)       -> return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) "Karma command parse failed"]
+handleKarmaRank :: MonadIO m => Bool -> Config -> BotEvent Slack.Message -> ReaderT ConnectionPool m [BotCommand Slack.Message]
+handleKarmaRank sidevotes conf m@(EMessage m') =
+    --case parse karmaCommandParse "(irc)" $ T.decodeUtf8 $ messageContent m of
+    case parse karmaCommandParse "(irc)" $ Slack.msg_text m' of
+        (Left _)       -> return (customCommand "Karma command parse failed" m)
         (Right x)      -> do
-            let nick  = T.decodeUtf8 $ nickContent m
+            --let nick  = T.decodeUtf8 $ nickContent m
+            let nick = fromMaybe "" $ Slack.msg_user m'
             msg <- case x of
                 []   -> renderRank sidevotes nick nick "Your"
                 [x'] -> renderRank sidevotes nick x' x'
                 _    -> return "Can only rank one karma entry at a time!"
 
-            return [CMessage $ IRC.privmsgnick (whichChannel m) (nickContent m) (BL.toStrict $ TL.encodeUtf8 msg)]
+            return (customCommand (TL.toStrict msg) m)
 handleKarmaRank _ _ _ = return []
 
 renderRank :: (MonadIO m) => Bool -> T.Text -> T.Text -> T.Text -> ReaderT ConnectionPool m TL.Text
@@ -190,27 +191,34 @@ renderRank sidevotes nick whom target = do
 --
 -- Karma Ingestion
 --
-rawKarmaMatch :: BotEvent IRC.Message -> Bool
+rawKarmaMatch :: BotEvent Slack.Message -> Bool
 rawKarmaMatch = liftM2 (&&) (exactCommand $ C8.pack "PRIVMSG") (not . prefixMessage (C8.pack "!"))
 
-rawKarma :: MonadIO m => Config -> BotEvent IRC.Message -> ReaderT ConnectionPool m [BotCommand IRC.Message]
-rawKarma conf m@(EMessage _) = do
+rawKarma :: MonadIO m => Config -> BotEvent Slack.Message -> ReaderT ConnectionPool m [BotCommand Slack.Message]
+rawKarma conf m@(EMessage m') = do
     -- ByteString -> utf8
     -- TODO: error handling
-    let msg   = T.decodeUtf8 $ messageContent m
-    let nick  = T.decodeUtf8 $ nickContent m
+    --let msg   = T.decodeUtf8 $ messageContent m
+    let msg = Slack.msg_text m'
+    --let nick  = T.decodeUtf8 $ nickContent m
+    let nick = fromMaybe "" $ Slack.msg_user m'
 
     case parseInput conf nick msg of
         (KarmaReply n (Just k)) -> do
             -- TODO: not for certain if we want to preserve '~' in username or not
-            let user  = T.decodeUtf8 <$> userNameContent m
-            let host  = T.decodeUtf8 <$> hostMaskContent m
+            -- hikmet|hikmet|UKZC7K33J|SlackServer
+            -- cleaned_nick | full_name | username | hostmask
+            --let user  = T.decodeUtf8 <$> userNameContent m
+            let user = Just $ Slack.msg_uid m'
+            --let host  = T.decodeUtf8 <$> hostMaskContent m
+            let host = Just "SlackServer"
 
             -- TODO: identify how this handles privmsg
             -- TODO: identify how it handles multiple channel (Do we want list here) also is privmsg specified or Null?
             --  * It lists the bot's nick as a channel, which works for me.  !karma/etc are busted as a privmsg tho
             --  * the irc handler can handle this (by taking 1 msg -> generating several)
-            let chan  = Just $ T.decodeUtf8 $ whichChannel m
+            --let chan  = Just $ T.decodeUtf8 $ whichChannel m
+            let chan = Just $ Slack.msg_channel m'
 
             t <- liftIO getCurrentTime
             liftIO . runSqlPool (addKarma t n nick user host chan k) =<< ask

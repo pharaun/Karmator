@@ -24,6 +24,18 @@ import Database.Persist.Sql (ConnectionPool)
 
 --
 -- Just preload the config into the runner and feed it here
+-- TODO: instead of only a route, have a map of route (String -> Route),
+-- and a default Route. So that we can match on network and then the
+-- default route
+-- TODO: alternativly figure out a way to wire and/or route messages from
+-- the correct server/network to the correct bot thread, ie have one thread
+-- bot executor for each network + one for the default, and dispatch the
+-- network messages to the correct one as needed
+-- TODO: maybe have a thing where you have (Network, Server, NetworkRouter)
+-- plus defaultRouter and then the function will init the server, wire it
+-- up to the network router + somehow wire it also into the default router
+-- TODO: need a way to launch separate typed message to support irc and
+-- slack....
 --
 runBot
     :: [TQueue (String, BotEvent a, TQueue (BotCommand a)) -> IO ()]
