@@ -13,6 +13,3 @@
 [submodule "libs/esqueleto"]
 	path = libs/esqueleto
 	url = https://github.com/bitemyapp/esqueleto.git
-[submodule "libs/slack-api"]
-	path = libs/slack-api
-	url = https://github.com/pharaun/slack-api
