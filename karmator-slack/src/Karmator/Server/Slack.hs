@@ -34,6 +34,7 @@ import Pipes
 import qualified Pipes.Network.TCP as PNT
 
 -- Slack Parser
+import qualified Web.Slack.Types.Time as WSTT
 import qualified Web.Slack as WS
 import qualified Web.Slack.WebAPI as WSA
 import qualified Network.Wreq as W
@@ -111,10 +112,12 @@ slackProducer h = forever $ lift (WS.getNextEvent h) >>= yield
 --
 -- Pump Messages into Slack
 --
-slackConsumer :: WS.SlackHandle -> Consumer (T.Text, T.Text) IO ()
+slackConsumer :: WS.SlackHandle -> Consumer (T.Text, T.Text, Maybe WSTT.SlackTimeStamp) IO ()
 slackConsumer h = forever $ do
-    (cid, msg) <- await
-    lift $ WS.sendMessage h (WS.Id cid) msg
+    (cid, msg, tts) <- await
+    case tts of
+        Just tts' -> lift $ WS.sendThreadedMessage h (WS.Id cid) tts' msg
+        Nothing   -> lift $ WS.sendMessage h (WS.Id cid) msg
 
 
 --
@@ -130,26 +133,30 @@ slackToIrc sm h l = forever $ do
     --      a new hook to feed those id updates/info into the database that can be used for lookups
     case e of
         WS.Hello -> liftIO $ initFromSession (WS.getSession h) sm
-        WS.Message (WS.Id {WS._getId = cid}) (WS.UserComment (WS.Id {WS._getId = uid})) msg ts _ _ -> (do
-            -- All fields are Text, get a nice converter to pack into utf8 bytestring
-            user <- liftIO $ getUserName l h sm uid
-            -- TODO: channel <- liftIO $ getChannelName l h sm cid
-
-            -- Parse message for <@id> and replace with userName
-            msg' <- remapMessage sm h l msg
-
-            -- TODO: find+identify if its threaded and populate this field
-            let message = Slack.Message "PRIVMSG" Nothing cid user uid msg' ts Nothing
-            yield (EMessage message)
-            )
+        WS.ThreadedMessage (WS.Id {WS._getId = cid}) (WS.UserComment (WS.Id {WS._getId = uid})) msg ts _ _ sts
+                 -> emitMsg sm h l cid uid msg ts (Just sts)
+        WS.Message (WS.Id {WS._getId = cid}) (WS.UserComment (WS.Id {WS._getId = uid})) msg ts _ _
+                 -> emitMsg sm h l cid uid msg ts Nothing
         _ -> return ()
+  where
+    emitMsg sm h l cid uid msg ts sts = do
+        -- All fields are Text, get a nice converter to pack into utf8 bytestring
+        user <- liftIO $ getUserName l h sm uid
+        -- TODO: channel <- liftIO $ getChannelName l h sm cid
+
+        -- Parse message for <@id> and replace with userName
+        msg' <- remapMessage sm h l msg
+
+        -- TODO: find+identify if its threaded and populate this field
+        let message = Slack.Message "PRIVMSG" Nothing cid user uid msg' ts sts
+        yield (EMessage message)
 
 --
 -- Transform Irc messages into Slack messages to pump to slack
 --
 -- TODO: Make actual Mechanic to tell the sender what to actually send othe rthan just message
 --
-ircToSlack :: MonadIO m => WS.SlackHandle -> TVar SlackMap -> Pipe Slack.Message (T.Text, T.Text) m r
+ircToSlack :: MonadIO m => WS.SlackHandle -> TVar SlackMap -> Pipe Slack.Message (T.Text, T.Text, Maybe WSTT.SlackTimeStamp) m r
 ircToSlack h sm = forever $ do
     m <- await
 
@@ -159,9 +166,10 @@ ircToSlack h sm = forever $ do
         msg@Slack.Message{} -> (do
             let cid = Slack.msg_cid msg
             let msg' = remapAtHere $ Slack.msg_text msg
+            let sts = Slack.msg_thread_ts msg
 
             -- TODO: make this handle threads
-            yield (cid, T.concat [ "<@", (Slack.msg_uid msg), ">: ", msg' ])
+            yield (cid, T.concat [ "<@", (Slack.msg_uid msg), ">: ", msg' ], sts)
             )
         _ -> return ()
 
