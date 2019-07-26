@@ -254,21 +254,14 @@ parseInput config jnick jinput =
 --
 -- Load the config
 --
-getKarmaConfig :: FilePath -> IO Config
-getKarmaConfig conf = do
-    config <- runExceptT (do
-        c <- join $ liftIO $ readfile emptyCP conf
+getKarmaConfig :: ConfigParser -> ExceptT CPError IO Config
+getKarmaConfig c = do
+    strictMatch <- get c "bot.karma" "nick.strict_match"
+    prefixMatch <- get c "bot.karma" "nick.prefix_match"
+    suffixMatch <- get c "bot.karma" "nick.suffix_match"
 
-        strictMatch <- get c "nick_filtering" "strict_match"
-        prefixMatch <- get c "nick_filtering" "prefix_match"
-        suffixMatch <- get c "nick_filtering" "suffix_match"
+    -- Force the Parser to invoke Read on the Partial/KarmaTypes
+    partialKarma <- get c "bot.karma" "karma.partial"
+    totalKarma   <- get c "bot.karma" "karma.total"
 
-        -- Force the Parser to invoke Read on the Partial/KarmaTypes
-        partialKarma <- get c "karma_parsing" "partial"
-        totalKarma <- get c "karma_parsing" "total"
-
-        return $ Config strictMatch prefixMatch suffixMatch partialKarma totalKarma)
-
-    case config of
-        Left cperr   -> error $ show cperr
-        Right config -> return config
+    return $ Config strictMatch prefixMatch suffixMatch partialKarma totalKarma

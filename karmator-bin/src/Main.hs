@@ -156,14 +156,13 @@ main = do
         runStderrLoggingT $ withSqlitePool database 1 (\pool -> liftIO $ do
             -- Run the bot
             t <- getClockTime
-            c <- getKarmaConfig karmaConf
             pd <- pingInit
 
             -- Run the bot
             --let serverRunners = map IRC.runServer ircServers ++ map Slack.runServer slackServers
             -- TODO: make this emit 2 runners (one for the irc network type, and 1 for slack network type)
             let serverRunners = map Slack.runServer slackServers
-            runBot serverRunners (commandRoute c pool t pd networkChannels)
+            runBot serverRunners (commandRoute karmaConf pool t pd networkChannels)
 
             return ()
             )
@@ -197,7 +196,12 @@ getArgs = execParser opts
 --  * Then (ie bot, plugin, etc) can poke the config to grab their block
 --      getBlock(system, subsystem) ie (plugin, karma) -> gets its block
 --      then it parses that block into the settings it care for
-getBotConfig :: FilePath -> IO (T.Text, FilePath, [ServerConfig IRC.IrcConfig], [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])], [ServerConfig Slack.SlackConfig])
+--
+-- TODO: break out the ServerConfig parser, might be easier to just move
+-- all parser here for now, but anyway we have.
+-- ServerConfig, Bot Core, Bot Karma, network Irc, network slack parsers
+--
+getBotConfig :: FilePath -> IO (T.Text, Config, [ServerConfig IRC.IrcConfig], [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])], [ServerConfig Slack.SlackConfig])
 getBotConfig conf = do
     config <- runExceptT (do
         c <- join $ liftIO $ readfile emptyCP conf
@@ -212,7 +216,7 @@ getBotConfig conf = do
         -- Then stuff can register/add any config they need/want under
         -- these namespaces
         database  <- get c "bot" "database"
-        karmaConf <- get c "bot" "karma_config"
+        karmaConf <- getKarmaConfig c
 
         -- Get a list of section, each is a server config
         (ircServers, networkChannels) <- liftM splitConf
