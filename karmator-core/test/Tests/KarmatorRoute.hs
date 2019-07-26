@@ -31,7 +31,7 @@ routeTest input result = TestCase $ do
 -- TODO: build a gathering of some nice pattern for testing + output
 routeData :: [(BotEvent IRC.Message, [[BotCommand IRC.Message]])]
 routeData =
-    [ ( EMessage "" $ IRC.Message (Just $ IRC.NickName (C8.pack "") (Just $ C8.pack "never") (Just $ C8.pack "base")) (C8.pack "") [C8.pack "target"],
+    [ ( EMessage  $ IRC.Message (Just $ IRC.NickName (C8.pack "") (Just $ C8.pack "never") (Just $ C8.pack "base")) (C8.pack "") [C8.pack "target"],
         [ [CMessage (IRC.Message {IRC.msg_prefix = Nothing, IRC.msg_command = "PRIVMSG", IRC.msg_params = ["bye"]})]
         , [CMessage (IRC.Message {IRC.msg_prefix = Nothing, IRC.msg_command = "PRIVMSG", IRC.msg_params = ["base"]})]
         , [CMessage (IRC.Message {IRC.msg_prefix = Nothing, IRC.msg_command = "PRIVMSG", IRC.msg_params = ["bar"]})]
@@ -73,17 +73,17 @@ testRoute = choice
     ]
   where
     testServer :: BotEvent IRC.Message -> String
-    testServer (EMessage "" IRC.Message{IRC.msg_prefix=(Just (IRC.Server n))}) = C8.unpack n
-    testServer (EMessage "" IRC.Message{IRC.msg_prefix=(Just (IRC.NickName _ _ (Just n)))}) = C8.unpack n
+    testServer (EMessage IRC.Message{IRC.msg_prefix=(Just (IRC.Server n))}) = C8.unpack n
+    testServer (EMessage IRC.Message{IRC.msg_prefix=(Just (IRC.NickName _ _ (Just n)))}) = C8.unpack n
     testServer _ = "" -- TODO: bad
 
     -- TODO: unsafe head, and does not support multi-channel privmsg
     channel :: BotEvent IRC.Message -> String
-    channel (EMessage _ m) = C8.unpack $ head $ IRC.msg_params m
+    channel (EMessage m) = C8.unpack $ head $ IRC.msg_params m
     channel _              = "" -- TODO: bad
 
     nick :: BotEvent IRC.Message -> String
-    nick (EMessage _ IRC.Message{IRC.msg_prefix=(Just (IRC.NickName n _ _))}) = C8.unpack n
+    nick (EMessage IRC.Message{IRC.msg_prefix=(Just (IRC.NickName n _ _))}) = C8.unpack n
     nick _ = ""
 
     fooIO :: MonadIO m => a -> m [BotCommand IRC.Message]
