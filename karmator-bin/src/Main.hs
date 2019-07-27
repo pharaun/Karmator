@@ -17,6 +17,12 @@ import qualified Data.ByteString as BS
 
 import Control.Concurrent.STM.TVar (TVar)
 
+-- NetworkType map
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import qualified Data.HashMap.Strict as HM
+import Data.Maybe
+
 -- Karmator
 import Karmator.Bot
 import Karmator.Route
@@ -59,7 +65,16 @@ import qualified Network.Simple.TCP.TLS as TLS
 --
 -- TODO: maybe one possible thing is to offload all of the ConnectionPool into the bot config (since it'll be in the core)
 --
-commandRoute :: Config -> ConnectionPool -> ClockTime -> (TVar PingDelay) -> [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])] -> Route [CmdHandler Slack.Message] Slack.Message
+-- data IrcPluginConfig = IrcPluginConfig
+--     { channel_mandatory :: Set BS.ByteString
+--     , channel_blacklist :: Set BS.ByteString
+--     , channel_join_rate :: Int
+--
+--     -- TODO: Awkward data
+--     , bot_nicks         :: Set BS.ByteString
+--     } deriving (Show)
+
+commandRoute :: Config -> ConnectionPool -> ClockTime -> (TVar PingDelay) -> [(String, IrcPluginConfig)] -> Route [CmdHandler Slack.Message] Slack.Message
 commandRoute c p t pd nc = choice (
     [ do
         match uptimeMatch
@@ -168,7 +183,7 @@ main = do
     if version
     then putStrLn versionText
     else do
-        (database, karmaConf, ircServers, networkChannels, slackServers) <- getBotConfig botConf
+        (database, karmaConf, ircServers, slackServers, networkChannels) <- getBotConfig botConf
         runStderrLoggingT $ withSqlitePool database 1 (\pool -> liftIO $ do
             -- Run the bot
             t <- getClockTime
@@ -213,11 +228,17 @@ getArgs = execParser opts
 --      getBlock(system, subsystem) ie (plugin, karma) -> gets its block
 --      then it parses that block into the settings it care for
 --
+-- TODO: secret sauce is in Get_C and (Read a) => stuff for how
+-- Data.ConfigFile works, so we should be able to emulate this for the
+-- config engine
+--
+-- A networkTag (Cannot be shared between networks? Have some sort of check)
+--
 -- TODO: break out the ServerConfig parser, might be easier to just move
 -- all parser here for now, but anyway we have.
 -- ServerConfig, Bot Core, Bot Karma, network Irc, network slack parsers
 --
-getBotConfig :: FilePath -> IO (T.Text, Config, [ServerConfig IRC.IrcConfig], [(String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString])], [ServerConfig Slack.SlackConfig])
+getBotConfig :: FilePath -> IO (T.Text, Config, [ServerConfig IRC.IrcConfig], [ServerConfig Slack.SlackConfig], [(String, IrcPluginConfig)])
 getBotConfig conf = do
     config <- runExceptT (do
         c <- join $ liftIO $ readfile emptyCP conf
@@ -229,27 +250,29 @@ getBotConfig conf = do
         --       "[irc.networktag] irc server - settings"
         --       "[slack.networktag] slack server - settings"
         --
+        --       "[bot.*] for global bot config"
+        --       "[irc.networkTag] for irc server config"
+        --       "[irc.networkTag.?] for network specific config?"
+        --
         -- Then stuff can register/add any config they need/want under
         -- these namespaces
         database  <- get c "bot" "database"
         karmaConf <- getKarmaConfig c
 
-        -- Get a list of section, each is a server config
-        (ircServers, networkChannels) <- liftM splitConf
-                                       $ mapM (\s -> (do
-                                                (z, l) <- getIrcServerConfig c s
-                                                y <- getCommonServerConfig c s z
-                                                return (y, l)))
-                                       $ filter ("bot" /=)
-                                       $ filter (DL.isPrefixOf "irc.")
-                                       $ sections c
+        -- Network channel configs
+        networkChannels <- mapM (getIrcPluginConfig c)
+                         $ filter (DL.isPrefixOf "irc.")
+                         $ sections c
+
+        ircServers <- mapM (\s -> getIrcServerConfig c s >>= getCommonServerConfig c s)
+                    $ filter (DL.isPrefixOf "irc.")
+                    $ sections c
 
         slackServers <- mapM (\s -> getSlackServerConfig c s >>= getCommonServerConfig c s)
-                      $ filter ("bot" /=)
                       $ filter (DL.isPrefixOf "slack.")
                       $ sections c
 
-        return (database, karmaConf, ircServers, networkChannels, slackServers))
+        return (database, karmaConf, ircServers, slackServers, networkChannels))
 
     case config of
         Left cperr   -> error $ show cperr
@@ -274,6 +297,40 @@ getKarmaConfig c = do
     return $ Config strictMatch prefixMatch suffixMatch partialKarma totalKarma
 
 
+data IrcPluginConfig = IrcPluginConfig
+    { channel_mandatory :: Set BS.ByteString
+    , channel_blacklist :: Set BS.ByteString
+    , channel_join_rate :: Int
+
+    -- TODO: Awkward data
+    , bot_nicks         :: Set BS.ByteString
+    } deriving (Show)
+
+--
+-- Load the irc/network specific configs
+-- TODO: maybe do '[networkType].[networkTag].plugin' or something for network
+-- specific plugins
+--
+getIrcPluginConfig
+    :: ConfigParser
+    -> String
+    -> ExceptT CPError IO (String, IrcPluginConfig)
+getIrcPluginConfig c s = do
+    -- These are the per network ones
+    -- Maybe better to come up with a way to feed these into the plugins
+    -- (tho irc is awkward with its network/plugin arch)
+    channel   <- get c s "channel" :: ExceptT CPError IO [BS.ByteString] -- Mandatory channels per host
+    chan_bl   <- get c s "channel_blacklist" :: ExceptT CPError IO [BS.ByteString] -- Channel blacklist per host
+    chan_join <- get c s "channel_joins" :: ExceptT CPError IO Int
+
+    -- TODO: this is an awkward hybrid network and irc plugin config value
+    nicks     <- get c s "nicks"
+
+    let networkTag = DL.dropWhile ('.' ==) s
+    return (networkTag, IrcPluginConfig (Set.fromList channel) (Set.fromList chan_bl) chan_join (Set.fromList nicks))
+
+
+
 --
 -- Server Config
 --
@@ -288,10 +345,10 @@ getCommonServerConfig c s nc = do
     reconn    <- get c s "common.reconn"
     reWait    <- get c s "common.reconn_wait" -- In seconds
 
-    let network = DL.dropWhile ('.' ==) s
+    let networkTag = DL.dropWhile ('.' ==) s
     -- TODO: make this take a func, and invoke the config for the network
     -- config, but need to standardize the irc config first
-    return $ ServerConfig nc network reconn (reWait * 1000000) logfile lognet
+    return $ ServerConfig nc networkTag reconn (reWait * 1000000) logfile lognet
 
 
 --
@@ -300,18 +357,17 @@ getCommonServerConfig c s nc = do
 getIrcServerConfig
     :: ConfigParser
     -> String
-    -> ExceptT CPError IO (IRC.IrcConfig, (String, [BS.ByteString], Set BS.ByteString, Int, [BS.ByteString]))
+    -> ExceptT CPError IO IRC.IrcConfig
 getIrcServerConfig c s = do
     host      <- get c s "host"
     port      <- get c s "port"
-    nicks     <- get c s "nicks"
     user      <- get c s "user"
     pass      <- get c s "pass"
-    channel   <- get c s "channel" :: ExceptT CPError IO [BS.ByteString] -- Mandatory channels per host
-    chan_bl   <- get c s "channel_blacklist" :: ExceptT CPError IO [BS.ByteString] -- Channel blacklist per host
-    chan_join <- get c s "channel_joins" :: ExceptT CPError IO Int
     tlsHost   <- get c s "tls_host"
     tlsHash   <- get c s "tls_fingerprint" -- Hex sha256
+
+    -- TODO: this is an awkward hybrid network and irc plugin config value
+    nicks     <- get c s "nicks"
 
     tls <- case tlsHost of
         Nothing -> return Nothing
@@ -339,9 +395,7 @@ getIrcServerConfig c s = do
                             }
                         }
 
-    let network = DL.dropWhile ('.' ==) s
-    let config = IRC.IrcConfig host (fromInteger port) nicks user pass tls
-    return (config, (network, channel, Set.fromList chan_bl, chan_join, nicks))
+    return $ IRC.IrcConfig host (fromInteger port) nicks user pass tls
 
 --
 -- Config
