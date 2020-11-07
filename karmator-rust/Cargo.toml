@@ -1,0 +1,8 @@
+[package]
+name = "karmator-rust"
+version = "7.0.0"
+authors = ["Anja Berens <pharaun666@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+slack_api = "0.23.0"
