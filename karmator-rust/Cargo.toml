@@ -6,3 +6,10 @@ edition = "2018"
 
 [dependencies]
 slack_api = "0.23.0"
+governor = "0.3.1"
+toml = "0.5.7"
+nom = "6"
+
+# rusqlite = { version = "~0.19.0", features = [ "bundled" ] }
+# r2d2/bb8 for providing async driver for rusqlite
+# https://activesphere.com/blog/2018/12/24/understanding-sqlite-busy
