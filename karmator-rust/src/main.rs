@@ -4,6 +4,7 @@ use tokio_tungstenite as tungstenite;
 use futures_util::{SinkExt, StreamExt};
 
 use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 
 // Alternative if need tokio 0.3
 // use tokio_compat_02::FutureExt;
@@ -62,24 +63,46 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Ok((mut ws_stream, ws_response)) = ws_response {
                     println!("Got a connection established");
 
-                    // Loop here accepting new message then spawning async stuff to process it
-                    loop {
-                        if let Some(Ok(ws_msg)) = ws_stream.next().await {
-                            let msg_id = msg_id.clone();
+                    // Setup the mpsc channel
+                    let (mut tx, mut rx) = mpsc::channel(32);
 
-                            tokio::spawn(async move {
-                                process_inbound_message(msg_id, ws_msg).await;
-                            });
+                    // Split the stream
+                    let (mut ws_write, mut ws_read) = ws_stream.split();
+
+                    // Spawn the inbound ws stream processor
+                    let inbound = tokio::spawn(async move {
+                        loop {
+                            if let Some(Ok(ws_msg)) = ws_read.next().await {
+                                let msg_id = msg_id.clone();
+                                let tx2 = tx.clone();
+
+                                tokio::spawn(async move {
+                                    process_inbound_message(msg_id, ws_msg, tx2).await;
+                                });
+
+                            }
                         }
+                    });
+
+                    // Spawn outbound ws processor
+                    // TODO: need to make sure to wait on sending till we recieve the hello event
+                    let outbound = tokio::spawn(async move {
+                        loop {
+                            while let Some(message) = rx.recv().await {
+                                println!("{:?}", message);
+
+                                ws_write.send(message).await;
+                            }
+                        }
+                    });
+
+                    // Wait till either exits (error) then begin recovery
+                    let res = tokio::try_join!(inbound, outbound);
+
+                    match res {
+                        Ok((first, second)) => println!("Both exited fine"),
+                        Err(err) => println!("Something failed: {:?}", err),
                     }
-
-
-                    // TODO: send message, but for now i want to recieve message and console it
-                    //let ws_msg = tungstenite::tungstenite::Message::from(
-                    //    "{\"id\":1,\"type\":\"message\",\"channel\":\"CAF6S4TRT\",\"text\":\"ws pogger\"}".to_string()
-                    //);
-                    //ws_stream.send(ws_msg).await?;
-
                 } else {
                     println!("{:?}", ws_response.err());
                 }
@@ -94,9 +117,32 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 
-async fn process_inbound_message(msg_id: MsgId, msg: tungstenite::tungstenite::Message) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: for now just forever inc the msg id, later only inc if want to send a reply
+async fn process_inbound_message(
+    msg_id: MsgId,
+    msg: tungstenite::tungstenite::Message,
+    mut tx: mpsc::Sender<tungstenite::tungstenite::Message>
+) -> Result<(), Box<dyn std::error::Error>>
+{
+    let id = {
+        // TODO: for now just forever inc the msg id, later only inc if want to send a reply
+        let mut data = msg_id.lock().unwrap();
+        *data += 1;
+        *data
+    };
+
+    println!("id = {:?}", id);
     println!("{:?}", msg);
+
+    if id % 4 == 0 {
+        // Trial send something
+        let ws_msg = tungstenite::tungstenite::Message::from(
+            "{\"id\":1,\"type\":\"message\",\"channel\":\"CAF6S4TRT\",\"text\":\"mod4 kappa\"}".to_string()
+        );
+
+        tx.send(ws_msg).await;
+
+        println!("Kappa was sent");
+    }
 
     Ok(())
 }
