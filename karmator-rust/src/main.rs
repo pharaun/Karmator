@@ -9,12 +9,15 @@ use tokio::sync::mpsc;
 // Alternative if need tokio 0.3
 // use tokio_compat_02::FutureExt;
 
-use std::sync::{Arc, Mutex};
+use atomic_counter::AtomicCounter;
+use atomic_counter::RelaxedCounter;
+
+use std::sync::Arc;
 use std::default::Default;
 use std::env;
 
 // Type alias for msg_id
-type MsgId = Arc<Mutex<u64>>;
+type MsgId = Arc<RelaxedCounter>;
 
 fn main() {
     Runtime::new()
@@ -24,7 +27,7 @@ fn main() {
 
 async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     // Shared integer counter for message ids
-    let msg_id = Arc::new(Mutex::new(0u64));
+    let msg_id = Arc::new(RelaxedCounter::new(0));
 
     let token = env::var("SLACK_API_TOKEN").map_err(|_| "SLACK_API_TOKEN env var must be set")?;
     let client = slack::default_client().map_err(|e| format!("Could not get default_client, {:?}", e))?;
@@ -91,6 +94,14 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
                             while let Some(message) = rx.recv().await {
                                 println!("{:?}", message);
 
+                                // TODO: present some way to do plain vs fancy message, and if
+                                // fancy do a webapi post, otherwise dump into the WS
+                                //
+                                // TODO: look into tracking the sent message with a confirmation
+                                // that it was sent (via msg id) and if it fails, resend with
+                                // backoff
+                                //
+                                // TODO: find a way to handle the ping/pong cycle and monitor
                                 ws_write.send(message).await;
                             }
                         }
@@ -123,12 +134,7 @@ async fn process_inbound_message(
     mut tx: mpsc::Sender<tungstenite::tungstenite::Message>
 ) -> Result<(), Box<dyn std::error::Error>>
 {
-    let id = {
-        // TODO: for now just forever inc the msg id, later only inc if want to send a reply
-        let mut data = msg_id.lock().unwrap();
-        *data += 1;
-        *data
-    };
+    let id = msg_id.inc();
 
     println!("id = {:?}", id);
     println!("{:?}", msg);
