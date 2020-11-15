@@ -9,12 +9,16 @@ use tokio::sync::mpsc;
 // Alternative if need tokio 0.3
 // use tokio_compat_02::FutureExt;
 
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+
 use atomic_counter::AtomicCounter;
 use atomic_counter::RelaxedCounter;
 
 use std::sync::Arc;
 use std::default::Default;
 use std::env;
+
 
 // Type alias for msg_id
 type MsgId = Arc<RelaxedCounter>;
@@ -56,15 +60,15 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
         let response = slack::rtm::connect(&client, &token).await;
 
         if let Ok(response) = response {
-            println!("Got a response lets start the websocket");
+            println!("Control - Got an ok reply");
 
             if let Some(ws_url) = response.url {
-                println!("Got WS url: {:?}", ws_url);
+                println!("Control - \tGot a WS url: {:?}", ws_url);
 
                 let ws_response = tungstenite::connect_async(ws_url).await;
 
                 if let Ok((mut ws_stream, ws_response)) = ws_response {
-                    println!("Got a connection established");
+                    println!("Control - \t\tWS connection established");
 
                     // Setup the mpsc channel
                     let (mut tx, mut rx) = mpsc::channel(32);
@@ -89,10 +93,12 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
 
                     // Spawn outbound ws processor
                     // TODO: need to make sure to wait on sending till we recieve the hello event
+                    // could be a oneshot or some sort of flag which it waits till inbound has
+                    // gotten the hello
                     let outbound = tokio::spawn(async move {
                         loop {
                             while let Some(message) = rx.recv().await {
-                                println!("{:?}", message);
+                                println!("Outbound - {:?}", message);
 
                                 // TODO: present some way to do plain vs fancy message, and if
                                 // fancy do a webapi post, otherwise dump into the WS
@@ -111,17 +117,17 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
                     let res = tokio::try_join!(inbound, outbound);
 
                     match res {
-                        Ok((first, second)) => println!("Both exited fine"),
-                        Err(err) => println!("Something failed: {:?}", err),
+                        Ok((first, second)) => println!("Control - \t\t\tBoth exited fine"),
+                        Err(err) => println!("Control - \t\t\tSomething failed: {:?}", err),
                     }
                 } else {
-                    println!("{:?}", ws_response.err());
+                    println!("Control - \t\t{:?}", ws_response.err());
                 }
             } else {
-                println!("No WS url....");
+                println!("Control - \tNo WS url");
             }
         } else {
-            println!("{:?}", response);
+            println!("Control - {:?}", response);
         }
     }
     Ok(())
@@ -136,19 +142,138 @@ async fn process_inbound_message(
 {
     let id = msg_id.inc();
 
-    println!("id = {:?}", id);
-    println!("{:?}", msg);
+    println!("Inbound - id = {:?}", id);
 
-    if id % 4 == 0 {
-        // Trial send something
-        let ws_msg = tungstenite::tungstenite::Message::from(
-            "{\"id\":1,\"type\":\"message\",\"channel\":\"CAF6S4TRT\",\"text\":\"mod4 kappa\"}".to_string()
-        );
+    // Parse incoming message
+    let raw_msg = match msg {
+        tungstenite::tungstenite::Message::Text(x) => Some(x),
+        _ => {
+            println!("Inbound - \tUnsupported ws message type - {:?}", msg);
+            None
+        },
+    };
+    println!("Inbound - raw event = {:?}", raw_msg);
 
-        tx.send(ws_msg).await;
+    if let Some(s) = raw_msg {
 
-        println!("Kappa was sent");
+        // Try to parse to an event
+        let der_msg: std::result::Result<Event, serde_json::Error> = serde_json::from_str(&s);
+        match der_msg {
+            Ok(event) => {
+                println!("Inbound - \tparsed event = {:?}", event);
+
+                // Check if its a message/certain string, if so, reply
+                match event {
+                    Event::Message {
+                        channel: Some(c),
+                        text: t,
+                        subtype: _,
+                        hidden: _,
+                        user: _,
+                        ts: _,
+                    } if (c == "CAF6S4TRT".to_string()) && (t == "!kappa".to_string()) => {
+
+                        // Send out a message
+                        let ws_msg = json!({
+                            "id": 1,
+                            "type": "message",
+                            "channel": "CAF6S4TRT",
+                            "text": "mod4 kappa",
+                        }).to_string();
+
+                        tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+
+                        println!("Inbound - \t\tKappa was sent");
+                    },
+                    _ => println!("Inbound - \t\tNo action taken"),
+                }
+            },
+            Err(_) => {
+                let der_msg: std::result::Result<MessageSent, serde_json::Error> = serde_json::from_str(&s);
+                match der_msg {
+                    Ok(event) => println!("Inbound - \tparsed event = {:?}", event),
+                    Err(_) => {
+                        let der_msg: std::result::Result<MessageError, serde_json::Error> = serde_json::from_str(&s);
+                        match der_msg {
+                            Ok(event) => println!("Inbound - \tparsed event = {:?}", event),
+                            Err(_) => {
+                                // TODO: for now print to stderr what didn't get deserialized
+                                // later can have config option to log to file the error or not
+                                println!("Inbound - \t\tFail parse = {:?}", s);
+                            },
+                        }
+                    },
+                }
+            },
+        }
     }
-
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+enum Event {
+    // TODO: separate the slack Control messages (hello/bye/ping/pong)
+    // from the other messages that will be of interest to plugins
+    //
+    // First message upon successful connection establishment
+    Hello,
+
+    // Client should reconnect after getting such message
+    Goodbye,
+
+    // Reply to Ping = { type: ping, id: num }
+    Pong { reply_to: usize },
+
+    // These events are what plugins will care for:
+    //
+    // Slack messages
+    // TODO: more involved here for now basics
+    Message {
+        subtype: Option<String>,
+        hidden: Option<bool>,
+        channel: Option<String>,
+        user: String,
+        text: String,
+        ts: String,
+    },
+
+    // TODO: consider looking at slack_api for types to reuse here
+    ReactionAdded {
+        user: String,
+        reaction: String,
+        item_user: Option<String>,
+        // item: ListResponseItem
+        event_ts: String,
+    },
+    ReactionRemoved {
+        user: String,
+        reaction: String,
+        item_user: Option<String>,
+        // item: ListResponseItem
+        event_ts: String,
+    },
+}
+
+
+#[derive(Debug, Deserialize)]
+struct MessageSent {
+    ok: bool,
+    reply_to: usize,
+    text: String,
+    ts: String
+}
+
+#[derive(Debug, Deserialize)]
+struct MessageError {
+    ok: bool,
+    reply_to: usize,
+    error: ErrorDetail,
+}
+
+#[derive(Debug, Deserialize)]
+struct ErrorDetail {
+    code: usize,
+    msg: String,
 }
