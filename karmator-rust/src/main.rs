@@ -3,13 +3,9 @@ use tokio_tungstenite as tungstenite;
 
 use futures_util::{SinkExt, StreamExt};
 
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
-// Alternative if need tokio 0.3
-// use tokio_compat_02::FutureExt;
-
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 
 use atomic_counter::AtomicCounter;
@@ -24,113 +20,83 @@ use std::result::Result;
 // Type alias for msg_id
 type MsgId = Arc<RelaxedCounter>;
 
-fn main() {
-    Runtime::new()
-        .expect("Failed to create Tokio runtime")
-        .block_on(async_main());
-}
 
-async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Shared integer counter for message ids
     let msg_id = Arc::new(RelaxedCounter::new(0));
 
     let token = env::var("SLACK_API_TOKEN").map_err(|_| "SLACK_API_TOKEN env var must be set")?;
     let client = slack::default_client().map_err(|e| format!("Could not get default_client, {:?}", e))?;
 
-    {
-        // Post a message
-        let msg = slack::chat::PostMessageRequest {
-            channel: "karmator-devs",
-            text: "Pogger, i'm starting up!",
-            as_user: Some(true),
-            ..Default::default()
-        };
-        slack::chat::post_message(&client, &token, &msg).await;
+    // Post a message
+    let msg = slack::chat::PostMessageRequest {
+        channel: "karmator-devs",
+        text: "Pogger, i'm starting up!",
+        as_user: Some(true),
+        ..Default::default()
+    };
+    slack::chat::post_message(&client, &token, &msg).await;
 
+    // Work to establish the WS connection
+    let response = slack::rtm::connect(&client, &token).await.map_err(|e| format!("Control - {:?}", e))?;
+    println!("Control - Got an ok reply");
 
-        // We use .compat() from FutureExt specifically because the api client is on reqwest which
-        // uses tokio 0.2 and we are going to be using tokio 0.3 (for tungstein for websockets)
-        //
-        // One possibility could be to:
-        // You can provide your own client by implementing the async or sync versions of SlackWebRequestSender.
-        //
-        // Which would let me get off requwest onto something that is on tokio 0.3 (this may have
-        // merit)
-        //let request = slack::rtm::StartRequest::default();
-        //let response = slack::rtm::start(&client, &token, &request).compat().await;
-        let response = slack::rtm::connect(&client, &token).await;
+    let ws_url = response.url.ok_or(format!("Control - \tNo Ws url"))?;
+    println!("Control - \tGot a WS url: {:?}", ws_url);
 
-        if let Ok(response) = response {
-            println!("Control - Got an ok reply");
+    let (ws_stream, _) = tungstenite::connect_async(ws_url).await.map_err(|e| format!("Control - \t\t{:?}", e))?;
+    println!("Control - \t\tWS connection established");
 
-            if let Some(ws_url) = response.url {
-                println!("Control - \tGot a WS url: {:?}", ws_url);
+    // Setup the mpsc channel
+    let (tx, mut rx) = mpsc::channel(32);
 
-                let ws_response = tungstenite::connect_async(ws_url).await;
+    // Split the stream
+    let (mut ws_write, mut ws_read) = ws_stream.split();
 
-                if let Ok((mut ws_stream, ws_response)) = ws_response {
-                    println!("Control - \t\tWS connection established");
+    // Spawn the inbound ws stream processor
+    let inbound = tokio::spawn(async move {
+        loop {
+            if let Some(Ok(ws_msg)) = ws_read.next().await {
+                let msg_id = msg_id.clone();
+                let tx2 = tx.clone();
 
-                    // Setup the mpsc channel
-                    let (mut tx, mut rx) = mpsc::channel(32);
+                tokio::spawn(async move {
+                    process_inbound_message(msg_id, ws_msg, tx2).await;
+                });
 
-                    // Split the stream
-                    let (mut ws_write, mut ws_read) = ws_stream.split();
-
-                    // Spawn the inbound ws stream processor
-                    let inbound = tokio::spawn(async move {
-                        loop {
-                            if let Some(Ok(ws_msg)) = ws_read.next().await {
-                                let msg_id = msg_id.clone();
-                                let tx2 = tx.clone();
-
-                                tokio::spawn(async move {
-                                    process_inbound_message(msg_id, ws_msg, tx2).await;
-                                });
-
-                            }
-                        }
-                    });
-
-                    // Spawn outbound ws processor
-                    // TODO: need to make sure to wait on sending till we recieve the hello event
-                    // could be a oneshot or some sort of flag which it waits till inbound has
-                    // gotten the hello
-                    let outbound = tokio::spawn(async move {
-                        loop {
-                            while let Some(message) = rx.recv().await {
-                                println!("Outbound - {:?}", message);
-
-                                // TODO: present some way to do plain vs fancy message, and if
-                                // fancy do a webapi post, otherwise dump into the WS
-                                //
-                                // TODO: look into tracking the sent message with a confirmation
-                                // that it was sent (via msg id) and if it fails, resend with
-                                // backoff
-                                //
-                                // TODO: find a way to handle the ping/pong cycle and monitor
-                                ws_write.send(message).await;
-                            }
-                        }
-                    });
-
-                    // Wait till either exits (error) then begin recovery
-                    let res = tokio::try_join!(inbound, outbound);
-
-                    match res {
-                        Ok((first, second)) => println!("Control - \t\t\tBoth exited fine"),
-                        Err(err) => println!("Control - \t\t\tSomething failed: {:?}", err),
-                    }
-                } else {
-                    println!("Control - \t\t{:?}", ws_response.err());
-                }
-            } else {
-                println!("Control - \tNo WS url");
             }
-        } else {
-            println!("Control - {:?}", response);
         }
+    });
+
+    // Spawn outbound ws processor
+    // TODO: need to make sure to wait on sending till we recieve the hello event
+    // could be a oneshot or some sort of flag which it waits till inbound has
+    // gotten the hello
+    let outbound = tokio::spawn(async move {
+        loop {
+            while let Some(message) = rx.recv().await {
+                println!("Outbound - {:?}", message);
+
+                // TODO: present some way to do plain vs fancy message, and if
+                // fancy do a webapi post, otherwise dump into the WS
+                //
+                // TODO: look into tracking the sent message with a confirmation
+                // that it was sent (via msg id) and if it fails, resend with
+                // backoff
+                //
+                // TODO: find a way to handle the ping/pong cycle and monitor
+                ws_write.send(message).await;
+            }
+        }
+    });
+
+    // Wait till either exits (error) then begin recovery
+    match tokio::try_join!(inbound, outbound) {
+        Ok((first, second)) => println!("Control - \t\t\tBoth exited fine"),
+        Err(err) => println!("Control - \t\t\tSomething failed: {:?}", err),
     }
+
     Ok(())
 }
 
@@ -155,39 +121,37 @@ async fn process_inbound_message(
     };
     println!("Inbound - raw event = {:?}", raw_msg);
 
-    if let Some(s) = raw_msg {
-        if let Some(e) = parse_event(s) {
-            match e {
-                Event::UserEvent(event) => {
-                    // Check if its a message/certain string, if so, reply
-                    match event {
-                        UserEvent::Message {
-                            channel: Some(c),
-                            text: t,
-                            subtype: _,
-                            hidden: _,
-                            user: _,
-                            ts: _,
-                        } if (c == "CAF6S4TRT".to_string()) && (t == "!kappa".to_string()) => {
-                            // Send out a message
-                            let ws_msg = json!({
-                                "id": 1,
-                                "type": "message",
-                                "channel": "CAF6S4TRT",
-                                "text": "mod4 kappa",
-                            }).to_string();
+    if let Some(e) = raw_msg.and_then(parse_event) {
+        match e {
+            Event::UserEvent(event) => {
+                // Check if its a message/certain string, if so, reply
+                match event {
+                    UserEvent::Message {
+                        channel: Some(c),
+                        text: t,
+                        subtype: _,
+                        hidden: _,
+                        user: _,
+                        ts: _,
+                    } if (c == "CAF6S4TRT".to_string()) && (t == "!kappa".to_string()) => {
+                        // Send out a message
+                        let ws_msg = json!({
+                            "id": 1,
+                            "type": "message",
+                            "channel": "CAF6S4TRT",
+                            "text": "mod4 kappa",
+                        }).to_string();
 
-                            tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                        tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
 
-                            println!("Inbound - \t\tKappa was sent");
-                        },
-                        _ => println!("Inbound - \t\tNo action taken"),
-                    }
-                },
+                        println!("Inbound - \t\tKappa was sent");
+                    },
+                    _ => println!("Inbound - \t\tNo action taken"),
+                }
+            },
 
-                Event::SystemControl(sc) => (),
-                Event::MessageControl(mc) => (),
-            }
+            Event::SystemControl(sc) => (),
+            Event::MessageControl(mc) => (),
         }
     }
     Ok(())
@@ -195,51 +159,34 @@ async fn process_inbound_message(
 
 
 fn parse_event(s: String) -> Option<Event> {
-    // Try to parse an System Control or Message Control, then an Event (to pass on downstream)
-    let sc: Result<SystemControl, serde_json::Error> = serde_json::from_str(&s);
-    match sc {
-        Ok(sc) => {
+    // Return User Events first, then the other two
+    serde_json::from_str(&s).and_then(|ue| {
+        println!("Inbound - \tUser Event = {:?}", ue);
+        Ok(Event::UserEvent(ue))
+    }).or_else(|_| {
+        serde_json::from_str(&s).and_then(|sc| {
             println!("Inbound - \tSystem Control = {:?}", sc);
-            Some(Event::SystemControl(sc))
-        },
-        Err(_) => {
-            // Try to parse a Message Control
-            let mc: Result<MessageControl, serde_json::Error> = serde_json::from_str(&s);
-            match mc {
-                Ok(mc) => {
-                    println!("Inbound - \tMessage Control = {:?}", mc);
-                    Some(Event::MessageControl(mc))
-                },
-                Err(_) => {
-                    // Try to parse an event
-                    let event: Result<UserEvent, serde_json::Error> = serde_json::from_str(&s);
-                    match event {
-                        Ok(event) => {
-                            println!("Inbound - \tEvent = {:?}", event);
-                            Some(Event::UserEvent(event))
-                        },
-                        Err(_) => {
-                            // TODO: for now print to stderr what didn't get deserialized
-                            // later can have config option to log to file the error or not
-                            println!("Inbound - \t\tFail parse = {:?}", s);
-                            None
-                        },
-                    }
-                },
-            }
-        },
-    }
+            Ok(Event::SystemControl(sc))
+        }).or_else(|_| {
+            serde_json::from_str(&s).and_then(|mc| {
+                println!("Inbound - \tMessage Control = {:?}", mc);
+                Ok(Event::MessageControl(mc))
+            }).or_else(|x| {
+                // TODO: for now print to stderr what didn't get deserialized
+                // later can have config option to log to file the error or not
+                eprintln!("Inbound - \tFail parse = {:?}", s);
+                Err(x)
+            })
+        })
+    }).ok()
 }
 
-
-// Containing enum to ease the result chains
 #[derive(Debug)]
 enum Event {
     UserEvent(UserEvent),
     SystemControl(SystemControl),
     MessageControl(MessageControl),
 }
-
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
@@ -275,14 +222,10 @@ enum UserEvent {
     },
 }
 
-
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 enum SystemControl {
-    // TODO: separate the slack Control messages (hello/bye/ping/pong)
-    // from the other messages that will be of interest to plugins
-    //
     // First message upon successful connection establishment
     Hello,
 
@@ -297,6 +240,7 @@ enum SystemControl {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum MessageControl {
+    // Reply to message sent
     MessageSent {
         ok: bool,
         reply_to: usize,
@@ -304,6 +248,7 @@ enum MessageControl {
         ts: String
     },
 
+    // Reply to failed message sent
     MessageError {
         ok: bool,
         reply_to: usize,
