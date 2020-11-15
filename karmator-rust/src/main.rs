@@ -18,6 +18,7 @@ use atomic_counter::RelaxedCounter;
 use std::sync::Arc;
 use std::default::Default;
 use std::env;
+use std::result::Result;
 
 
 // Type alias for msg_id
@@ -155,77 +156,95 @@ async fn process_inbound_message(
     println!("Inbound - raw event = {:?}", raw_msg);
 
     if let Some(s) = raw_msg {
+        if let Some(e) = parse_event(s) {
+            match e {
+                Event::UserEvent(event) => {
+                    // Check if its a message/certain string, if so, reply
+                    match event {
+                        UserEvent::Message {
+                            channel: Some(c),
+                            text: t,
+                            subtype: _,
+                            hidden: _,
+                            user: _,
+                            ts: _,
+                        } if (c == "CAF6S4TRT".to_string()) && (t == "!kappa".to_string()) => {
+                            // Send out a message
+                            let ws_msg = json!({
+                                "id": 1,
+                                "type": "message",
+                                "channel": "CAF6S4TRT",
+                                "text": "mod4 kappa",
+                            }).to_string();
 
-        // Try to parse to an event
-        let der_msg: std::result::Result<Event, serde_json::Error> = serde_json::from_str(&s);
-        match der_msg {
-            Ok(event) => {
-                println!("Inbound - \tparsed event = {:?}", event);
+                            tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
 
-                // Check if its a message/certain string, if so, reply
-                match event {
-                    Event::Message {
-                        channel: Some(c),
-                        text: t,
-                        subtype: _,
-                        hidden: _,
-                        user: _,
-                        ts: _,
-                    } if (c == "CAF6S4TRT".to_string()) && (t == "!kappa".to_string()) => {
+                            println!("Inbound - \t\tKappa was sent");
+                        },
+                        _ => println!("Inbound - \t\tNo action taken"),
+                    }
+                },
 
-                        // Send out a message
-                        let ws_msg = json!({
-                            "id": 1,
-                            "type": "message",
-                            "channel": "CAF6S4TRT",
-                            "text": "mod4 kappa",
-                        }).to_string();
-
-                        tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
-
-                        println!("Inbound - \t\tKappa was sent");
-                    },
-                    _ => println!("Inbound - \t\tNo action taken"),
-                }
-            },
-            Err(_) => {
-                let der_msg: std::result::Result<MessageSent, serde_json::Error> = serde_json::from_str(&s);
-                match der_msg {
-                    Ok(event) => println!("Inbound - \tparsed event = {:?}", event),
-                    Err(_) => {
-                        let der_msg: std::result::Result<MessageError, serde_json::Error> = serde_json::from_str(&s);
-                        match der_msg {
-                            Ok(event) => println!("Inbound - \tparsed event = {:?}", event),
-                            Err(_) => {
-                                // TODO: for now print to stderr what didn't get deserialized
-                                // later can have config option to log to file the error or not
-                                println!("Inbound - \t\tFail parse = {:?}", s);
-                            },
-                        }
-                    },
-                }
-            },
+                Event::SystemControl(sc) => (),
+                Event::MessageControl(mc) => (),
+            }
         }
     }
     Ok(())
 }
 
+
+fn parse_event(s: String) -> Option<Event> {
+    // Try to parse an System Control or Message Control, then an Event (to pass on downstream)
+    let sc: Result<SystemControl, serde_json::Error> = serde_json::from_str(&s);
+    match sc {
+        Ok(sc) => {
+            println!("Inbound - \tSystem Control = {:?}", sc);
+            Some(Event::SystemControl(sc))
+        },
+        Err(_) => {
+            // Try to parse a Message Control
+            let mc: Result<MessageControl, serde_json::Error> = serde_json::from_str(&s);
+            match mc {
+                Ok(mc) => {
+                    println!("Inbound - \tMessage Control = {:?}", mc);
+                    Some(Event::MessageControl(mc))
+                },
+                Err(_) => {
+                    // Try to parse an event
+                    let event: Result<UserEvent, serde_json::Error> = serde_json::from_str(&s);
+                    match event {
+                        Ok(event) => {
+                            println!("Inbound - \tEvent = {:?}", event);
+                            Some(Event::UserEvent(event))
+                        },
+                        Err(_) => {
+                            // TODO: for now print to stderr what didn't get deserialized
+                            // later can have config option to log to file the error or not
+                            println!("Inbound - \t\tFail parse = {:?}", s);
+                            None
+                        },
+                    }
+                },
+            }
+        },
+    }
+}
+
+
+// Containing enum to ease the result chains
+#[derive(Debug)]
+enum Event {
+    UserEvent(UserEvent),
+    SystemControl(SystemControl),
+    MessageControl(MessageControl),
+}
+
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-enum Event {
-    // TODO: separate the slack Control messages (hello/bye/ping/pong)
-    // from the other messages that will be of interest to plugins
-    //
-    // First message upon successful connection establishment
-    Hello,
-
-    // Client should reconnect after getting such message
-    Goodbye,
-
-    // Reply to Ping = { type: ping, id: num }
-    Pong { reply_to: usize },
-
+enum UserEvent {
     // These events are what plugins will care for:
     //
     // Slack messages
@@ -258,18 +277,38 @@ enum Event {
 
 
 #[derive(Debug, Deserialize)]
-struct MessageSent {
-    ok: bool,
-    reply_to: usize,
-    text: String,
-    ts: String
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+enum SystemControl {
+    // TODO: separate the slack Control messages (hello/bye/ping/pong)
+    // from the other messages that will be of interest to plugins
+    //
+    // First message upon successful connection establishment
+    Hello,
+
+    // Client should reconnect after getting such message
+    Goodbye,
+
+    // Reply to Ping = { type: ping, id: num }
+    Pong { reply_to: usize },
 }
 
+
 #[derive(Debug, Deserialize)]
-struct MessageError {
-    ok: bool,
-    reply_to: usize,
-    error: ErrorDetail,
+#[serde(untagged)]
+enum MessageControl {
+    MessageSent {
+        ok: bool,
+        reply_to: usize,
+        text: String,
+        ts: String
+    },
+
+    MessageError {
+        ok: bool,
+        reply_to: usize,
+        error: ErrorDetail,
+    },
 }
 
 #[derive(Debug, Deserialize)]
