@@ -16,6 +16,16 @@ use std::default::Default;
 use std::env;
 use std::result::Result;
 
+use chrono::prelude::{Utc, DateTime};
+use std::time::Duration;
+use humantime::format_duration;
+
+// Use of a mod or pub mod is not actually necessary.
+pub mod build_info {
+   // The file has been placed there by the build script.
+   include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
 
 // Type alias for msg_id
 type MsgId = Arc<RelaxedCounter>;
@@ -25,6 +35,9 @@ type MsgId = Arc<RelaxedCounter>;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Shared integer counter for message ids
     let msg_id = Arc::new(RelaxedCounter::new(0));
+
+    // Uptime of program start
+    let start_time: DateTime<Utc> = Utc::now();
 
     let token = env::var("SLACK_API_TOKEN").map_err(|_| "SLACK_API_TOKEN env var must be set")?;
     let client = slack::default_client().map_err(|e| format!("Could not get default_client, {:?}", e))?;
@@ -62,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let tx2 = tx.clone();
 
                 tokio::spawn(async move {
-                    process_inbound_message(msg_id, ws_msg, tx2).await;
+                    process_inbound_message(msg_id, ws_msg, tx2, start_time).await;
                 });
 
             }
@@ -104,7 +117,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn process_inbound_message(
     msg_id: MsgId,
     msg: tungstenite::tungstenite::Message,
-    mut tx: mpsc::Sender<tungstenite::tungstenite::Message>
+    mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
+    start_time: DateTime<Utc>
 ) -> Result<(), Box<dyn std::error::Error>>
 {
     let id = msg_id.inc();
@@ -126,26 +140,71 @@ async fn process_inbound_message(
             Event::UserEvent(event) => {
                 // Check if its a message/certain string, if so, reply
                 match event {
+                    // !version
                     UserEvent::Message {
                         channel: Some(c),
                         text: t,
                         subtype: _,
                         hidden: _,
-                        user: _,
+                        user: u,
                         ts: _,
-                    } if (c == "CAF6S4TRT".to_string()) && (t == "!kappa".to_string()) => {
-                        // Send out a message
-                        let ws_msg = json!({
-                            "id": 1,
-                            "type": "message",
-                            "channel": "CAF6S4TRT",
-                            "text": "mod4 kappa",
-                        }).to_string();
+                    } if c == "CAF6S4TRT".to_string() => {
+                        if t == "!version".to_string() {
+                            let ver = build_info::PKG_VERSION;
+                            let dat = build_info::BUILT_TIME_UTC;
+                            let sha = build_info::GIT_COMMIT_HASH.unwrap_or("Unknown");
 
-                        tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                            let ws_msg = json!({
+                                "id": id,
+                                "type": "message",
+                                "channel": "CAF6S4TRT",
+                                "text": format!("<@{}>: Cargo Version: {} - Build Date: {}, - Build SHA: {}", u, ver, dat, sha),
+                            }).to_string();
 
-                        println!("Inbound - \t\tKappa was sent");
+                            tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                            println!("Inbound - \t\t!version");
+
+                        } else if t == "!uptime".to_string() {
+                            let end_time: DateTime<Utc> = Utc::now();
+                            let durt = end_time.signed_duration_since(start_time).to_std().unwrap_or(
+                                Duration::from_secs(3122064000));
+
+                            let ws_msg = json!({
+                                "id": id,
+                                "type": "message",
+                                "channel": "CAF6S4TRT",
+                                "text": format!("<@{}>: {}", u, format_duration(durt).to_string()),
+                            }).to_string();
+
+                            tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                            println!("Inbound - \t\t!uptime");
+
+                        } else if t == "!help".to_string() {
+                            let help = "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote";
+                            let ws_msg = json!({
+                                "id": id,
+                                "type": "message",
+                                "channel": "CAF6S4TRT",
+                                "text": format!("<@{}>: {}", u, help),
+                            }).to_string();
+
+                            tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                            println!("Inbound - \t\t!help");
+
+                        } else if t == "!github".to_string() {
+                            let github = "Github repo: https://github.com/pharaun/Karmator";
+                            let ws_msg = json!({
+                                "id": id,
+                                "type": "message",
+                                "channel": "CAF6S4TRT",
+                                "text": format!("<@{}>: {}", u, github),
+                            }).to_string();
+
+                            tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                            println!("Inbound - \t\t!github");
+                        }
                     },
+
                     _ => println!("Inbound - \t\tNo action taken"),
                 }
             },
