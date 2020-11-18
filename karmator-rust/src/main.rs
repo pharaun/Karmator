@@ -24,6 +24,9 @@ use humantime::format_duration;
 use std::thread;
 use futures::executor::block_on_stream;
 
+use rusqlite as rs;
+use std::path::Path;
+
 
 // Use of a mod or pub mod is not actually necessary.
 pub mod build_info {
@@ -137,22 +140,79 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
 fn process_queries(
-    sql_rx: mpsc::Receiver<String>
+    sql_rx: mpsc::Receiver<runQuery>
 ) {
     let mut block_sql_rx = block_on_stream(sql_rx);
 
+    //let filename = "db.sqlite";
+    //let conn = rs::Connection::open_with_flags(
+    //    Path::new(filename),
+    //    rs::OpenFlags::SQLITE_OPEN_READ_WRITE
+    //).expect(&format!("Connection error: {}", filename));
+    let conn = rs::Connection::open_in_memory().expect("Failure");
+
+    // Just create a db table
+    let res = conn.execute(
+        "CREATE TABLE votes (
+            for TEXT NOT NULL,
+            what TEXT NOT NULL
+        )",
+        rs::params![],
+    );
+    println!("Sql Worker - Table - {:?}", res);
+
+
+    // Listen for inbound query
     while let Some(query) = block_sql_rx.next() {
-        println!("Sql Worker - Query {:?}", query);
+        match query {
+            runQuery::Query => {
+                println!("Sql Worker - Query");
+                let mut stmt = conn.prepare("SELECT * FROM votes").unwrap();
+
+                let mut vote_iter = stmt.query_map(rs::params![], |row| {
+                    let a: String = row.get(0).unwrap();
+                    let b: String = row.get(1).unwrap();
+
+                    Ok(format!("{} {}", a, b))
+                }).unwrap();
+
+                // Result
+                if let Some(Ok(res)) = vote_iter.next() {
+                    println!("Sql Worker - Query - {:?}", res);
+                } else {
+                    println!("Sql Worker - Query - Fail");
+                }
+            },
+            runQuery::Insert(f, w) => {
+                println!("Sql Worker - Insert");
+                let mut stmt = conn.prepare("INSERT INTO votes (for, what) VALUES (?, ?)").unwrap();
+                let res = stmt.execute(&[f, w]);
+
+                println!("Sql Worker - Insert - {:?}", res);
+            }
+        }
     }
 }
 
+
+#[derive(Debug)]
+enum runQuery {
+    Insert(String, String),
+    Query,
+}
+
+#[derive(Debug)]
+enum resQuery {
+    Insert(usize),
+    Query(String),
+}
 
 
 async fn process_inbound_message(
     msg_id: MsgId,
     msg: tungstenite::tungstenite::Message,
     mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
-    mut sql_tx: mpsc::Sender<String>,
+    mut sql_tx: mpsc::Sender<runQuery>,
     start_time: DateTime<Utc>
 ) -> Result<(), Box<dyn std::error::Error>>
 {
@@ -239,7 +299,8 @@ async fn process_inbound_message(
                             println!("Inbound - \t\t!github");
 
                         } else if t == "!run_sql_query".to_string() {
-                            sql_tx.send("select * from votes;".to_string()).await;
+                            sql_tx.send(runQuery::Insert("hi".to_string(), "bye".to_string())).await;
+                            sql_tx.send(runQuery::Query).await;
 
 
                             let ws_msg = json!({
