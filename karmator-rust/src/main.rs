@@ -28,6 +28,9 @@ use rusqlite as rs;
 use std::path::Path;
 use tokio::sync::oneshot;
 
+// Test data
+mod schema_sample;
+
 
 // Use of a mod or pub mod is not actually necessary.
 pub mod build_info {
@@ -152,15 +155,9 @@ fn process_queries(
     //).expect(&format!("Connection error: {}", filename));
     let conn = rs::Connection::open_in_memory().expect("Failure");
 
-    // Just create a db table
-    let res = conn.execute(
-        "CREATE TABLE votes (
-            for TEXT NOT NULL,
-            what TEXT NOT NULL
-        )",
-        rs::params![],
-    );
-    println!("Sql Worker - Table - {:?}", res);
+    // Test data/build tables
+    schema_sample::setup_table(&conn);
+    schema_sample::setup_data(&conn);
 
 
     // Listen for inbound query
