@@ -198,6 +198,9 @@ fn process_queries(
 }
 
 
+// TODO: should be able to replace all of these stuff maybe by some trait or some other tricks
+// so that we can have a extensible query where i define the query/process/result and then send it
+// to the query engine and get the result back in a good format
 #[derive(Debug)]
 enum runQuery {
     Insert(String, String),
@@ -219,8 +222,8 @@ async fn process_inbound_message(
     start_time: DateTime<Utc>
 ) -> Result<(), Box<dyn std::error::Error>>
 {
+    // TODO: this should really go into the 'message sender' not here
     let id = msg_id.inc();
-
     println!("Inbound - id = {:?}", id);
 
     // Parse incoming message
@@ -231,7 +234,7 @@ async fn process_inbound_message(
             None
         },
     };
-    println!("Inbound - raw event = {:?}", raw_msg);
+    //println!("Inbound - raw event = {:?}", raw_msg);
 
     if let Some(e) = raw_msg.and_then(parse_event) {
         match e {
@@ -376,7 +379,7 @@ fn parse_event(s: String) -> Option<Event> {
             }).or_else(|x| {
                 // TODO: for now print to stderr what didn't get deserialized
                 // later can have config option to log to file the error or not
-                eprintln!("Inbound - \tFail parse = {:?}", s);
+                //eprintln!("Inbound - \tFail parse = {:?}", s);
                 Err(x)
             })
         })
