@@ -20,6 +20,11 @@ use chrono::prelude::{Utc, DateTime};
 use std::time::Duration;
 use humantime::format_duration;
 
+// SQlite worker thread
+use std::thread;
+use futures::executor::block_on_stream;
+
+
 // Use of a mod or pub mod is not actually necessary.
 pub mod build_info {
    // The file has been placed there by the build script.
@@ -67,15 +72,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Split the stream
     let (mut ws_write, mut ws_read) = ws_stream.split();
 
+
+    // Setup the mpsc channel for sqlite and spawn the sqlite worker thread
+    // TODO: define a data format for asking the db to query something on your behalf, for now
+    // pass in the raw query string?
+    let (sql_tx, sql_rx) = mpsc::channel(32);
+
+    let sql_worker = thread::spawn(move || {
+        println!("Sql Worker - Launching");
+        process_queries(sql_rx);
+        println!("Sql Worker - Exiting");
+    });
+
     // Spawn the inbound ws stream processor
     let inbound = tokio::spawn(async move {
         loop {
             if let Some(Ok(ws_msg)) = ws_read.next().await {
                 let msg_id = msg_id.clone();
                 let tx2 = tx.clone();
+                let sql_tx2 = sql_tx.clone();
 
                 tokio::spawn(async move {
-                    process_inbound_message(msg_id, ws_msg, tx2, start_time).await;
+                    process_inbound_message(msg_id, ws_msg, tx2, sql_tx2, start_time).await;
                 });
 
             }
@@ -110,14 +128,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(err) => println!("Control - \t\t\tSomething failed: {:?}", err),
     }
 
+    // The sql_tx got moved into the inbound tokio async, so when that dies....
+    let res = sql_worker.join();
+    println!("Control - \t\t\tSql worker: {:?}", res);
+
     Ok(())
 }
+
+
+fn process_queries(
+    sql_rx: mpsc::Receiver<String>
+) {
+    let mut block_sql_rx = block_on_stream(sql_rx);
+
+    while let Some(query) = block_sql_rx.next() {
+        println!("Sql Worker - Query {:?}", query);
+    }
+}
+
 
 
 async fn process_inbound_message(
     msg_id: MsgId,
     msg: tungstenite::tungstenite::Message,
     mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
+    mut sql_tx: mpsc::Sender<String>,
     start_time: DateTime<Utc>
 ) -> Result<(), Box<dyn std::error::Error>>
 {
@@ -202,6 +237,20 @@ async fn process_inbound_message(
 
                             tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
                             println!("Inbound - \t\t!github");
+
+                        } else if t == "!run_sql_query".to_string() {
+                            sql_tx.send("select * from votes;".to_string()).await;
+
+
+                            let ws_msg = json!({
+                                "id": id,
+                                "type": "message",
+                                "channel": "CAF6S4TRT",
+                                "text": format!("<@{}>: Ok running query", u),
+                            }).to_string();
+                            tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+
+                            println!("Inbound - \t\t!run_sql_query");
                         }
                     },
 
