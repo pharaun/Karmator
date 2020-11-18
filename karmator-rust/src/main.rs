@@ -26,6 +26,7 @@ use futures::executor::block_on_stream;
 
 use rusqlite as rs;
 use std::path::Path;
+use tokio::sync::oneshot;
 
 
 // Use of a mod or pub mod is not actually necessary.
@@ -140,7 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
 fn process_queries(
-    sql_rx: mpsc::Receiver<runQuery>
+    sql_rx: mpsc::Receiver<(runQuery, Option<oneshot::Sender<resQuery>>)>
 ) {
     let mut block_sql_rx = block_on_stream(sql_rx);
 
@@ -163,7 +164,7 @@ fn process_queries(
 
 
     // Listen for inbound query
-    while let Some(query) = block_sql_rx.next() {
+    while let Some((query, res_tx)) = block_sql_rx.next() {
         match query {
             runQuery::Query => {
                 println!("Sql Worker - Query");
@@ -179,6 +180,7 @@ fn process_queries(
                 // Result
                 if let Some(Ok(res)) = vote_iter.next() {
                     println!("Sql Worker - Query - {:?}", res);
+                    res_tx.unwrap().send(resQuery::Query(res));
                 } else {
                     println!("Sql Worker - Query - Fail");
                 }
@@ -189,6 +191,7 @@ fn process_queries(
                 let res = stmt.execute(&[f, w]);
 
                 println!("Sql Worker - Insert - {:?}", res);
+                res_tx.unwrap().send(resQuery::Insert(res.unwrap()));
             }
         }
     }
@@ -212,7 +215,7 @@ async fn process_inbound_message(
     msg_id: MsgId,
     msg: tungstenite::tungstenite::Message,
     mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
-    mut sql_tx: mpsc::Sender<runQuery>,
+    mut sql_tx: mpsc::Sender<(runQuery, Option<oneshot::Sender<resQuery>>)>,
     start_time: DateTime<Utc>
 ) -> Result<(), Box<dyn std::error::Error>>
 {
@@ -298,11 +301,7 @@ async fn process_inbound_message(
                             tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
                             println!("Inbound - \t\t!github");
 
-                        } else if t == "!run_sql_query".to_string() {
-                            sql_tx.send(runQuery::Insert("hi".to_string(), "bye".to_string())).await;
-                            sql_tx.send(runQuery::Query).await;
-
-
+                        } else if t == "!run_query".to_string() {
                             let ws_msg = json!({
                                 "id": id,
                                 "type": "message",
@@ -310,6 +309,40 @@ async fn process_inbound_message(
                                 "text": format!("<@{}>: Ok running query", u),
                             }).to_string();
                             tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+
+                            // Dummy get/send stuff
+                            let (tx1, rx1) = oneshot::channel();
+                            sql_tx.send((
+                                runQuery::Insert("hi".to_string(), "bye".to_string()),
+                                Some(tx1)
+                            )).await;
+
+                            let (tx2, rx2) = oneshot::channel();
+                            sql_tx.send((
+                                runQuery::Query,
+                                Some(tx2)
+                            )).await;
+
+                            // Await for the results
+                            let res1 = rx1.await;
+                            let ws_msg = json!({
+                                "id": id,
+                                "type": "message",
+                                "channel": "CAF6S4TRT",
+                                "text": format!("<@{}>: insert: {:?}", u, res1),
+                            }).to_string();
+                            tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+
+                            let res2 = rx2.await;
+                            let ws_msg = json!({
+                                "id": id,
+                                "type": "message",
+                                "channel": "CAF6S4TRT",
+                                "text": format!("<@{}>: query: {:?}", u, res2),
+                            }).to_string();
+                            tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+
+
 
                             println!("Inbound - \t\t!run_sql_query");
                         }
