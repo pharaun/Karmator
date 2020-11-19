@@ -29,6 +29,10 @@ use rusqlite as rs;
 use std::path::Path;
 use tokio::sync::oneshot;
 
+// User id -> display name cache
+// TODO: look at some sort of lru or persist this to sqlite instead?
+use dashmap::DashMap;
+
 // Test data
 mod schema_sample;
 
@@ -42,6 +46,7 @@ pub mod build_info {
 
 // Type alias for msg_id
 type MsgId = Arc<RelaxedCounter>;
+type UserCache = Arc<DashMap<String, String>>;
 
 
 #[tokio::main]
@@ -51,6 +56,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Uptime of program start
     let start_time: DateTime<Utc> = Utc::now();
+
+    // User id -> User Display name cache
+    let user_cache: UserCache = Arc::new(DashMap::new());
+
 
     let token = env::var("SLACK_API_TOKEN").map_err(|_| "SLACK_API_TOKEN env var must be set")?;
     let client = slack::default_client().map_err(|e| format!("Could not get default_client, {:?}", e))?;
@@ -99,9 +108,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let msg_id = msg_id.clone();
                 let tx2 = tx.clone();
                 let sql_tx2 = sql_tx.clone();
+                let user_cache = user_cache.clone();
+                let token = token.clone();
+
+                // TODO: not 100% for sure here but seems like inner handle is behind ARC so should
+                // be safe to clone a reqwest client
+                let client = client.clone();
 
                 tokio::spawn(async move {
-                    process_inbound_message(msg_id, ws_msg, tx2, sql_tx2, start_time).await;
+                    process_inbound_message(
+                        msg_id,
+                        ws_msg,
+                        tx2,
+                        sql_tx2,
+                        start_time,
+                        user_cache,
+                        &token,
+                        client
+                    ).await;
                 });
 
             }
@@ -371,13 +395,18 @@ enum ResQuery {
 }
 
 
-async fn process_inbound_message(
+async fn process_inbound_message<R>(
     msg_id: MsgId,
     msg: tungstenite::tungstenite::Message,
     mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
     mut sql_tx: mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
-    start_time: DateTime<Utc>
+    start_time: DateTime<Utc>,
+    user_cache: UserCache,
+    token: &str,
+    client: R
 ) -> Result<(), Box<dyn std::error::Error>>
+where
+    R: slack::requests::SlackWebRequestSender + std::clone::Clone
 {
     // TODO: this should really go into the 'message sender' not here
     let id = msg_id.inc();
@@ -398,7 +427,7 @@ async fn process_inbound_message(
             Event::UserEvent(event) => {
                 // Check if its a message/certain string, if so, reply
                 match event {
-                    // !version
+                    // TODO: support DM, right now its only in channels
                     UserEvent::Message {
                         channel: Some(c),
                         text: t,
@@ -415,7 +444,7 @@ async fn process_inbound_message(
                             let ws_msg = json!({
                                 "id": id,
                                 "type": "message",
-                                "channel": "CAF6S4TRT",
+                                "channel": c,
                                 "text": format!("<@{}>: Cargo Version: {} - Build Date: {}, - Build SHA: {}", u, ver, dat, sha),
                             }).to_string();
 
@@ -430,7 +459,7 @@ async fn process_inbound_message(
                             let ws_msg = json!({
                                 "id": id,
                                 "type": "message",
-                                "channel": "CAF6S4TRT",
+                                "channel": c,
                                 "text": format!("<@{}>: {}", u, format_duration(durt).to_string()),
                             }).to_string();
 
@@ -442,7 +471,7 @@ async fn process_inbound_message(
                             let ws_msg = json!({
                                 "id": id,
                                 "type": "message",
-                                "channel": "CAF6S4TRT",
+                                "channel": c,
                                 "text": format!("<@{}>: {}", u, help),
                             }).to_string();
 
@@ -454,7 +483,7 @@ async fn process_inbound_message(
                             let ws_msg = json!({
                                 "id": id,
                                 "type": "message",
-                                "channel": "CAF6S4TRT",
+                                "channel": c,
                                 "text": format!("<@{}>: {}", u, github),
                             }).to_string();
 
@@ -462,6 +491,7 @@ async fn process_inbound_message(
                             println!("Inbound - \t\t!github");
 
                         } else if t == "!karma".to_string() {
+                            // asdf「asdf」asdf
                             // TODO: Implement a 'slack id' to unix name mapper
                             //  - for now can probs query it as needed, but should
                             //      be cached
@@ -473,6 +503,10 @@ async fn process_inbound_message(
                             //
                             // If '!karma a b' specify do
                             // partalKarma (KarmaRecieved) [list of entity]
+
+                            let user_display = get_user_display(&token, client.clone(), &user_cache, &u).await;
+                            println!("User id: {:?}, Display: {:?}", u, user_display);
+
 
                             sql_tx.send((
                                 RunQuery::TopNDenormalized {
@@ -692,6 +726,42 @@ fn parse_event(s: String) -> Option<Event> {
             })
         })
     }).ok()
+}
+
+async fn get_user_display<R>(
+    token: &str,
+    client: R,
+    user_cache: &UserCache,
+    user_id: &String
+) -> Option<String>
+where
+    R: slack::requests::SlackWebRequestSender
+{
+    let ud = user_cache.get(user_id);
+    match ud {
+        Some(ud) => Some(ud.clone()),
+        None     => {
+            let resp = slack_api::users::info(
+                &client,
+                &token,
+                &slack_api::users::InfoRequest { user: &user_id }
+            ).await;
+
+            let ud = resp.ok().map(
+                |ui| ui.user
+            ).flatten().map(
+                |ui| ui.name
+            ).flatten();
+
+            match ud {
+                Some(ud) => {
+                    user_cache.insert(user_id.clone(), ud.clone());
+                    Some(ud)
+                },
+                _ => None,
+            }
+        },
+    }
 }
 
 #[derive(Debug)]
