@@ -497,7 +497,7 @@ async fn process_inbound_message(
                             sql_tx.send((
                                 RunQuery::Partial {
                                     karma_col: KarmaCol::Recieved,
-                                    users: vec!["a".to_string(), "b".to_string(), "c".to_string()].into_iter().collect(),
+                                    users: vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()].into_iter().collect(),
                                 },
                                 None
                             )).await;
@@ -552,7 +552,7 @@ async fn process_inbound_message(
                             sql_tx.send((
                                 RunQuery::Partial {
                                     karma_col: KarmaCol::Given,
-                                    users: vec!["a".to_string(), "b".to_string(), "c".to_string()].into_iter().collect(),
+                                    users: vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()].into_iter().collect(),
                                 },
                                 None
                             )).await;
