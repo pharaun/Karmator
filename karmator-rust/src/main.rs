@@ -11,6 +11,7 @@ use serde_json::json;
 use atomic_counter::AtomicCounter;
 use atomic_counter::RelaxedCounter;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::default::Default;
 use std::env;
@@ -174,11 +175,14 @@ fn process_queries(
                     kcol, ktyp, lim, ord
                 );
 
-                let (table, tcol) = match (kcol, ktyp) {
-                    (KarmaCol::Given, KarmaTyp::Total)    => ("karma_given_count", "up - down"),
-                    (KarmaCol::Given, KarmaTyp::Side)     => ("karma_given_count", "side"),
-                    (KarmaCol::Recieved, KarmaTyp::Total) => ("karma_received_count", "up - down"),
-                    (KarmaCol::Recieved, KarmaTyp::Side)  => ("karma_received_count", "side"),
+                let table = match kcol {
+                    KarmaCol::Given    => "karma_given_count",
+                    KarmaCol::Recieved => "karma_received_count",
+                };
+
+                let tcol = match ktyp {
+                    KarmaTyp::Total => "up - down",
+                    KarmaTyp::Side  => "side",
                 };
 
                 let qOrd = match ord {
@@ -187,8 +191,11 @@ fn process_queries(
                 };
 
                 let mut stmt = conn.prepare(&format!(
-                        "SELECT name, {} as total FROM {} ORDER BY total {} LIMIT {}",
-                        tcol, table, qOrd, lim
+                        "SELECT name, {tcol} as total FROM {table} ORDER BY total {qord} LIMIT {lim}",
+                        tcol=tcol,
+                        table=table,
+                        qord=qOrd,
+                        lim=lim
                 )).unwrap();
                 let mut rows = stmt.query(rs::NO_PARAMS).unwrap();
 
@@ -206,25 +213,44 @@ fn process_queries(
                 karma_typ: ktyp,
                 user: user
             } => {
-                println!("Sql Worker - RankingDenormalized");
-//-- karmaTotal is also good for karmaSide
-//rankingDenormalizedT karmaName karmaTotal whom = do
-//    r <- select $
-//            return $
-//                case_
-//                    [ when_
-//                        (exists $ from $ \v -> where_ (karmaName v ==. val whom))
-//                      then_
-//                        (sub_select $ from $ \v -> do
-//                            let sub =
-//                                    from $ \c -> do
-//                                    where_ (karmaName c ==. val whom)
-//                                    return $ karmaTotal c
-//                            where_ (karmaTotal v >. sub_select sub)
-//                            return $ just (count (karmaName v) +. val 1) :: SqlQuery (SqlExpr (Value (Maybe Int)))
-//                            ) ]
-//                    (else_ nothing)
-//    return $ unValue $ head r -- TODO: unsafe head
+                println!("Sql Worker - RankingDenormalized - kcol: {:?}, ktyp: {:?}, user: {:?}", kcol, ktyp, user);
+
+                let table = match kcol {
+                    KarmaCol::Given    => "karma_given_count",
+                    KarmaCol::Recieved => "karma_received_count",
+                };
+
+                let tcol1 = match ktyp {
+                    KarmaTyp::Total => "up - down",
+                    KarmaTyp::Side  => "side",
+                };
+
+                let tcol2 = match ktyp {
+                    KarmaTyp::Total => "kcol2.up - kcol2.down",
+                    KarmaTyp::Side  => "kcol2.side",
+                };
+
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT CASE WHEN (
+                        EXISTS (SELECT TRUE FROM {table} WHERE name = ?1)
+                    ) THEN (
+                        SELECT (COUNT(name) + 1) FROM {table} WHERE (
+                            {tcol1}
+                        ) > (
+                            SELECT ({tcol2}) FROM {table} AS kcol2 WHERE kcol2.name = ?2
+                        )
+                    ) ELSE NULL END",
+                    table=table, tcol1=tcol1, tcol2=tcol2
+                )).unwrap();
+                let mut rows = stmt.query(rs::params![user, user]).unwrap();
+
+                if let Ok(Some(row)) = rows.next() {
+                    let count: i32 = row.get(0).unwrap();
+
+                    println!("Sql Worker - RankingDenormalized - Count: {:?}", count);
+                } else {
+                    println!("Sql Worker - RankingDenormalized - Error");
+                }
             },
             RunQuery::Count(kcol) => {
                 println!("Sql Worker - Count - kcol: {:?}", kcol);
@@ -234,7 +260,10 @@ fn process_queries(
                     Recieved => "karma_received_count",
                 };
 
-                let mut stmt = conn.prepare(&format!("SELECT COUNT(name) FROM {}", table)).unwrap();
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT COUNT(name) FROM {table}",
+                    table=table
+                )).unwrap();
                 let mut rows = stmt.query(rs::NO_PARAMS).unwrap();
 
                 if let Ok(Some(row)) = rows.next() {
@@ -244,6 +273,57 @@ fn process_queries(
                 } else {
                     println!("Sql Worker - Count - Error");
                 }
+            },
+            RunQuery::Partial{
+                karma_col: kcol,
+                users: users
+            } => {
+                println!("Sql Worker - Partial - kcol: {:?}, users: {:?}", kcol, users);
+
+                let table = match kcol {
+                    KarmaCol::Given    => "karma_given_count",
+                    KarmaCol::Recieved => "karma_received_count",
+                };
+
+                // Hack to insert enough parameterizers into the query
+                let pUsers = {
+                    let mut pUsers: String = "?1".to_string();
+                    for i in 2..(users.len() + 1) {
+                        pUsers.push_str(&format!(", ?{}", i));
+                    }
+                    pUsers
+                };
+
+                // Params
+                let param: Vec<&String> = users.iter().collect();
+
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT name, up, down, side FROM {table} WHERE name in ({pUsers}) ORDER BY name DESC",
+                    table=table, pUsers=pUsers
+                )).unwrap();
+                let mut rows = stmt.query(&param).unwrap();
+
+                // A bit more additional work than usual
+                let mut ret: Vec<(String, i32, i32, i32)> = vec![];
+                let mut has: HashSet<String> = HashSet::new();
+
+                while let Ok(Some(row)) = rows.next() {
+                    let name: String = row.get(0).unwrap();
+                    let up: i32 = row.get(1).unwrap();
+                    let down: i32 = row.get(2).unwrap();
+                    let side: i32 = row.get(3).unwrap();
+
+                    ret.push((name.clone(), up, down, side));
+                    has.insert(name);
+                }
+
+                // Evaulate if there's missing ones and add if so
+                for n in users.difference(&has) {
+                    ret.push((n.to_string(), 0, 0, 0));
+                }
+
+                // Print out for records
+                println!("Sql Worker - Partial - Dump: {:?}", ret);
             },
         }
     }
@@ -255,29 +335,22 @@ fn process_queries(
 // to the query engine and get the result back in a good format
 #[derive(Debug)]
 enum RunQuery {
-    // topNDenormalizedT (karmaGivenName) (karmaGivenSide) 3 desc
-    // topNDenormalizedT (karmaGivenName) (karmaGivenTotal) 3 asc
-    // topNDenormalizedT (karmaGivenName) (karmaGivenTotal) 3 desc
-    // topNDenormalizedT (karmaRecievedName) (karmaRecievedSide) 3 desc
-    // topNDenormalizedT (karmaRecievedName) (karmaRecievedTotal) 3 asc
-    // topNDenormalizedT (karmaRecievedName) (karmaRecievedTotal) 3 desc
     TopNDenormalized {
         karma_col: KarmaCol,
-        karma_typ: KarmaTyp, // GivenTotal, RecievedTotal, GivenSide, RecievedSide
+        karma_typ: KarmaTyp,
         limit: u32,
         ord: OrdQuery
     },
-
-    // rankingDenormalizedT (karmaGivenName) (karmaGivenSide) user
-    // rankingDenormalizedT (karmaGivenName) (karmaGivenTotal) user
-    // rankingDenormalizedT (karmaRecievedName) (karmaRecievedSide) user
-    // rankingDenormalizedT (karmaRecievedName) (karmaRecievedTotal) user
     RankingDenormalized {
         karma_col: KarmaCol,
-        karma_typ: KarmaTyp, // GivenTotal, RecievedTotal, GivenSide, RecievedSide
-        user: String, // TODO: make it support a list of user
+        karma_typ: KarmaTyp,
+        user: String, // TODO: make it support a Set of user
     },
     Count(KarmaCol),
+    Partial {
+        karma_col: KarmaCol,
+        users: HashSet<String>,
+    }
 }
 
 #[derive(Debug)]
@@ -420,6 +493,15 @@ async fn process_inbound_message(
                                 None
                             )).await;
 
+                            // If a list of name is given query this
+                            sql_tx.send((
+                                RunQuery::Partial {
+                                    karma_col: KarmaCol::Recieved,
+                                    users: vec!["a".to_string(), "b".to_string(), "c".to_string()].into_iter().collect(),
+                                },
+                                None
+                            )).await;
+
 //                            // Dummy get/send stuff
 //                            let (tx1, rx1) = oneshot::channel();
 //                            sql_tx.send((
@@ -446,7 +528,7 @@ async fn process_inbound_message(
                             //
                             // If '!givers a b' specify do
                             // partalKarma (KarmaGiven) [list of entity]
-
+                            //
                             sql_tx.send((
                                 RunQuery::TopNDenormalized {
                                     karma_col: KarmaCol::Given,
@@ -462,6 +544,15 @@ async fn process_inbound_message(
                                     karma_typ: KarmaTyp::Total,
                                     limit: 3,
                                     ord: OrdQuery::Asc
+                                },
+                                None
+                            )).await;
+
+                            // If a list of name is given query this
+                            sql_tx.send((
+                                RunQuery::Partial {
+                                    karma_col: KarmaCol::Given,
+                                    users: vec!["a".to_string(), "b".to_string(), "c".to_string()].into_iter().collect(),
                                 },
                                 None
                             )).await;
@@ -501,9 +592,9 @@ async fn process_inbound_message(
                         } else if t == "!rank".to_string() {
                             // Query:
                             // rankingDenormalizedT (karmaRecievedName) (karmaRecievedTotal) user
-                            // countT (karmaRecievedName) user
+                            // countT (karmaRecievedName)
                             // rankingDenormalizedT (karmaGivenName) (karmaGivenTotal) user
-                            // countT (karmaGivenName) user
+                            // countT (karmaGivenName)
 
                             sql_tx.send((
                                 RunQuery::RankingDenormalized {
@@ -535,9 +626,9 @@ async fn process_inbound_message(
                         } else if t == "!ranksidevote".to_string() {
                             // Query:
                             // rankingDenormalizedT (karmaRecievedName) (karmaRecievedSide) user
-                            // countT (karmaRecievedName) user
+                            // countT (karmaRecievedName)
                             // rankingDenormalizedT (karmaGivenName) (karmaGivenSide) user
-                            // countT (karmaGivenName) user
+                            // countT (karmaGivenName)
 
                             sql_tx.send((
                                 RunQuery::RankingDenormalized {
