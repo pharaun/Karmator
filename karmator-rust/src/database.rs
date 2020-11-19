@@ -7,7 +7,6 @@ use rusqlite as rs;
 use tokio::sync::oneshot;
 use std::collections::HashSet;
 
-
 use crate::schema_sample;
 
 
@@ -46,14 +45,30 @@ pub enum KarmaTyp { Total, Side }
 
 #[derive(Debug)]
 pub enum ResQuery {
-    Insert(usize),
-    Query(String),
+    // RankingDenormalized
+    // Count
+    Count(u32),
+    // TopNDenormalized
+    TopN(Vec<(String, i32)>),
+    // Partial
+    Partial(Vec<(String, i32, i32, i32)>),
+}
+
+
+fn maybe_send(
+    res_tx: Option<oneshot::Sender<ResQuery>>,
+    res: ResQuery,
+) -> Result<(), String> {
+    match res_tx {
+        Some(tx) => tx.send(res).map_err(|_| "Cant send ResQuery".to_string()),
+        None     => Ok(()),
+    }
 }
 
 
 pub fn process_queries(
     sql_rx: mpsc::Receiver<(RunQuery, Option<oneshot::Sender<ResQuery>>)>
-) -> rs::Result<()> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut block_sql_rx = block_on_stream(sql_rx);
 
     //let filename = "db.sqlite";
@@ -101,14 +116,18 @@ pub fn process_queries(
                 )).unwrap();
                 let mut rows = stmt.query(rs::NO_PARAMS).unwrap();
 
-                if let Ok(Some(row)) = rows.next() {
+                let mut ret: Vec<(String, i32)> = vec![];
+
+                while let Ok(Some(row)) = rows.next() {
                     let name: String = row.get(0).unwrap();
                     let count: i32 = row.get(1).unwrap();
 
-                    println!("Sql Worker - TopNDenormalized - Name: {:?}, Count: {:?}", name, count);
-                } else {
-                    println!("Sql Worker - TopNDenormalized - Error");
+                    ret.push((name.clone(), count));
                 }
+
+                // Print out for records
+                println!("Sql Worker - TopNDenormalized - Dump: {:?}", &ret);
+                maybe_send(res_tx, ResQuery::TopN(ret))?;
             },
             RunQuery::RankingDenormalized{karma_col, karma_typ, user} => {
                 println!("Sql Worker - RankingDenormalized - karma_col: {:?}, karma_typ: {:?}, user: {:?}", karma_col, karma_typ, user);
@@ -143,8 +162,9 @@ pub fn process_queries(
                 let mut rows = stmt.query(rs::params![user, user]).unwrap();
 
                 if let Ok(Some(row)) = rows.next() {
-                    let count: i32 = row.get(0).unwrap();
+                    let count: u32 = row.get(0).unwrap();
 
+                    maybe_send(res_tx, ResQuery::Count(count))?;
                     println!("Sql Worker - RankingDenormalized - Count: {:?}", count);
                 } else {
                     println!("Sql Worker - RankingDenormalized - Error");
@@ -167,6 +187,7 @@ pub fn process_queries(
                 if let Ok(Some(row)) = rows.next() {
                     let count: u32 = row.get(0).unwrap();
 
+                    maybe_send(res_tx, ResQuery::Count(count))?;
                     println!("Sql Worker - Count - Tally: {:?}", count);
                 } else {
                     println!("Sql Worker - Count - Error");
@@ -218,7 +239,8 @@ pub fn process_queries(
                 }
 
                 // Print out for records
-                println!("Sql Worker - Partial - Dump: {:?}", ret);
+                println!("Sql Worker - Partial - Dump: {:?}", &ret);
+                maybe_send(res_tx, ResQuery::Partial(ret))?;
             },
         }
     }
