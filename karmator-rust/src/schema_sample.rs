@@ -2,7 +2,7 @@ use rusqlite as rs;
 
 pub fn setup_table(
     conn: &rs::Connection
-) {
+) -> rs::Result<()> {
     println!("Sql Worker - Setup - votes");
     conn.execute(
         "CREATE TABLE votes (
@@ -16,7 +16,7 @@ pub fn setup_table(
             chan_id INTEGER DEFAULT NULL
         )",
         rs::params![],
-    );
+    )?;
 
     println!("Sql Worker - Setup - nick_metadata");
     conn.execute(
@@ -29,7 +29,7 @@ pub fn setup_table(
             UNIQUE (cleaned_nick, full_name, username, hostmask)
         )",
         rs::params![],
-    );
+    )?;
 
     println!("Sql Worker - Setup - chan_metadata");
     conn.execute(
@@ -39,7 +39,7 @@ pub fn setup_table(
             UNIQUE (channel)
         )",
         rs::params![],
-    );
+    )?;
 
     println!("Sql Worker - Setup - karma_received_count");
     conn.execute(
@@ -51,7 +51,7 @@ pub fn setup_table(
             side INTEGER NOT NULL
         )",
         rs::params![],
-    );
+    )?;
 
     println!("Sql Worker - Setup - karma_given_count");
     conn.execute(
@@ -63,7 +63,7 @@ pub fn setup_table(
             side INTEGER NOT NULL
         )",
         rs::params![],
-    );
+    )?;
 
     println!("Sql Worker - Setup - Triggers");
     conn.execute(
@@ -75,7 +75,7 @@ pub fn setup_table(
             UPDATE karma_received_count SET up = up + 1 WHERE name = NEW.for_what_name;
           END",
         rs::params![],
-    );
+    )?;
     conn.execute(
         "CREATE TRIGGER delete_increase_karma_count AFTER DELETE ON votes
           WHEN OLD.amount = 1 BEGIN
@@ -83,7 +83,7 @@ pub fn setup_table(
             UPDATE OR IGNORE karma_received_count SET up = up - 1 WHERE name = OLD.for_what_name;
           END",
         rs::params![],
-    );
+    )?;
     conn.execute(
         "CREATE TRIGGER decrease_karma_count AFTER INSERT ON votes
           WHEN NEW.amount = -1 BEGIN
@@ -93,7 +93,7 @@ pub fn setup_table(
             UPDATE karma_received_count SET down = down + 1 WHERE name = NEW.for_what_name;
           END",
         rs::params![],
-    );
+    )?;
     conn.execute(
         "CREATE TRIGGER delete_decrease_karma_count AFTER DELETE ON votes
           WHEN OLD.amount = -1 BEGIN
@@ -101,7 +101,7 @@ pub fn setup_table(
             UPDATE OR IGNORE karma_received_count SET down = down - 1 WHERE name = OLD.for_what_name;
           END",
         rs::params![],
-    );
+    )?;
     conn.execute(
         "CREATE TRIGGER increase_sidevote_count AFTER INSERT ON votes
           WHEN NEW.amount = 0 BEGIN
@@ -111,7 +111,7 @@ pub fn setup_table(
             UPDATE karma_received_count SET side = side + 1 WHERE name = NEW.for_what_name;
           END",
         rs::params![],
-    );
+    )?;
     conn.execute(
         "CREATE TRIGGER delete_increase_sidevote_count AFTER DELETE ON votes
           WHEN OLD.amount = 0 BEGIN
@@ -119,29 +119,33 @@ pub fn setup_table(
             UPDATE OR IGNORE karma_received_count SET side = side - 1 WHERE name = OLD.for_what_name;
           END",
         rs::params![],
-    );
+    )?;
+
+    Ok(())
 }
 
 pub fn setup_data(
     conn: &rs::Connection
-) {
+) -> rs::Result<()> {
     let ins = "INSERT INTO votes (voted_at, by_whom_name, for_what_name, amount) VALUES (?1, ?2, ?3, ?4)";
 
     println!("Sql Worker - Setup - Inserting Up-Votes");
-    conn.execute(ins, rs::params!["2020", "a", "b", 1]);
-    conn.execute(ins, rs::params!["2020", "a", "b", 1]);
-    conn.execute(ins, rs::params!["2020", "a", "b", 1]);
-    conn.execute(ins, rs::params!["2020", "a", "b", 1]);
+    conn.execute(ins, rs::params!["2020", "a", "b", 1])?;
+    conn.execute(ins, rs::params!["2020", "a", "b", 1])?;
+    conn.execute(ins, rs::params!["2020", "a", "b", 1])?;
+    conn.execute(ins, rs::params!["2020", "a", "b", 1])?;
 
     println!("Sql Worker - Setup - Inserting Down-Votes");
-    conn.execute(ins, rs::params!["2020", "b", "c", -1]);
-    conn.execute(ins, rs::params!["2020", "b", "c", -1]);
-    conn.execute(ins, rs::params!["2020", "b", "c", -1]);
-    conn.execute(ins, rs::params!["2020", "b", "c", -1]);
+    conn.execute(ins, rs::params!["2020", "b", "c", -1])?;
+    conn.execute(ins, rs::params!["2020", "b", "c", -1])?;
+    conn.execute(ins, rs::params!["2020", "b", "c", -1])?;
+    conn.execute(ins, rs::params!["2020", "b", "c", -1])?;
 
     println!("Sql Worker - Setup - Inserting Side-Votes");
-    conn.execute(ins, rs::params!["2020", "c", "a", 0]);
-    conn.execute(ins, rs::params!["2020", "c", "a", 0]);
-    conn.execute(ins, rs::params!["2020", "c", "a", 0]);
-    conn.execute(ins, rs::params!["2020", "c", "a", 0]);
+    conn.execute(ins, rs::params!["2020", "c", "a", 0])?;
+    conn.execute(ins, rs::params!["2020", "c", "a", 0])?;
+    conn.execute(ins, rs::params!["2020", "c", "a", 0])?;
+    conn.execute(ins, rs::params!["2020", "c", "a", 0])?;
+
+    Ok(())
 }

@@ -18,6 +18,11 @@ use std::time::Duration;
 use humantime::format_duration;
 
 
+use crate::database;
+use crate::cache;
+use crate::build_info;
+
+
 // Type alias for msg_id
 pub type MsgId = Arc<RelaxedCounter>;
 
@@ -132,9 +137,9 @@ pub async fn process_inbound_message<R>(
     msg_id: MsgId,
     msg: tungstenite::tungstenite::Message,
     mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
-    mut sql_tx: mpsc::Sender<(crate::database::RunQuery, Option<oneshot::Sender<crate::database::ResQuery>>)>,
+    mut sql_tx: mpsc::Sender<(database::RunQuery, Option<oneshot::Sender<database::ResQuery>>)>,
     start_time: DateTime<Utc>,
-    cache: crate::cache::Cache<R>,
+    cache: cache::Cache<R>,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     R: slack::requests::SlackWebRequestSender + std::clone::Clone
@@ -168,9 +173,9 @@ where
                         ts: _,
                     } if c == "CAF6S4TRT".to_string() => {
                         if t == "!version".to_string() {
-                            let ver = crate::build_info::PKG_VERSION;
-                            let dat = crate::build_info::BUILT_TIME_UTC;
-                            let sha = crate::build_info::GIT_COMMIT_HASH.unwrap_or("Unknown");
+                            let ver = build_info::PKG_VERSION;
+                            let dat = build_info::BUILT_TIME_UTC;
+                            let sha = build_info::GIT_COMMIT_HASH.unwrap_or("Unknown");
 
                             let ws_msg = json!({
                                 "id": id,
@@ -179,7 +184,7 @@ where
                                 "text": format!("<@{}>: Cargo Version: {} - Build Date: {}, - Build SHA: {}", u, ver, dat, sha),
                             }).to_string();
 
-                            tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                            let _ = tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
                             println!("Inbound - \t\t!version");
 
                         } else if t == "!uptime".to_string() {
@@ -194,7 +199,7 @@ where
                                 "text": format!("<@{}>: {}", u, format_duration(durt).to_string()),
                             }).to_string();
 
-                            tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                            let _ = tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
                             println!("Inbound - \t\t!uptime");
 
                         } else if t == "!help".to_string() {
@@ -206,7 +211,7 @@ where
                                 "text": format!("<@{}>: {}", u, help),
                             }).to_string();
 
-                            tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                            let _ = tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
                             println!("Inbound - \t\t!help");
 
                         } else if t == "!github".to_string() {
@@ -218,7 +223,7 @@ where
                                 "text": format!("<@{}>: {}", u, github),
                             }).to_string();
 
-                            tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                            let _ = tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
                             println!("Inbound - \t\t!github");
 
                         } else if t == "!karma".to_string() {
@@ -235,33 +240,33 @@ where
                             // If '!karma a b' specify do
                             // partalKarma (KarmaRecieved) [list of entity]
 
-                            let user_display = crate::cache::get_user_display(cache.clone(), &u).await;
+                            let user_display = cache::get_user_display(cache.clone(), &u).await;
                             println!("User id: {:?}, Display: {:?}", u, user_display);
 
 
-                            sql_tx.send((
-                                crate::database::RunQuery::TopNDenormalized {
-                                    karma_col: crate::database::KarmaCol::Recieved,
-                                    karma_typ: crate::database::KarmaTyp::Total,
+                            let _ = sql_tx.send((
+                                database::RunQuery::TopNDenormalized {
+                                    karma_col: database::KarmaCol::Recieved,
+                                    karma_typ: database::KarmaTyp::Total,
                                     limit: 3,
-                                    ord: crate::database::OrdQuery::Desc
+                                    ord: database::OrdQuery::Desc
                                 },
                                 None
                             )).await;
-                            sql_tx.send((
-                                crate::database::RunQuery::TopNDenormalized {
-                                    karma_col: crate::database::KarmaCol::Recieved,
-                                    karma_typ: crate::database::KarmaTyp::Total,
+                            let _ = sql_tx.send((
+                                database::RunQuery::TopNDenormalized {
+                                    karma_col: database::KarmaCol::Recieved,
+                                    karma_typ: database::KarmaTyp::Total,
                                     limit: 3,
-                                    ord: crate::database::OrdQuery::Asc
+                                    ord: database::OrdQuery::Asc
                                 },
                                 None
                             )).await;
 
                             // If a list of name is given query this
-                            sql_tx.send((
-                                crate::database::RunQuery::Partial {
-                                    karma_col: crate::database::KarmaCol::Recieved,
+                            let _ = sql_tx.send((
+                                database::RunQuery::Partial {
+                                    karma_col: database::KarmaCol::Recieved,
                                     users: vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()].into_iter().collect(),
                                 },
                                 None
@@ -269,8 +274,8 @@ where
 
 //                            // Dummy get/send stuff
 //                            let (tx1, rx1) = oneshot::channel();
-//                            sql_tx.send((
-//                                crate::database::RunQuery::Insert("hi".to_string(), "bye".to_string()),
+//                            let _ = sql_tx.send((
+//                                database::RunQuery::Insert("hi".to_string(), "bye".to_string()),
 //                                Some(tx1)
 //                            )).await;
 //
@@ -294,29 +299,29 @@ where
                             // If '!givers a b' specify do
                             // partalKarma (KarmaGiven) [list of entity]
                             //
-                            sql_tx.send((
-                                crate::database::RunQuery::TopNDenormalized {
-                                    karma_col: crate::database::KarmaCol::Given,
-                                    karma_typ: crate::database::KarmaTyp::Total,
+                            let _ = sql_tx.send((
+                                database::RunQuery::TopNDenormalized {
+                                    karma_col: database::KarmaCol::Given,
+                                    karma_typ: database::KarmaTyp::Total,
                                     limit: 3,
-                                    ord: crate::database::OrdQuery::Desc
+                                    ord: database::OrdQuery::Desc
                                 },
                                 None
                             )).await;
-                            sql_tx.send((
-                                crate::database::RunQuery::TopNDenormalized {
-                                    karma_col: crate::database::KarmaCol::Given,
-                                    karma_typ: crate::database::KarmaTyp::Total,
+                            let _ = sql_tx.send((
+                                database::RunQuery::TopNDenormalized {
+                                    karma_col: database::KarmaCol::Given,
+                                    karma_typ: database::KarmaTyp::Total,
                                     limit: 3,
-                                    ord: crate::database::OrdQuery::Asc
+                                    ord: database::OrdQuery::Asc
                                 },
                                 None
                             )).await;
 
                             // If a list of name is given query this
-                            sql_tx.send((
-                                crate::database::RunQuery::Partial {
-                                    karma_col: crate::database::KarmaCol::Given,
+                            let _ = sql_tx.send((
+                                database::RunQuery::Partial {
+                                    karma_col: database::KarmaCol::Given,
                                     users: vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()].into_iter().collect(),
                                 },
                                 None
@@ -333,21 +338,21 @@ where
                             // if '!sidevotes a b' specify do
                             // not supported - error
 
-                            sql_tx.send((
-                                crate::database::RunQuery::TopNDenormalized {
-                                    karma_col: crate::database::KarmaCol::Recieved,
-                                    karma_typ: crate::database::KarmaTyp::Side,
+                            let _ = sql_tx.send((
+                                database::RunQuery::TopNDenormalized {
+                                    karma_col: database::KarmaCol::Recieved,
+                                    karma_typ: database::KarmaTyp::Side,
                                     limit: 3,
-                                    ord: crate::database::OrdQuery::Desc
+                                    ord: database::OrdQuery::Desc
                                 },
                                 None
                             )).await;
-                            sql_tx.send((
-                                crate::database::RunQuery::TopNDenormalized {
-                                    karma_col: crate::database::KarmaCol::Given,
-                                    karma_typ: crate::database::KarmaTyp::Side,
+                            let _ = sql_tx.send((
+                                database::RunQuery::TopNDenormalized {
+                                    karma_col: database::KarmaCol::Given,
+                                    karma_typ: database::KarmaTyp::Side,
                                     limit: 3,
-                                    ord: crate::database::OrdQuery::Desc
+                                    ord: database::OrdQuery::Desc
                                 },
                                 None
                             )).await;
@@ -361,28 +366,28 @@ where
                             // rankingDenormalizedT (karmaGivenName) (karmaGivenTotal) user
                             // countT (karmaGivenName)
 
-                            sql_tx.send((
-                                crate::database::RunQuery::RankingDenormalized {
-                                    karma_col: crate::database::KarmaCol::Recieved,
-                                    karma_typ: crate::database::KarmaTyp::Total,
+                            let _ = sql_tx.send((
+                                database::RunQuery::RankingDenormalized {
+                                    karma_col: database::KarmaCol::Recieved,
+                                    karma_typ: database::KarmaTyp::Total,
                                     user: "a".to_string(),
                                 },
                                 None
                             )).await;
-                            sql_tx.send((
-                                crate::database::RunQuery::Count(crate::database::KarmaCol::Recieved),
+                            let _ = sql_tx.send((
+                                database::RunQuery::Count(database::KarmaCol::Recieved),
                                 None
                             )).await;
-                            sql_tx.send((
-                                crate::database::RunQuery::RankingDenormalized {
-                                    karma_col: crate::database::KarmaCol::Given,
-                                    karma_typ: crate::database::KarmaTyp::Total,
+                            let _ = sql_tx.send((
+                                database::RunQuery::RankingDenormalized {
+                                    karma_col: database::KarmaCol::Given,
+                                    karma_typ: database::KarmaTyp::Total,
                                     user: "a".to_string(),
                                 },
                                 None
                             )).await;
-                            sql_tx.send((
-                                crate::database::RunQuery::Count(crate::database::KarmaCol::Given),
+                            let _ = sql_tx.send((
+                                database::RunQuery::Count(database::KarmaCol::Given),
                                 None
                             )).await;
 
@@ -395,28 +400,28 @@ where
                             // rankingDenormalizedT (karmaGivenName) (karmaGivenSide) user
                             // countT (karmaGivenName)
 
-                            sql_tx.send((
-                                crate::database::RunQuery::RankingDenormalized {
-                                    karma_col: crate::database::KarmaCol::Recieved,
-                                    karma_typ: crate::database::KarmaTyp::Side,
+                            let _ = sql_tx.send((
+                                database::RunQuery::RankingDenormalized {
+                                    karma_col: database::KarmaCol::Recieved,
+                                    karma_typ: database::KarmaTyp::Side,
                                     user: "a".to_string(),
                                 },
                                 None
                             )).await;
-                            sql_tx.send((
-                                crate::database::RunQuery::Count(crate::database::KarmaCol::Recieved),
+                            let _ = sql_tx.send((
+                                database::RunQuery::Count(database::KarmaCol::Recieved),
                                 None
                             )).await;
-                            sql_tx.send((
-                                crate::database::RunQuery::RankingDenormalized {
-                                    karma_col: crate::database::KarmaCol::Given,
-                                    karma_typ: crate::database::KarmaTyp::Side,
+                            let _ = sql_tx.send((
+                                database::RunQuery::RankingDenormalized {
+                                    karma_col: database::KarmaCol::Given,
+                                    karma_typ: database::KarmaTyp::Side,
                                     user: "a".to_string(),
                                 },
                                 None
                             )).await;
-                            sql_tx.send((
-                                crate::database::RunQuery::Count(crate::database::KarmaCol::Given),
+                            let _ = sql_tx.send((
+                                database::RunQuery::Count(database::KarmaCol::Given),
                                 None
                             )).await;
 
@@ -428,8 +433,8 @@ where
                 }
             },
 
-            Event::SystemControl(sc) => (),
-            Event::MessageControl(mc) => (),
+            Event::SystemControl(_sc) => (),
+            Event::MessageControl(_mc) => (),
         }
     }
     Ok(())

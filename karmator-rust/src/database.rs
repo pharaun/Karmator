@@ -8,6 +8,9 @@ use tokio::sync::oneshot;
 use std::collections::HashSet;
 
 
+use crate::schema_sample;
+
+
 // TODO: should be able to replace all of these stuff maybe by some trait or some other tricks
 // so that we can have a extensible query where i define the query/process/result and then send it
 // to the query engine and get the result back in a good format
@@ -50,7 +53,7 @@ pub enum ResQuery {
 
 pub fn process_queries(
     sql_rx: mpsc::Receiver<(RunQuery, Option<oneshot::Sender<ResQuery>>)>
-) {
+) -> rs::Result<()> {
     let mut block_sql_rx = block_on_stream(sql_rx);
 
     //let filename = "db.sqlite";
@@ -61,45 +64,40 @@ pub fn process_queries(
     let conn = rs::Connection::open_in_memory().expect("Failure");
 
     // Test data/build tables
-    crate::schema_sample::setup_table(&conn);
-    crate::schema_sample::setup_data(&conn);
+    schema_sample::setup_table(&conn)?;
+    schema_sample::setup_data(&conn)?;
 
 
     // Listen for inbound query
     while let Some((query, res_tx)) = block_sql_rx.next() {
         match query {
-            RunQuery::TopNDenormalized{
-                karma_col: kcol,
-                karma_typ: ktyp,
-                limit: lim,
-                ord: ord
-            } => {
+            RunQuery::TopNDenormalized{karma_col, karma_typ, limit, ord} => {
                 println!(
-                    "Sql Worker - TopNDenormalized - kcol: {:?}, ktyp: {:?}, lim: {:?}, ord: {:?}",
-                    kcol, ktyp, lim, ord
+                    "Sql Worker - TopNDenormalized - karma_col: {:?}, karma_typ: {:?}, limit: {:?}, ord: {:?}",
+                    karma_col, karma_typ, limit, ord
                 );
 
-                let table = match kcol {
+                let table = match karma_col {
                     KarmaCol::Given    => "karma_given_count",
                     KarmaCol::Recieved => "karma_received_count",
                 };
 
-                let tcol = match ktyp {
+                let t_col = match karma_typ {
                     KarmaTyp::Total => "up - down",
                     KarmaTyp::Side  => "side",
                 };
 
-                let qOrd = match ord {
+                let q_ord = match ord {
                     OrdQuery::Asc  => "ASC",
                     OrdQuery::Desc => "DESC",
                 };
 
                 let mut stmt = conn.prepare(&format!(
-                        "SELECT name, {tcol} as total FROM {table} ORDER BY total {qord} LIMIT {lim}",
-                        tcol=tcol,
+                        "SELECT name, {t_col} as total FROM {table} ORDER BY total {q_ord} LIMIT {limit}",
+                        t_col=t_col,
                         table=table,
-                        qord=qOrd,
-                        lim=lim
+                        q_ord=q_ord,
+                        limit=limit
                 )).unwrap();
                 let mut rows = stmt.query(rs::NO_PARAMS).unwrap();
 
@@ -112,24 +110,20 @@ pub fn process_queries(
                     println!("Sql Worker - TopNDenormalized - Error");
                 }
             },
-            RunQuery::RankingDenormalized{
-                karma_col: kcol,
-                karma_typ: ktyp,
-                user: user
-            } => {
-                println!("Sql Worker - RankingDenormalized - kcol: {:?}, ktyp: {:?}, user: {:?}", kcol, ktyp, user);
+            RunQuery::RankingDenormalized{karma_col, karma_typ, user} => {
+                println!("Sql Worker - RankingDenormalized - karma_col: {:?}, karma_typ: {:?}, user: {:?}", karma_col, karma_typ, user);
 
-                let table = match kcol {
+                let table = match karma_col {
                     KarmaCol::Given    => "karma_given_count",
                     KarmaCol::Recieved => "karma_received_count",
                 };
 
-                let tcol1 = match ktyp {
+                let t_col1 = match karma_typ {
                     KarmaTyp::Total => "up - down",
                     KarmaTyp::Side  => "side",
                 };
 
-                let tcol2 = match ktyp {
+                let t_col2 = match karma_typ {
                     KarmaTyp::Total => "kcol2.up - kcol2.down",
                     KarmaTyp::Side  => "kcol2.side",
                 };
@@ -139,12 +133,12 @@ pub fn process_queries(
                         EXISTS (SELECT TRUE FROM {table} WHERE name = ?1)
                     ) THEN (
                         SELECT (COUNT(name) + 1) FROM {table} WHERE (
-                            {tcol1}
+                            {t_col1}
                         ) > (
-                            SELECT ({tcol2}) FROM {table} AS kcol2 WHERE kcol2.name = ?2
+                            SELECT ({t_col2}) FROM {table} AS kcol2 WHERE kcol2.name = ?2
                         )
                     ) ELSE NULL END",
-                    table=table, tcol1=tcol1, tcol2=tcol2
+                    table=table, t_col1=t_col1, t_col2=t_col2
                 )).unwrap();
                 let mut rows = stmt.query(rs::params![user, user]).unwrap();
 
@@ -156,10 +150,10 @@ pub fn process_queries(
                     println!("Sql Worker - RankingDenormalized - Error");
                 }
             },
-            RunQuery::Count(kcol) => {
-                println!("Sql Worker - Count - kcol: {:?}", kcol);
+            RunQuery::Count(karma_col) => {
+                println!("Sql Worker - Count - karma_col: {:?}", karma_col);
 
-                let table = match kcol {
+                let table = match karma_col {
                     KarmaCol::Given => "karma_given_count",
                     KarmaCol::Recieved => "karma_received_count",
                 };
@@ -178,32 +172,29 @@ pub fn process_queries(
                     println!("Sql Worker - Count - Error");
                 }
             },
-            RunQuery::Partial{
-                karma_col: kcol,
-                users: users
-            } => {
-                println!("Sql Worker - Partial - kcol: {:?}, users: {:?}", kcol, users);
+            RunQuery::Partial{karma_col, users} => {
+                println!("Sql Worker - Partial - karma_col: {:?}, users: {:?}", karma_col, users);
 
-                let table = match kcol {
+                let table = match karma_col {
                     KarmaCol::Given    => "karma_given_count",
                     KarmaCol::Recieved => "karma_received_count",
                 };
 
                 // Hack to insert enough parameterizers into the query
-                let pUsers = {
-                    let mut pUsers: String = "?1".to_string();
+                let p_user = {
+                    let mut p_user: String = "?1".to_string();
                     for i in 2..(users.len() + 1) {
-                        pUsers.push_str(&format!(", ?{}", i));
+                        p_user.push_str(&format!(", ?{}", i));
                     }
-                    pUsers
+                    p_user
                 };
 
                 // Params
                 let param: Vec<&String> = users.iter().collect();
 
                 let mut stmt = conn.prepare(&format!(
-                    "SELECT name, up, down, side FROM {table} WHERE name in ({pUsers}) ORDER BY name DESC",
-                    table=table, pUsers=pUsers
+                    "SELECT name, up, down, side FROM {table} WHERE name in ({p_user}) ORDER BY name DESC",
+                    table=table, p_user=p_user
                 )).unwrap();
                 let mut rows = stmt.query(&param).unwrap();
 
@@ -231,4 +222,6 @@ pub fn process_queries(
             },
         }
     }
+
+    Ok(())
 }

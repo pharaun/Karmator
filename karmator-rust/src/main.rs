@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
     // System Cache manager
-    let cache = crate::cache::Cache::new(&token, client.clone());
+    let cache = cache::Cache::new(&token, client.clone());
 
 
     // Post a message
@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         as_user: Some(true),
         ..Default::default()
     };
-    slack::chat::post_message(&client, &token, &msg).await;
+    slack::chat::post_message(&client, &token, &msg).await?;
 
     // Work to establish the WS connection
     let response = slack::rtm::connect(&client, &token).await.map_err(|e| format!("Control - {:?}", e))?;
@@ -75,7 +75,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let sql_worker = thread::spawn(move || {
         println!("Sql Worker - Launching");
-        crate::database::process_queries(sql_rx);
+        // TODO: check result
+        let _ = database::process_queries(sql_rx);
         println!("Sql Worker - Exiting");
     });
 
@@ -89,7 +90,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let cache = cache.clone();
 
                 tokio::spawn(async move {
-                    crate::message::process_inbound_message(
+                    // TODO: check result
+                    let _ = message::process_inbound_message(
                         msg_id,
                         ws_msg,
                         tx2,
@@ -120,14 +122,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // backoff
                 //
                 // TODO: find a way to handle the ping/pong cycle and monitor
-                ws_write.send(message).await;
+                // TODO: check result
+                let _ = ws_write.send(message).await;
             }
         }
     });
 
     // Wait till either exits (error) then begin recovery
     match tokio::try_join!(inbound, outbound) {
-        Ok((first, second)) => println!("Control - \t\t\tBoth exited fine"),
+        Ok((_first, _second)) => println!("Control - \t\t\tBoth exited fine"),
         Err(err) => println!("Control - \t\t\tSomething failed: {:?}", err),
     }
 
