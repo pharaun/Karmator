@@ -240,7 +240,7 @@ where
                             // If '!karma a b' specify do
                             // partalKarma (KarmaRecieved) [list of entity]
 
-                            let user_display = cache::get_user_display(cache.clone(), &u).await;
+                            let user_display = cache.get_user_display(&u).await;
                             println!("User id: {:?}, Display: {:?}", u, user_display);
 
 

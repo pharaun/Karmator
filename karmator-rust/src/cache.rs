@@ -24,39 +24,32 @@ impl <R: SlackWebRequestSender + Clone> Cache<R> {
             slack_client: client,
         }
     }
-}
 
+    pub async fn get_user_display(&self, user_id: &str) -> Option<String> {
+        let ud = self.user_cache.get(user_id);
+        match ud {
+            Some(ud) => Some(ud.clone()),
+            None     => {
+                let resp = slack::users::info(
+                    &self.slack_client,
+                    &self.slack_token,
+                    &slack::users::InfoRequest { user: &user_id }
+                ).await;
 
-pub async fn get_user_display<R>(
-    cache: Cache<R>,
-    user_id: &str
-) -> Option<String>
-where
-    R: SlackWebRequestSender + Clone
-{
-    let ud = cache.user_cache.get(user_id);
-    match ud {
-        Some(ud) => Some(ud.clone()),
-        None     => {
-            let resp = slack::users::info(
-                &cache.slack_client,
-                &cache.slack_token,
-                &slack::users::InfoRequest { user: &user_id }
-            ).await;
+                let ud = resp.ok().map(
+                    |ui| ui.user
+                ).flatten().map(
+                    |ui| ui.name
+                ).flatten();
 
-            let ud = resp.ok().map(
-                |ui| ui.user
-            ).flatten().map(
-                |ui| ui.name
-            ).flatten();
-
-            match ud {
-                Some(ud) => {
-                    cache.user_cache.insert(user_id.to_string(), ud.clone());
-                    Some(ud)
-                },
-                _ => None,
-            }
-        },
+                match ud {
+                    Some(ud) => {
+                        self.user_cache.insert(user_id.to_string(), ud.clone());
+                        Some(ud)
+                    },
+                    _ => None,
+                }
+            },
+        }
     }
 }

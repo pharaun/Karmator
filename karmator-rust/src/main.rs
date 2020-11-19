@@ -82,6 +82,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Spawn the inbound ws stream processor
     let inbound = tokio::spawn(async move {
+        // TODO: we may have some ordering funnyness if we spawn a processor per
+        // inbound message, ponder doing one processor per channel so its consistent
+        // order per channel, if want to be intelligent about it, have a timeout, if a
+        // channel has been quiet long enough, go ahead and shut down the channel processor.
+        //
+        // TODO: this could explode if the outstream or database get backed up it will just
+        // spawn more and more inbound message, not good.
         loop {
             if let Some(Ok(ws_msg)) = ws_read.next().await {
                 let msg_id = msg_id.clone();
