@@ -18,7 +18,7 @@ use std::time::Duration;
 use humantime::format_duration;
 
 
-use crate::database;
+use crate::database::{RunQuery, ResQuery, KarmaCol, KarmaTyp, OrdQuery};
 use crate::cache;
 use crate::build_info;
 
@@ -133,20 +133,37 @@ fn parse_event(s: String) -> Option<Event> {
 }
 
 
+async fn send_simple_message(
+    msg_id: MsgId,
+    tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
+    channel: String,
+    text: String
+) -> Result<(), Box<dyn std::error::Error>> {
+    // TODO: register this message send to be tracked later
+    let ws_msg = json!({
+        "id": msg_id.inc(),
+        "type": "message",
+        "channel": channel,
+        "text": text,
+    }).to_string();
+
+    tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await?;
+    Ok(())
+}
+
+
+
 pub async fn process_inbound_message<R>(
     msg_id: MsgId,
     msg: tungstenite::tungstenite::Message,
     mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
-    mut sql_tx: mpsc::Sender<(database::RunQuery, Option<oneshot::Sender<database::ResQuery>>)>,
+    mut sql_tx: mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
     start_time: DateTime<Utc>,
     cache: cache::Cache<R>,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     R: slack::requests::SlackWebRequestSender + std::clone::Clone
 {
-    // TODO: this should really go into the 'message sender' not here
-    let id = msg_id.inc();
-    println!("Inbound - id = {:?}", id);
 
     // Parse incoming message
     let raw_msg = match msg {
@@ -177,14 +194,12 @@ where
                             let dat = build_info::BUILT_TIME_UTC;
                             let sha = build_info::GIT_COMMIT_HASH.unwrap_or("Unknown");
 
-                            let ws_msg = json!({
-                                "id": id,
-                                "type": "message",
-                                "channel": c,
-                                "text": format!("<@{}>: Cargo Version: {} - Build Date: {}, - Build SHA: {}", u, ver, dat, sha),
-                            }).to_string();
-
-                            let _ = tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                            let _ = send_simple_message(
+                                msg_id,
+                                &mut tx,
+                                c,
+                                format!("<@{}>: Cargo Version: {} - Build Date: {}, - Build SHA: {}", u, ver, dat, sha),
+                            );
                             println!("Inbound - \t\t!version");
 
                         } else if t == "!uptime".to_string() {
@@ -192,38 +207,33 @@ where
                             let durt = end_time.signed_duration_since(start_time).to_std().unwrap_or(
                                 Duration::from_secs(3122064000));
 
-                            let ws_msg = json!({
-                                "id": id,
-                                "type": "message",
-                                "channel": c,
-                                "text": format!("<@{}>: {}", u, format_duration(durt).to_string()),
-                            }).to_string();
-
-                            let _ = tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                            let _ = send_simple_message(
+                                msg_id,
+                                &mut tx,
+                                c,
+                                format!("<@{}>: {}", u, format_duration(durt).to_string()),
+                            );
                             println!("Inbound - \t\t!uptime");
 
                         } else if t == "!help".to_string() {
                             let help = "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote";
-                            let ws_msg = json!({
-                                "id": id,
-                                "type": "message",
-                                "channel": c,
-                                "text": format!("<@{}>: {}", u, help),
-                            }).to_string();
-
-                            let _ = tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                            let _ = send_simple_message(
+                                msg_id,
+                                &mut tx,
+                                c,
+                                format!("<@{}>: {}", u, help),
+                            );
                             println!("Inbound - \t\t!help");
 
                         } else if t == "!github".to_string() {
                             let github = "Github repo: https://github.com/pharaun/Karmator";
-                            let ws_msg = json!({
-                                "id": id,
-                                "type": "message",
-                                "channel": c,
-                                "text": format!("<@{}>: {}", u, github),
-                            }).to_string();
 
-                            let _ = tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await;
+                            let _ = send_simple_message(
+                                msg_id,
+                                &mut tx,
+                                c,
+                                format!("<@{}>: {}", u, github),
+                            );
                             println!("Inbound - \t\t!github");
 
                         } else if t == "!karma".to_string() {
@@ -245,28 +255,28 @@ where
 
 
                             let _ = sql_tx.send((
-                                database::RunQuery::TopNDenormalized {
-                                    karma_col: database::KarmaCol::Recieved,
-                                    karma_typ: database::KarmaTyp::Total,
+                                RunQuery::TopNDenormalized {
+                                    karma_col: KarmaCol::Recieved,
+                                    karma_typ: KarmaTyp::Total,
                                     limit: 3,
-                                    ord: database::OrdQuery::Desc
+                                    ord: OrdQuery::Desc
                                 },
                                 None
                             )).await;
                             let _ = sql_tx.send((
-                                database::RunQuery::TopNDenormalized {
-                                    karma_col: database::KarmaCol::Recieved,
-                                    karma_typ: database::KarmaTyp::Total,
+                                RunQuery::TopNDenormalized {
+                                    karma_col: KarmaCol::Recieved,
+                                    karma_typ: KarmaTyp::Total,
                                     limit: 3,
-                                    ord: database::OrdQuery::Asc
+                                    ord: OrdQuery::Asc
                                 },
                                 None
                             )).await;
 
                             // If a list of name is given query this
                             let _ = sql_tx.send((
-                                database::RunQuery::Partial {
-                                    karma_col: database::KarmaCol::Recieved,
+                                RunQuery::Partial {
+                                    karma_col: KarmaCol::Recieved,
                                     users: vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()].into_iter().collect(),
                                 },
                                 None
@@ -275,7 +285,7 @@ where
 //                            // Dummy get/send stuff
 //                            let (tx1, rx1) = oneshot::channel();
 //                            let _ = sql_tx.send((
-//                                database::RunQuery::Insert("hi".to_string(), "bye".to_string()),
+//                                RunQuery::Insert("hi".to_string(), "bye".to_string()),
 //                                Some(tx1)
 //                            )).await;
 //
@@ -300,28 +310,28 @@ where
                             // partalKarma (KarmaGiven) [list of entity]
                             //
                             let _ = sql_tx.send((
-                                database::RunQuery::TopNDenormalized {
-                                    karma_col: database::KarmaCol::Given,
-                                    karma_typ: database::KarmaTyp::Total,
+                                RunQuery::TopNDenormalized {
+                                    karma_col: KarmaCol::Given,
+                                    karma_typ: KarmaTyp::Total,
                                     limit: 3,
-                                    ord: database::OrdQuery::Desc
+                                    ord: OrdQuery::Desc
                                 },
                                 None
                             )).await;
                             let _ = sql_tx.send((
-                                database::RunQuery::TopNDenormalized {
-                                    karma_col: database::KarmaCol::Given,
-                                    karma_typ: database::KarmaTyp::Total,
+                                RunQuery::TopNDenormalized {
+                                    karma_col: KarmaCol::Given,
+                                    karma_typ: KarmaTyp::Total,
                                     limit: 3,
-                                    ord: database::OrdQuery::Asc
+                                    ord: OrdQuery::Asc
                                 },
                                 None
                             )).await;
 
                             // If a list of name is given query this
                             let _ = sql_tx.send((
-                                database::RunQuery::Partial {
-                                    karma_col: database::KarmaCol::Given,
+                                RunQuery::Partial {
+                                    karma_col: KarmaCol::Given,
                                     users: vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()].into_iter().collect(),
                                 },
                                 None
@@ -339,20 +349,20 @@ where
                             // not supported - error
 
                             let _ = sql_tx.send((
-                                database::RunQuery::TopNDenormalized {
-                                    karma_col: database::KarmaCol::Recieved,
-                                    karma_typ: database::KarmaTyp::Side,
+                                RunQuery::TopNDenormalized {
+                                    karma_col: KarmaCol::Recieved,
+                                    karma_typ: KarmaTyp::Side,
                                     limit: 3,
-                                    ord: database::OrdQuery::Desc
+                                    ord: OrdQuery::Desc
                                 },
                                 None
                             )).await;
                             let _ = sql_tx.send((
-                                database::RunQuery::TopNDenormalized {
-                                    karma_col: database::KarmaCol::Given,
-                                    karma_typ: database::KarmaTyp::Side,
+                                RunQuery::TopNDenormalized {
+                                    karma_col: KarmaCol::Given,
+                                    karma_typ: KarmaTyp::Side,
                                     limit: 3,
-                                    ord: database::OrdQuery::Desc
+                                    ord: OrdQuery::Desc
                                 },
                                 None
                             )).await;
@@ -367,27 +377,27 @@ where
                             // countT (karmaGivenName)
 
                             let _ = sql_tx.send((
-                                database::RunQuery::RankingDenormalized {
-                                    karma_col: database::KarmaCol::Recieved,
-                                    karma_typ: database::KarmaTyp::Total,
+                                RunQuery::RankingDenormalized {
+                                    karma_col: KarmaCol::Recieved,
+                                    karma_typ: KarmaTyp::Total,
                                     user: "a".to_string(),
                                 },
                                 None
                             )).await;
                             let _ = sql_tx.send((
-                                database::RunQuery::Count(database::KarmaCol::Recieved),
+                                RunQuery::Count(KarmaCol::Recieved),
                                 None
                             )).await;
                             let _ = sql_tx.send((
-                                database::RunQuery::RankingDenormalized {
-                                    karma_col: database::KarmaCol::Given,
-                                    karma_typ: database::KarmaTyp::Total,
+                                RunQuery::RankingDenormalized {
+                                    karma_col: KarmaCol::Given,
+                                    karma_typ: KarmaTyp::Total,
                                     user: "a".to_string(),
                                 },
                                 None
                             )).await;
                             let _ = sql_tx.send((
-                                database::RunQuery::Count(database::KarmaCol::Given),
+                                RunQuery::Count(KarmaCol::Given),
                                 None
                             )).await;
 
@@ -401,27 +411,27 @@ where
                             // countT (karmaGivenName)
 
                             let _ = sql_tx.send((
-                                database::RunQuery::RankingDenormalized {
-                                    karma_col: database::KarmaCol::Recieved,
-                                    karma_typ: database::KarmaTyp::Side,
+                                RunQuery::RankingDenormalized {
+                                    karma_col: KarmaCol::Recieved,
+                                    karma_typ: KarmaTyp::Side,
                                     user: "a".to_string(),
                                 },
                                 None
                             )).await;
                             let _ = sql_tx.send((
-                                database::RunQuery::Count(database::KarmaCol::Recieved),
+                                RunQuery::Count(KarmaCol::Recieved),
                                 None
                             )).await;
                             let _ = sql_tx.send((
-                                database::RunQuery::RankingDenormalized {
-                                    karma_col: database::KarmaCol::Given,
-                                    karma_typ: database::KarmaTyp::Side,
+                                RunQuery::RankingDenormalized {
+                                    karma_col: KarmaCol::Given,
+                                    karma_typ: KarmaTyp::Side,
                                     user: "a".to_string(),
                                 },
                                 None
                             )).await;
                             let _ = sql_tx.send((
-                                database::RunQuery::Count(database::KarmaCol::Given),
+                                RunQuery::Count(KarmaCol::Given),
                                 None
                             )).await;
 
