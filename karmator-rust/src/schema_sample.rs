@@ -125,7 +125,7 @@ pub fn setup_table(
 pub fn setup_data(
     conn: &rs::Connection
 ) {
-    let ins = "INSERT INTO votes (voted_at, by_whom_name, for_what_name, amount) VALUES (?1, ?2)";
+    let ins = "INSERT INTO votes (voted_at, by_whom_name, for_what_name, amount) VALUES (?1, ?2, ?3, ?4)";
 
     println!("Sql Worker - Setup - Inserting Up-Votes");
     conn.execute(ins, rs::params!["2020", "a", "b", 1]);
