@@ -5,33 +5,15 @@ use futures_util::{SinkExt, StreamExt};
 
 use tokio::sync::mpsc;
 
-use serde::Deserialize;
-use serde_json::json;
-
-use atomic_counter::AtomicCounter;
 use atomic_counter::RelaxedCounter;
 
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::default::Default;
 use std::env;
 use std::result::Result;
+use std::thread;
 
 use chrono::prelude::{Utc, DateTime};
-use std::time::Duration;
-use humantime::format_duration;
-
-// SQlite worker thread
-use std::thread;
-use futures::executor::block_on_stream;
-
-use rusqlite as rs;
-use std::path::Path;
-use tokio::sync::oneshot;
-
-// User id -> display name cache
-// TODO: look at some sort of lru or persist this to sqlite instead?
-use dashmap::DashMap;
 
 
 // Test data
@@ -44,7 +26,6 @@ mod build_info;
 mod cache;
 
 
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Shared integer counter for message ids
@@ -53,12 +34,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Uptime of program start
     let start_time: DateTime<Utc> = Utc::now();
 
-    // User id -> User Display name cache
-    let user_cache: crate::cache::UserCache = Arc::new(DashMap::new());
-
-
     let token = env::var("SLACK_API_TOKEN").map_err(|_| "SLACK_API_TOKEN env var must be set")?;
     let client = slack::default_client().map_err(|e| format!("Could not get default_client, {:?}", e))?;
+
+
+    // System Cache manager
+    let cache = crate::cache::Cache::new(&token, client.clone());
+
 
     // Post a message
     let msg = slack::chat::PostMessageRequest {
@@ -104,12 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let msg_id = msg_id.clone();
                 let tx2 = tx.clone();
                 let sql_tx2 = sql_tx.clone();
-                let user_cache = user_cache.clone();
-                let token = token.clone();
-
-                // TODO: not 100% for sure here but seems like inner handle is behind ARC so should
-                // be safe to clone a reqwest client
-                let client = client.clone();
+                let cache = cache.clone();
 
                 tokio::spawn(async move {
                     crate::message::process_inbound_message(
@@ -118,9 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         tx2,
                         sql_tx2,
                         start_time,
-                        user_cache,
-                        &token,
-                        client
+                        cache,
                     ).await;
                 });
 

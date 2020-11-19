@@ -1,14 +1,9 @@
 use tokio::sync::mpsc;
 
-use std::default::Default;
-use std::result::Result;
-
 // SQlite worker thread
-use std::thread;
 use futures::executor::block_on_stream;
 
 use rusqlite as rs;
-use std::path::Path;
 use tokio::sync::oneshot;
 use std::collections::HashSet;
 
@@ -165,8 +160,8 @@ pub fn process_queries(
                 println!("Sql Worker - Count - kcol: {:?}", kcol);
 
                 let table = match kcol {
-                    Given => "karma_given_count",
-                    Recieved => "karma_received_count",
+                    KarmaCol::Given => "karma_given_count",
+                    KarmaCol::Recieved => "karma_received_count",
                 };
 
                 let mut stmt = conn.prepare(&format!(

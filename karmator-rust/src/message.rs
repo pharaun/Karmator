@@ -11,7 +11,6 @@ use atomic_counter::AtomicCounter;
 use atomic_counter::RelaxedCounter;
 
 use std::sync::Arc;
-use std::default::Default;
 use std::result::Result;
 
 use chrono::prelude::{Utc, DateTime};
@@ -135,9 +134,7 @@ pub async fn process_inbound_message<R>(
     mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
     mut sql_tx: mpsc::Sender<(crate::database::RunQuery, Option<oneshot::Sender<crate::database::ResQuery>>)>,
     start_time: DateTime<Utc>,
-    user_cache: crate::cache::UserCache,
-    token: &str,
-    client: R
+    cache: crate::cache::Cache<R>,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     R: slack::requests::SlackWebRequestSender + std::clone::Clone
@@ -238,7 +235,7 @@ where
                             // If '!karma a b' specify do
                             // partalKarma (KarmaRecieved) [list of entity]
 
-                            let user_display = crate::cache::get_user_display(&token, client.clone(), &user_cache, &u).await;
+                            let user_display = crate::cache::get_user_display(cache.clone(), &u).await;
                             println!("User id: {:?}, Display: {:?}", u, user_display);
 
 
