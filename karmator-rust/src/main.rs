@@ -24,6 +24,7 @@ mod database;
 mod message;
 mod build_info;
 mod cache;
+mod parser;
 
 
 #[tokio::main]

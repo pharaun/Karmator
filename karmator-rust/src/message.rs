@@ -21,6 +21,7 @@ use humantime::format_duration;
 use crate::database::{RunQuery, ResQuery, KarmaCol, KarmaTyp, OrdQuery};
 use crate::cache;
 use crate::build_info;
+use crate::parser;
 
 
 // Type alias for msg_id
@@ -152,6 +153,15 @@ async fn send_simple_message(
 }
 
 
+async fn send_query(
+    sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
+    query: RunQuery,
+) -> Result<ResQuery, &str> {
+    let (tx, rx) = oneshot::channel();
+    sql_tx.send((query, Some(tx))).await.map_err(|_| "Error sending");
+    rx.await.map_err(|_| "Error recieving")
+}
+
 
 pub async fn process_inbound_message<R>(
     msg_id: MsgId,
@@ -184,258 +194,290 @@ where
                     UserEvent::Message {
                         channel: Some(c),
                         text: t,
-                        subtype: _,
-                        hidden: _,
                         user: u,
-                        ts: _,
+                        ..
                     } if c == "CAF6S4TRT".to_string() => {
-                        if t == "!version".to_string() {
-                            let ver = build_info::PKG_VERSION;
-                            let dat = build_info::BUILT_TIME_UTC;
-                            let sha = build_info::GIT_COMMIT_HASH.unwrap_or("Unknown");
+                        // Parse string to see if its a command one
+                        let res = parser::command(&t);
 
-                            let _ = send_simple_message(
-                                msg_id,
-                                &mut tx,
-                                c,
-                                format!("<@{}>: Cargo Version: {} - Build Date: {}, - Build SHA: {}", u, ver, dat, sha),
-                            );
-                            println!("Inbound - \t\t!version");
+                        match res {
+                            Ok((_, parser::Command("version", _))) => {
+                                let ver = build_info::PKG_VERSION;
+                                let dat = build_info::BUILT_TIME_UTC;
+                                let sha = build_info::GIT_COMMIT_HASH.unwrap_or("Unknown");
 
-                        } else if t == "!uptime".to_string() {
-                            let end_time: DateTime<Utc> = Utc::now();
-                            let durt = end_time.signed_duration_since(start_time).to_std().unwrap_or(
-                                Duration::from_secs(3122064000));
+                                let _ = send_simple_message(
+                                    msg_id,
+                                    &mut tx,
+                                    c,
+                                    format!("<@{}>: Cargo Version: {} - Build Date: {}, - Build SHA: {}", u, ver, dat, sha),
+                                );
+                                println!("Inbound - \t\t!version");
 
-                            let _ = send_simple_message(
-                                msg_id,
-                                &mut tx,
-                                c,
-                                format!("<@{}>: {}", u, format_duration(durt).to_string()),
-                            );
-                            println!("Inbound - \t\t!uptime");
+                            },
+                            Ok((_, parser::Command("uptime", _))) => {
+                                let end_time: DateTime<Utc> = Utc::now();
+                                let durt = end_time.signed_duration_since(start_time).to_std().unwrap_or(
+                                    Duration::from_secs(3122064000));
 
-                        } else if t == "!help".to_string() {
-                            let help = "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote";
-                            let _ = send_simple_message(
-                                msg_id,
-                                &mut tx,
-                                c,
-                                format!("<@{}>: {}", u, help),
-                            );
-                            println!("Inbound - \t\t!help");
+                                let _ = send_simple_message(
+                                    msg_id,
+                                    &mut tx,
+                                    c,
+                                    format!("<@{}>: {}", u, format_duration(durt).to_string()),
+                                );
+                                println!("Inbound - \t\t!uptime");
 
-                        } else if t == "!github".to_string() {
-                            let github = "Github repo: https://github.com/pharaun/Karmator";
+                            },
+                            Ok((_, parser::Command("help", _))) => {
+                                let help = "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote";
+                                let _ = send_simple_message(
+                                    msg_id,
+                                    &mut tx,
+                                    c,
+                                    format!("<@{}>: {}", u, help),
+                                );
+                                println!("Inbound - \t\t!help");
 
-                            let _ = send_simple_message(
-                                msg_id,
-                                &mut tx,
-                                c,
-                                format!("<@{}>: {}", u, github),
-                            );
-                            println!("Inbound - \t\t!github");
+                            },
+                            Ok((_, parser::Command("github", _))) => {
+                                let github = "Github repo: https://github.com/pharaun/Karmator";
 
-                        } else if t == "!karma".to_string() {
-                            // asdf「asdf」asdf
-                            // TODO: Implement a 'slack id' to unix name mapper
-                            //  - for now can probs query it as needed, but should
-                            //      be cached
-                            //
-                            // Query:
-                            // count = 3
-                            // topNDenormalizedT (karmaRecievedName) (karmaRecievedTotal) 3 desc
-                            // topNDenormalizedT (karmaRecievedName) (karmaRecievedTotal) 3 asc
-                            //
-                            // If '!karma a b' specify do
-                            // partalKarma (KarmaRecieved) [list of entity]
+                                let _ = send_simple_message(
+                                    msg_id,
+                                    &mut tx,
+                                    c,
+                                    format!("<@{}>: {}", u, github),
+                                );
+                                println!("Inbound - \t\t!github");
 
-                            let user_display = cache.get_user_display(&u).await;
-                            println!("User id: {:?}, Display: {:?}", u, user_display);
+                            },
+                            Ok((_, parser::Command("karma", arg))) => {
+                                // asdf「asdf」asdf
+                                // TODO: Implement a 'slack id' to unix name mapper
+                                //  - for now can probs query it as needed, but should
+                                //      be cached
+                                //
+                                // Query:
+                                // count = 3
+                                // topNDenormalizedT (karmaRecievedName) (karmaRecievedTotal) 3 desc
+                                // topNDenormalizedT (karmaRecievedName) (karmaRecievedTotal) 3 asc
+                                //
+                                // If '!karma a b' specify do
+                                // partalKarma (KarmaRecieved) [list of entity]
+                                let user_display = cache.get_user_display(&u).await;
+                                println!("User id: {:?}, Display: {:?}", u, user_display);
 
+                                if arg.is_empty() {
+                                    // Do denormalized query
+                                    println!("Input - Karma - Denormalized");
 
-                            let _ = sql_tx.send((
-                                RunQuery::TopNDenormalized {
-                                    karma_col: KarmaCol::Recieved,
-                                    karma_typ: KarmaTyp::Total,
-                                    limit: 3,
-                                    ord: OrdQuery::Desc
-                                },
-                                None
-                            )).await;
-                            let _ = sql_tx.send((
-                                RunQuery::TopNDenormalized {
-                                    karma_col: KarmaCol::Recieved,
-                                    karma_typ: KarmaTyp::Total,
-                                    limit: 3,
-                                    ord: OrdQuery::Asc
-                                },
-                                None
-                            )).await;
+                                    let _ = send_query(
+                                        &mut sql_tx,
+                                        RunQuery::TopNDenormalized {
+                                            karma_col: KarmaCol::Recieved,
+                                            karma_typ: KarmaTyp::Total,
+                                            limit: 3,
+                                            ord: OrdQuery::Desc
+                                        }
+                                    ).await;
+                                    let _ = send_query(
+                                        &mut sql_tx,
+                                        RunQuery::TopNDenormalized {
+                                            karma_col: KarmaCol::Recieved,
+                                            karma_typ: KarmaTyp::Total,
+                                            limit: 3,
+                                            ord: OrdQuery::Asc
+                                        }
+                                    ).await;
 
-                            // If a list of name is given query this
-                            let _ = sql_tx.send((
-                                RunQuery::Partial {
-                                    karma_col: KarmaCol::Recieved,
-                                    users: vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()].into_iter().collect(),
-                                },
-                                None
-                            )).await;
+                                    //@aberens: highest karma: ABERENS (5156); ckuehl (4465); kmitton (4214). lowest karma: yikes (-656); jenkins (-554); reviewboard (-513).
+                                } else {
+                                    // Do partal query
+                                    println!("Input - Karma - Partial");
+                                    let res = send_query(
+                                        &mut sql_tx,
+                                        RunQuery::Partial {
+                                            karma_col: KarmaCol::Recieved,
+                                            users: arg.into_iter().map(|i| i.to_string()).collect(),
+                                        }
+                                    ).await;
 
-//                            // Dummy get/send stuff
-//                            let (tx1, rx1) = oneshot::channel();
-//                            let _ = sql_tx.send((
-//                                RunQuery::Insert("hi".to_string(), "bye".to_string()),
-//                                Some(tx1)
-//                            )).await;
-//
-//                            // Await for the results
-//                            let res1 = rx1.await;
-//                            let ws_msg = json!({
-//                                "id": id,
-//                                "type": "message",
-//                                "channel": "CAF6S4TRT",
-//                                "text": format!("<@{}>: insert: {:?}", u, res1),
-//                            }).to_string();
+                                    // Format it
+                                    let res = res.map(|p| {
+                                        match p {
+                                            ResQuery::Partial(e) => {
+                                                e.iter().map(|(entity, up, down, side)| {
+                                                    format!(
+                                                        "{}, {} ({}++/{}--/{}+-)",
+                                                        entity, (up - down), up, down, side
+                                                    )
+                                                }).collect::<Vec<String>>().join("; ")
+                                            },
+                                            _ => "Wrong Result".to_string(),
+                                        }
+                                    });
 
-                            println!("Inbound - \t\t!karma");
+                                    match res {
+                                        Err(_) => send_simple_message(
+                                            msg_id,
+                                            &mut tx,
+                                            c,
+                                            format!("<@{}>: {}", u, "Something went wrong"),
+                                        ).await,
+                                        Ok(x) => send_simple_message(
+                                            msg_id,
+                                            &mut tx,
+                                            c,
+                                            format!("<@{}>: {}", u, x),
+                                        ).await,
+                                    };
+                                }
+                            },
+                            Ok((_, parser::Command("givers", arg))) => {
+                                // Query:
+                                // count = 3
+                                // topNDenormalizedT (karmaGivenName) (karmaGivenTotal) 3 desc
+                                // topNDenormalizedT (karmaGivenName) (karmaGivenTotal) 3 asc
+                                //
+                                // If '!givers a b' specify do
+                                // partalKarma (KarmaGiven) [list of entity]
+                                //
+                                let _ = send_query(
+                                    &mut sql_tx,
+                                    RunQuery::TopNDenormalized {
+                                        karma_col: KarmaCol::Given,
+                                        karma_typ: KarmaTyp::Total,
+                                        limit: 3,
+                                        ord: OrdQuery::Desc
+                                    }
+                                ).await;
+                                let _ = send_query(
+                                    &mut sql_tx,
+                                    RunQuery::TopNDenormalized {
+                                        karma_col: KarmaCol::Given,
+                                        karma_typ: KarmaTyp::Total,
+                                        limit: 3,
+                                        ord: OrdQuery::Asc
+                                    }
+                                ).await;
 
-                        } else if t == "!givers".to_string() {
-                            // Query:
-                            // count = 3
-                            // topNDenormalizedT (karmaGivenName) (karmaGivenTotal) 3 desc
-                            // topNDenormalizedT (karmaGivenName) (karmaGivenTotal) 3 asc
-                            //
-                            // If '!givers a b' specify do
-                            // partalKarma (KarmaGiven) [list of entity]
-                            //
-                            let _ = sql_tx.send((
-                                RunQuery::TopNDenormalized {
-                                    karma_col: KarmaCol::Given,
-                                    karma_typ: KarmaTyp::Total,
-                                    limit: 3,
-                                    ord: OrdQuery::Desc
-                                },
-                                None
-                            )).await;
-                            let _ = sql_tx.send((
-                                RunQuery::TopNDenormalized {
-                                    karma_col: KarmaCol::Given,
-                                    karma_typ: KarmaTyp::Total,
-                                    limit: 3,
-                                    ord: OrdQuery::Asc
-                                },
-                                None
-                            )).await;
+                                // If a list of name is given query this
+                                let _ = send_query(
+                                    &mut sql_tx,
+                                    RunQuery::Partial {
+                                        karma_col: KarmaCol::Given,
+                                        users: vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()].into_iter().collect(),
+                                    }
+                                ).await;
 
-                            // If a list of name is given query this
-                            let _ = sql_tx.send((
-                                RunQuery::Partial {
-                                    karma_col: KarmaCol::Given,
-                                    users: vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()].into_iter().collect(),
-                                },
-                                None
-                            )).await;
+                                println!("Inbound - \t\t!givers");
 
-                            println!("Inbound - \t\t!givers");
+                            },
+                            Ok((_, parser::Command("sidevotes", arg))) => {
+                                // Query:
+                                // count = 3
+                                // topNDenormalizedT (karmaRecievedName) (karmaRecievedSide) 3 desc
+                                // topNDenormalizedT (karmaGivenName) (karmaGivenSide) 3 desc
+                                //
+                                // if '!sidevotes a b' specify do
+                                // not supported - error
 
-                        } else if t == "!sidevotes".to_string() {
-                            // Query:
-                            // count = 3
-                            // topNDenormalizedT (karmaRecievedName) (karmaRecievedSide) 3 desc
-                            // topNDenormalizedT (karmaGivenName) (karmaGivenSide) 3 desc
-                            //
-                            // if '!sidevotes a b' specify do
-                            // not supported - error
+                                let _ = send_query(
+                                    &mut sql_tx,
+                                    RunQuery::TopNDenormalized {
+                                        karma_col: KarmaCol::Recieved,
+                                        karma_typ: KarmaTyp::Side,
+                                        limit: 3,
+                                        ord: OrdQuery::Desc
+                                    }
+                                ).await;
+                                let _ = send_query(
+                                    &mut sql_tx,
+                                    RunQuery::TopNDenormalized {
+                                        karma_col: KarmaCol::Given,
+                                        karma_typ: KarmaTyp::Side,
+                                        limit: 3,
+                                        ord: OrdQuery::Desc
+                                    }
+                                ).await;
 
-                            let _ = sql_tx.send((
-                                RunQuery::TopNDenormalized {
-                                    karma_col: KarmaCol::Recieved,
-                                    karma_typ: KarmaTyp::Side,
-                                    limit: 3,
-                                    ord: OrdQuery::Desc
-                                },
-                                None
-                            )).await;
-                            let _ = sql_tx.send((
-                                RunQuery::TopNDenormalized {
-                                    karma_col: KarmaCol::Given,
-                                    karma_typ: KarmaTyp::Side,
-                                    limit: 3,
-                                    ord: OrdQuery::Desc
-                                },
-                                None
-                            )).await;
+                                println!("Inbound - \t\t!sidevotes");
 
-                            println!("Inbound - \t\t!sidevotes");
+                            },
+                            Ok((_, parser::Command("rank", arg))) => {
+                                // Query:
+                                // rankingDenormalizedT (karmaRecievedName) (karmaRecievedTotal) user
+                                // countT (karmaRecievedName)
+                                // rankingDenormalizedT (karmaGivenName) (karmaGivenTotal) user
+                                // countT (karmaGivenName)
 
-                        } else if t == "!rank".to_string() {
-                            // Query:
-                            // rankingDenormalizedT (karmaRecievedName) (karmaRecievedTotal) user
-                            // countT (karmaRecievedName)
-                            // rankingDenormalizedT (karmaGivenName) (karmaGivenTotal) user
-                            // countT (karmaGivenName)
+                                let _ = send_query(
+                                    &mut sql_tx,
+                                    RunQuery::RankingDenormalized {
+                                        karma_col: KarmaCol::Recieved,
+                                        karma_typ: KarmaTyp::Total,
+                                        user: "a".to_string(),
+                                    }
+                                ).await;
+                                let _ = send_query(
+                                    &mut sql_tx,
+                                    RunQuery::Count(KarmaCol::Recieved),
+                                ).await;
+                                let _ = send_query(
+                                    &mut sql_tx,
+                                    RunQuery::RankingDenormalized {
+                                        karma_col: KarmaCol::Given,
+                                        karma_typ: KarmaTyp::Total,
+                                        user: "a".to_string(),
+                                    }
+                                ).await;
+                                let _ = send_query(
+                                    &mut sql_tx,
+                                    RunQuery::Count(KarmaCol::Given),
+                                ).await;
 
-                            let _ = sql_tx.send((
-                                RunQuery::RankingDenormalized {
-                                    karma_col: KarmaCol::Recieved,
-                                    karma_typ: KarmaTyp::Total,
-                                    user: "a".to_string(),
-                                },
-                                None
-                            )).await;
-                            let _ = sql_tx.send((
-                                RunQuery::Count(KarmaCol::Recieved),
-                                None
-                            )).await;
-                            let _ = sql_tx.send((
-                                RunQuery::RankingDenormalized {
-                                    karma_col: KarmaCol::Given,
-                                    karma_typ: KarmaTyp::Total,
-                                    user: "a".to_string(),
-                                },
-                                None
-                            )).await;
-                            let _ = sql_tx.send((
-                                RunQuery::Count(KarmaCol::Given),
-                                None
-                            )).await;
+                                println!("Inbound - \t\t!rank");
 
-                            println!("Inbound - \t\t!rank");
+                            },
+                            Ok((_, parser::Command("ranksidevote", arg))) => {
+                                // Query:
+                                // rankingDenormalizedT (karmaRecievedName) (karmaRecievedSide) user
+                                // countT (karmaRecievedName)
+                                // rankingDenormalizedT (karmaGivenName) (karmaGivenSide) user
+                                // countT (karmaGivenName)
 
-                        } else if t == "!ranksidevote".to_string() {
-                            // Query:
-                            // rankingDenormalizedT (karmaRecievedName) (karmaRecievedSide) user
-                            // countT (karmaRecievedName)
-                            // rankingDenormalizedT (karmaGivenName) (karmaGivenSide) user
-                            // countT (karmaGivenName)
+                                let _ = send_query(
+                                    &mut sql_tx,
+                                    RunQuery::RankingDenormalized {
+                                        karma_col: KarmaCol::Recieved,
+                                        karma_typ: KarmaTyp::Side,
+                                        user: "a".to_string(),
+                                    }
+                                ).await;
+                                let _ = send_query(
+                                    &mut sql_tx,
+                                    RunQuery::Count(KarmaCol::Recieved),
+                                ).await;
+                                let _ = send_query(
+                                    &mut sql_tx,
+                                    RunQuery::RankingDenormalized {
+                                        karma_col: KarmaCol::Given,
+                                        karma_typ: KarmaTyp::Side,
+                                        user: "a".to_string(),
+                                    }
+                                ).await;
+                                let _ = send_query(
+                                    &mut sql_tx,
+                                    RunQuery::Count(KarmaCol::Given),
+                                ).await;
 
-                            let _ = sql_tx.send((
-                                RunQuery::RankingDenormalized {
-                                    karma_col: KarmaCol::Recieved,
-                                    karma_typ: KarmaTyp::Side,
-                                    user: "a".to_string(),
-                                },
-                                None
-                            )).await;
-                            let _ = sql_tx.send((
-                                RunQuery::Count(KarmaCol::Recieved),
-                                None
-                            )).await;
-                            let _ = sql_tx.send((
-                                RunQuery::RankingDenormalized {
-                                    karma_col: KarmaCol::Given,
-                                    karma_typ: KarmaTyp::Side,
-                                    user: "a".to_string(),
-                                },
-                                None
-                            )).await;
-                            let _ = sql_tx.send((
-                                RunQuery::Count(KarmaCol::Given),
-                                None
-                            )).await;
+                                println!("Inbound - \t\t!sidevote");
+                            },
 
-                            println!("Inbound - \t\t!sidevote");
+                            Err(x) => println!("Input - Parse - Error: {:?}", x),
+
+                            Ok((_, parser::Command(x, _))) => println!("Input - Parse - No Handler: {:?}", x),
                         }
                     },
 
