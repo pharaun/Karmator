@@ -33,13 +33,13 @@ pub enum RunQuery {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum OrdQuery { Asc, Desc }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum KarmaCol { Given, Recieved }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum KarmaTyp { Total, Side }
 
 
