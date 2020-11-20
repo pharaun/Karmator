@@ -3,17 +3,30 @@ use nom::{
   bytes::complete::{
       tag,
       take_while1,
+      take,
   },
   multi::{
       separated_list0,
       many0,
   },
-  combinator::map,
+  combinator::{
+      map,
+      eof,
+      peek,
+  },
   branch::alt,
-  sequence::delimited,
+  sequence::{
+      delimited,
+      pair,
+      terminated,
+  },
   character::complete::{
       multispace1,
       multispace0,
+  },
+  error::{
+      Error,
+      ErrorKind,
   },
 };
 use std::fmt;
@@ -264,47 +277,144 @@ impl UnspecializedInput for Tokens<'_> {}
 
 
 // Now here begins the actual structural karma parser (Karma Structure Tree (KST))
-// Some simple rules for now:
-// 1. asdf
 #[derive(Debug, PartialEq)]
-enum KST {
-    Test
+enum KST<'a> {
+    Karma(&'a str, &'a str)
 }
 
 
 fn structural_karma(input: Tokens) -> IResult<Tokens, KST> {
-    map(
-        take_while1(|c:&KarmaToken| {
-            match c {
-                KarmaToken::Quote   => true,
-                _ => false,
-            }
-        }),
-        |_| KST::Test
+    Ok((input, KST::Karma("str", "++")))
+}
+
+
+// TODO: how to make these basic parser way less ugly?
+fn ktext(input: Tokens) -> IResult<Tokens, &str> {
+    let (_, tkt) = peek(take(1usize))(input)?;
+
+    // Extract this out of the Tokens structure
+    let kt = tkt.tok.get(0);
+
+    match kt {
+        Some(KarmaToken::Text(t)) => {
+            let (input, _) = take(1usize)(input)?;
+            Ok((input, t))
+        },
+        _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
+    }
+}
+
+fn kkarma(input: Tokens) -> IResult<Tokens, &str> {
+    let (_, tkt) = peek(take(1usize))(input)?;
+
+    // Extract this out of the Tokens structure
+    let kt = tkt.tok.get(0);
+
+    match kt {
+        Some(KarmaToken::Karma(t)) => {
+            let (input, _) = take(1usize)(input)?;
+            Ok((input, t))
+        },
+        _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
+    }
+}
+
+fn kspace(input: Tokens) -> IResult<Tokens, &str> {
+    let (_, tkt) = peek(take(1usize))(input)?;
+
+    // Extract this out of the Tokens structure
+    let kt = tkt.tok.get(0);
+
+    match kt {
+        Some(KarmaToken::Space(t)) => {
+            let (input, _) = take(1usize)(input)?;
+            Ok((input, t))
+        },
+        _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
+    }
+}
+
+// TODO: make basic parsers for - quote/(open/close brace)
+//enum KarmaToken<'a>{ Text(&'a str), Space(&'a str), Quote, OpenBrace, CloseBrace, Karma(&'a str) }
+
+
+
+
+
+// Simple Karma:
+// 1. a++     -> ("",    Karma("a", "++"))
+// 2. a++ b++ -> ("b++", Karma("a", "++"))
+// 3. a++ b   -> ("b",   Karma("a", "++"))
+//
+// Ground rule for this particular parse:
+// 1. Text followed by karma
+// 2. Karma followed by whitespace/eol
+fn simple(input: Tokens) -> IResult<Tokens, KST> {
+    map(terminated(
+            pair(ktext, kkarma),
+            alt((
+                kspace,
+                map(eof, |_| ""),
+            )),
+        ),
+        |(t, k)| KST::Karma(t, k)
     )(input)
 }
 
 
-
-
-
 #[cfg(test)]
-mod test_structural_karma {
+mod test_simple {
     use super::*;
 
     #[test]
-    fn test_karma() {
-        let token = all_token("\"\"++");
+    fn test_case_one() {
+        let token = all_token("a++").unwrap().1;
+        let parse = simple(Tokens::new(&token));
 
-        let kst = token.unwrap().1;
-        let kst = structural_karma(Tokens::new(&kst));
-
-        let empty = vec![KarmaToken::Karma("++")];
+        let empty = vec![];
         let empty = Tokens::new(&empty);
+        assert_eq!(parse, Ok((empty, KST::Karma("a", "++"))));
+    }
 
-        assert_eq!(kst, Ok((empty, KST::Test)));
+    #[test]
+    fn test_case_two() {
+        let token = all_token("a++ b").unwrap().1;
+        let parse = simple(Tokens::new(&token));
+
+        let empty = vec![KarmaToken::Text("b")];
+        let empty = Tokens::new(&empty);
+        assert_eq!(parse, Ok((empty, KST::Karma("a", "++"))));
+    }
+
+    #[test]
+    fn test_case_three() {
+        let token = all_token("a++ b++").unwrap().1;
+        let parse = simple(Tokens::new(&token));
+
+        let empty = vec![KarmaToken::Text("b"), KarmaToken::Karma("++")];
+        let empty = Tokens::new(&empty);
+        assert_eq!(parse, Ok((empty, KST::Karma("a", "++"))));
     }
 }
+
+
+
+
+
+
+
+
+
+// TODO:
+// 4. a b++   -> ("",    Karma(Up, "b"))
+//
+// Simple invalid cases:
+// 1. a
+// 2. a b
+// 3. a++b
+// 4. ++
+// 5. a ++
+//
 
 
 #[cfg(test)]
