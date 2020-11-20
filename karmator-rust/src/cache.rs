@@ -7,7 +7,8 @@ use dashmap::DashMap;
 use slack_api::requests::SlackWebRequestSender;
 use std::clone::Clone;
 
-
+// TODO: add settings, and have it or something peroidically query the database to load latest
+// settings into the cache, so that things can grab the settings they need from the settings cache
 #[derive(Clone)]
 pub struct Cache<R: SlackWebRequestSender + Clone> {
     user_cache: Arc<DashMap<String, String>>,

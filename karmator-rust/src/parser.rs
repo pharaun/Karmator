@@ -48,16 +48,13 @@ fn args(input: &str) -> IResult<&str, Vec<&str>> {
     separated_list0(multispace1, not_multispace1)(input)
 }
 
-//fn group_roll(input: &str) -> IResult<&str, GroupRoll> {
-//    let (input, opsvals) = delimited(
-//        tag("{"),
-//        separated_nonempty_list(tag(","), expr),
-//        tag("}")
-//    )(input)?;
-//    let (input, meta) = many0(group_meta)(input)?;
-//
-//    Ok((input, GroupRoll(opsvals, meta)))
-//}
+
+// This starts the all karma parser block
+pub fn all_karma(input: &str) -> IResult<&str, &str> {
+    Ok(("", "lol"))
+}
+
+
 
 
 #[cfg(test)]

@@ -195,6 +195,15 @@ where
                         user: u,
                         ..
                     } if c == "CAF6S4TRT".to_string() => {
+                        // TODO: don't react to myself
+                        // TODO: check if it is a bot, if so, ignore as well
+                        //       Should add a bot flag to the user_display cache as well
+                        //       Should also make sure to throttle cache update rate as well
+                        if u == "UALB533UK".to_string() {
+                            println!("Inbound - Ignoring myself");
+                            return Ok(());
+                        }
+
                         // Parse string to see if its a command one
                         let res = parser::command(&t);
 
@@ -432,10 +441,16 @@ where
                                     ).await;
                                 }
                             },
-
-                            Err(x) => println!("Input - Parse - Error: {:?}", x),
-
                             Ok((_, parser::Command(x, _))) => println!("Input - Parse - No Handler: {:?}", x),
+
+                            Err(_) => {
+                                // Not a command parse, time to consider allkarma parser
+                                println!("Input - All Karma");
+
+                                let res = parser::all_karma(&t);
+
+                                println!("Input - All Karma - {:?}", res);
+                            },
                         }
                     },
 
