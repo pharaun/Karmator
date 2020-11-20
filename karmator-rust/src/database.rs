@@ -6,8 +6,7 @@ use futures::executor::block_on_stream;
 use rusqlite as rs;
 use tokio::sync::oneshot;
 use std::collections::HashSet;
-
-use crate::schema_sample;
+use std::path::Path;
 
 
 // TODO: should be able to replace all of these stuff maybe by some trait or some other tricks
@@ -72,17 +71,11 @@ pub fn process_queries(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut block_sql_rx = block_on_stream(sql_rx);
 
-    //let filename = "db.sqlite";
-    //let conn = rs::Connection::open_with_flags(
-    //    Path::new(filename),
-    //    rs::OpenFlags::SQLITE_OPEN_READ_WRITE
-    //).expect(&format!("Connection error: {}", filename));
-    let conn = rs::Connection::open_in_memory().expect("Failure");
-
-    // Test data/build tables
-    schema_sample::setup_table(&conn)?;
-    schema_sample::setup_data(&conn)?;
-
+    let filename = "db.sqlite";
+    let conn = rs::Connection::open_with_flags(
+        Path::new(filename),
+        rs::OpenFlags::SQLITE_OPEN_READ_WRITE
+    ).expect(&format!("Connection error: {}", filename));
 
     // Listen for inbound query
     while let Some((query, res_tx)) = block_sql_rx.next() {

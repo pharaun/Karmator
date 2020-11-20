@@ -383,38 +383,54 @@ where
                                 }
                             },
                             Ok((_, parser::Command("ranksidevote", arg))) => {
-                                // Query:
-                                // rankingDenormalizedT (karmaRecievedName) (karmaRecievedSide) user
-                                // countT (karmaRecievedName)
-                                // rankingDenormalizedT (karmaGivenName) (karmaGivenSide) user
-                                // countT (karmaGivenName)
+                                if arg.is_empty() {
+                                    // Rank with yourself
+                                    let user_display = cache.get_user_display(&u).await;
 
-                                let _ = send_query(
-                                    &mut sql_tx,
-                                    RunQuery::RankingDenormalized {
-                                        karma_col: KarmaCol::Recieved,
-                                        karma_typ: KarmaTyp::Side,
-                                        user: "a".to_string(),
+                                    match user_display {
+                                        Some(ud) => {
+                                            Ranking(
+                                                msg_id,
+                                                &mut tx,
+                                                &mut sql_tx,
+                                                c,
+                                                u,
+                                                KarmaTyp::Side,
+                                                &ud,
+                                                "Your",
+                                            ).await;
+                                        },
+                                        _ => {
+                                            let _ = send_simple_message(
+                                                msg_id,
+                                                &mut tx,
+                                                c,
+                                                format!("<@{}>: {}", u, "Cant find your display name, thanks slack"),
+                                            ).await;
+                                        },
                                     }
-                                ).await;
-                                let _ = send_query(
-                                    &mut sql_tx,
-                                    RunQuery::Count(KarmaCol::Recieved),
-                                ).await;
-                                let _ = send_query(
-                                    &mut sql_tx,
-                                    RunQuery::RankingDenormalized {
-                                        karma_col: KarmaCol::Given,
-                                        karma_typ: KarmaTyp::Side,
-                                        user: "a".to_string(),
-                                    }
-                                ).await;
-                                let _ = send_query(
-                                    &mut sql_tx,
-                                    RunQuery::Count(KarmaCol::Given),
-                                ).await;
+                                } else if arg.len() == 1 {
+                                    // Rank up with one target
+                                    let target = arg.get(0).unwrap();
 
-                                println!("Inbound - \t\t!sidevote");
+                                    Ranking(
+                                        msg_id,
+                                        &mut tx,
+                                        &mut sql_tx,
+                                        c,
+                                        u,
+                                        KarmaTyp::Side,
+                                        target,
+                                        &format!("{}", target),
+                                    ).await;
+                                } else {
+                                    let _ = send_simple_message(
+                                        msg_id,
+                                        &mut tx,
+                                        c,
+                                        format!("<@{}>: {}", u, "Can only rank one karma entry at a time!"),
+                                    ).await;
+                                }
                             },
 
                             Err(x) => println!("Input - Parse - Error: {:?}", x),

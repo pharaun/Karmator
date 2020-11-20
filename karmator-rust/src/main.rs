@@ -16,9 +16,6 @@ use std::thread;
 use chrono::prelude::{Utc, DateTime};
 
 
-// Test data
-mod schema_sample;
-
 // Bot breakup
 mod database;
 mod message;
