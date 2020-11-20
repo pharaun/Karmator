@@ -325,6 +325,7 @@ fn kspace(input: Tokens) -> IResult<Tokens, &str> {
     // Extract this out of the Tokens structure
     let kt = tkt.tok.get(0);
 
+    // TODO: clean these up with matches! macro from stdlib
     match kt {
         Some(KarmaToken::Space(t)) => {
             let (input, _) = take(1usize)(input)?;
@@ -360,6 +361,17 @@ fn simple(input: Tokens) -> IResult<Tokens, KST> {
         |(t, k)| KST::Karma(t, k)
     )(input)
 }
+
+
+// Simple MultiKarma:
+// 1. a++     -> ("",   [Karma("a", "++")])
+// 2. a++ b++ -> ("",   [Karma("a", "++"), Karma("b", "++")])
+// 3. a++ b   -> (" b", [Karma("a", "++")])
+//
+// Ground rule for this particular parse:
+// 1. SimpleKarma separated by whitespace
+
+
 
 
 #[cfg(test)]
