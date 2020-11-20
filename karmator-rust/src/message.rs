@@ -255,9 +255,6 @@ where
                                 // TODO: Implement a 'slack id' to unix name mapper
                                 //  - for now can probs query it as needed, but should
                                 //      be cached
-                                let user_display = cache.get_user_display(&u).await;
-                                println!("User id: {:?}, Display: {:?}", u, user_display);
-
                                 if arg.is_empty() {
                                     TopN(
                                         msg_id,
@@ -331,44 +328,59 @@ where
                                         msg_id,
                                         &mut tx,
                                         c,
-                                        format!("<@{}>: {}", u, "Not supported"),
-                                    );
+                                        format!("<@{}>: {}", u, "Not supported!"),
+                                    ).await;
                                 }
                             },
                             Ok((_, parser::Command("rank", arg))) => {
-                                // Query:
-                                // rankingDenormalizedT (karmaRecievedName) (karmaRecievedTotal) user
-                                // countT (karmaRecievedName)
-                                // rankingDenormalizedT (karmaGivenName) (karmaGivenTotal) user
-                                // countT (karmaGivenName)
+                                if arg.is_empty() {
+                                    // Rank with yourself
+                                    let user_display = cache.get_user_display(&u).await;
 
-                                let _ = send_query(
-                                    &mut sql_tx,
-                                    RunQuery::RankingDenormalized {
-                                        karma_col: KarmaCol::Recieved,
-                                        karma_typ: KarmaTyp::Total,
-                                        user: "a".to_string(),
+                                    match user_display {
+                                        Some(ud) => {
+                                            Ranking(
+                                                msg_id,
+                                                &mut tx,
+                                                &mut sql_tx,
+                                                c,
+                                                u,
+                                                KarmaTyp::Total,
+                                                &ud,
+                                                "Your",
+                                            ).await;
+                                        },
+                                        _ => {
+                                            let _ = send_simple_message(
+                                                msg_id,
+                                                &mut tx,
+                                                c,
+                                                format!("<@{}>: {}", u, "Cant find your display name, thanks slack"),
+                                            ).await;
+                                        },
                                     }
-                                ).await;
-                                let _ = send_query(
-                                    &mut sql_tx,
-                                    RunQuery::Count(KarmaCol::Recieved),
-                                ).await;
-                                let _ = send_query(
-                                    &mut sql_tx,
-                                    RunQuery::RankingDenormalized {
-                                        karma_col: KarmaCol::Given,
-                                        karma_typ: KarmaTyp::Total,
-                                        user: "a".to_string(),
-                                    }
-                                ).await;
-                                let _ = send_query(
-                                    &mut sql_tx,
-                                    RunQuery::Count(KarmaCol::Given),
-                                ).await;
+                                } else if arg.len() == 1 {
+                                    // Rank up with one target
+                                    let target = arg.get(0).unwrap();
 
-                                println!("Inbound - \t\t!rank");
-
+                                    Ranking(
+                                        msg_id,
+                                        &mut tx,
+                                        &mut sql_tx,
+                                        c,
+                                        u,
+                                        KarmaTyp::Total,
+                                        target,
+                                        &format!("{}", target),
+                                    ).await;
+                                } else {
+                                    let _ = send_simple_message(
+                                        msg_id,
+                                        &mut tx,
+                                        c,
+                                        format!("<@{}>: {}", u, "Can only rank one karma entry at a time!"),
+                                    ).await;
+                                }
                             },
                             Ok((_, parser::Command("ranksidevote", arg))) => {
                                 // Query:
@@ -540,4 +552,96 @@ async fn Partial(
             format!("<@{}>: {}", user, "Something went wrong"),
         ).await,
     };
+}
+
+
+async fn Ranking(
+    msg_id: MsgId,
+    tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
+    sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
+    channel: String,
+    user: String,
+    ktyp: KarmaTyp,
+    target: &str,
+    label: &str,
+) {
+    println!("Input - Karma - Ranking");
+
+    let target_recieved = send_query(
+        sql_tx,
+        RunQuery::RankingDenormalized {
+            karma_col: KarmaCol::Recieved,
+            karma_typ: ktyp,
+            user: target.to_string(),
+        }
+    ).await.map(|t| {
+        // Format it
+        match t {
+            ResQuery::OCount(e) => e.map(|c| format!("{}", c)),
+            _ => None,
+        }
+    });
+
+    let total_recieved = send_query(
+        sql_tx,
+        RunQuery::Count(KarmaCol::Recieved),
+    ).await.map(|t| {
+        // Format it
+        match t {
+            ResQuery::Count(e) => format!("{}", e),
+            _ => "Wrong Result".to_string(),
+        }
+    });
+
+    let target_given = send_query(
+        sql_tx,
+        RunQuery::RankingDenormalized {
+            karma_col: KarmaCol::Given,
+            karma_typ: ktyp,
+            user: target.to_string(),
+        }
+    ).await.map(|t| {
+        // Format it
+        match t {
+            ResQuery::OCount(e) => e.map(|c| format!("{}", c)),
+            _ => None,
+        }
+    });
+
+    let total_given = send_query(
+        sql_tx,
+        RunQuery::Count(KarmaCol::Given),
+    ).await.map(|t| {
+        // Format it
+        match t {
+            ResQuery::Count(e) => format!("{}", e),
+            _ => "Wrong Result".to_string(),
+        }
+    });
+
+
+    // Formatting the ranks
+    let receiving = match (target_recieved, total_recieved) {
+        (Ok(Some(r)), Ok(tr)) => Some(format!("{} rank is {} of {} in receiving", label, r, tr)),
+        _ => None,
+    };
+
+    let giving = match (target_given, total_given) {
+        (Ok(Some(g)), Ok(tg)) => Some(format!("{} rank is {} of {} in giving", label, g, tg)),
+        _ => None,
+    };
+
+    let rank = match (receiving, giving) {
+        (Some(r), Some(g)) => format!("{} and {}.", r, g),
+        (Some(r), None)    => format!("{}.", r),
+        (None, Some(g))    => format!("{}.", g),
+        (None, None)       => format!("No ranking available"),
+    };
+
+    let _ = send_simple_message(
+        msg_id,
+        tx,
+        channel,
+        format!("<@{}>: {}", user, rank),
+    ).await;
 }

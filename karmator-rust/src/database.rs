@@ -46,6 +46,7 @@ pub enum KarmaTyp { Total, Side }
 #[derive(Debug)]
 pub enum ResQuery {
     // RankingDenormalized
+    OCount(Option<u32>),
     // Count
     Count(u32),
     // TopNDenormalized
@@ -162,9 +163,9 @@ pub fn process_queries(
                 let mut rows = stmt.query(rs::params![user, user]).unwrap();
 
                 if let Ok(Some(row)) = rows.next() {
-                    let count: u32 = row.get(0).unwrap();
+                    let count: Option<u32> = row.get(0).ok();
 
-                    maybe_send(res_tx, ResQuery::Count(count))?;
+                    maybe_send(res_tx, ResQuery::OCount(count))?;
                     println!("Sql Worker - RankingDenormalized - Count: {:?}", count);
                 } else {
                     println!("Sql Worker - RankingDenormalized - Error");
