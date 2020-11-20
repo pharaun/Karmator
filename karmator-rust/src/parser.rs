@@ -342,9 +342,9 @@ fn kspace(input: Tokens) -> IResult<Tokens, &str> {
 
 
 // Simple Karma:
-// 1. a++     -> ("",    Karma("a", "++"))
-// 2. a++ b++ -> ("b++", Karma("a", "++"))
-// 3. a++ b   -> ("b",   Karma("a", "++"))
+// 1. a++     -> ("",     Karma("a", "++"))
+// 2. a++ b++ -> (" b++", Karma("a", "++"))
+// 3. a++ b   -> (" b",   Karma("a", "++"))
 //
 // Ground rule for this particular parse:
 // 1. Text followed by karma
@@ -353,7 +353,7 @@ fn simple(input: Tokens) -> IResult<Tokens, KST> {
     map(terminated(
             pair(ktext, kkarma),
             alt((
-                kspace,
+                peek(kspace),
                 map(eof, |_| ""),
             )),
         ),
@@ -381,7 +381,7 @@ mod test_simple {
         let token = all_token("a++ b").unwrap().1;
         let parse = simple(Tokens::new(&token));
 
-        let empty = vec![KarmaToken::Text("b")];
+        let empty = vec![KarmaToken::Space(" "), KarmaToken::Text("b")];
         let empty = Tokens::new(&empty);
         assert_eq!(parse, Ok((empty, KST::Karma("a", "++"))));
     }
@@ -391,7 +391,7 @@ mod test_simple {
         let token = all_token("a++ b++").unwrap().1;
         let parse = simple(Tokens::new(&token));
 
-        let empty = vec![KarmaToken::Text("b"), KarmaToken::Karma("++")];
+        let empty = vec![KarmaToken::Space(" "), KarmaToken::Text("b"), KarmaToken::Karma("++")];
         let empty = Tokens::new(&empty);
         assert_eq!(parse, Ok((empty, KST::Karma("a", "++"))));
     }
