@@ -447,9 +447,8 @@ where
                                 // Not a command parse, time to consider allkarma parser
                                 println!("Input - All Karma");
 
-                                let res = parser::all_karma(&t);
-
-                                println!("Input - All Karma - {:?}", res);
+                                //let res = parser::all_karma(&t);
+                                //println!("Input - All Karma - {:?}", res);
                             },
                         }
                     },
