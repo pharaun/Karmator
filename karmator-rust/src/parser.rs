@@ -18,6 +18,18 @@ use nom::{
 };
 use std::fmt;
 
+use nom::InputLength;
+use nom::InputTake;
+use nom::InputIter;
+use nom::Slice;
+use nom::UnspecializedInput;
+
+use std::iter::Enumerate;
+use std::ops::RangeFull;
+use std::ops::RangeFrom;
+use std::ops::RangeTo;
+use std::ops::Range;
+
 
 // TODO: add in specific support for parsing at-here and other special <!user_id> entities
 // so that in the message subsystem it can do the right thing
@@ -69,6 +81,7 @@ enum KarmaToken<'a>{
     // there is whitespace before the karma or not)
     Space(&'a str),
     // Only the " mark
+    // TODO: quotation escaping?
     Quote,
     // Only the [ mark
     OpenBrace,
@@ -121,7 +134,157 @@ fn text(input: &str) -> IResult<&str, KarmaToken> {
 }
 
 
-// Now here begins the actual structural karma parser
+// Engine for allowing us to parse on top of tokens
+#[derive(Debug, PartialEq, Clone, Copy)]
+struct Tokens<'a> {
+    tok: &'a [KarmaToken<'a>],
+    start: usize,
+    end: usize,
+}
+
+impl<'a> Tokens<'a> {
+    fn new(vec: &'a Vec<KarmaToken<'a>>) -> Self {
+        Tokens {
+            tok: vec.as_slice(),
+            start: 0,
+            end: vec.len(),
+        }
+    }
+}
+
+impl<'a> InputLength for Tokens<'a> {
+    #[inline]
+    fn input_len(&self) -> usize {
+        self.tok.len()
+    }
+}
+
+impl<'a> InputTake for Tokens<'a> {
+    #[inline]
+    fn take(&self, count: usize) -> Self {
+        Tokens {
+            tok: &self.tok[0..count],
+            start: 0,
+            end: count,
+        }
+    }
+
+    #[inline]
+    fn take_split(&self, count: usize) -> (Self, Self) {
+        let (prefix, suffix) = self.tok.split_at(count);
+        let first = Tokens {
+            tok: prefix,
+            start: 0,
+            end: prefix.len(),
+        };
+        let second = Tokens {
+            tok: suffix,
+            start: 0,
+            end: suffix.len(),
+        };
+        (second, first)
+    }
+}
+
+impl<'a> InputLength for KarmaToken<'a> {
+    #[inline]
+    fn input_len(&self) -> usize {
+        1
+    }
+}
+
+impl<'a> Slice<Range<usize>> for Tokens<'a> {
+    #[inline]
+    fn slice(&self, range: Range<usize>) -> Self {
+        Tokens {
+            tok: self.tok.slice(range.clone()),
+            start: self.start + range.start,
+            end: self.start + range.end,
+        }
+    }
+}
+
+impl<'a> Slice<RangeTo<usize>> for Tokens<'a> {
+    #[inline]
+    fn slice(&self, range: RangeTo<usize>) -> Self {
+        self.slice(0..range.end)
+    }
+}
+
+impl<'a> Slice<RangeFrom<usize>> for Tokens<'a> {
+    #[inline]
+    fn slice(&self, range: RangeFrom<usize>) -> Self {
+        self.slice(range.start..self.end - self.start)
+    }
+}
+
+impl<'a> Slice<RangeFull> for Tokens<'a> {
+    #[inline]
+    fn slice(&self, _: RangeFull) -> Self {
+        Tokens {
+            tok: self.tok,
+            start: self.start,
+            end: self.end,
+        }
+    }
+}
+
+impl<'a> InputIter for Tokens<'a> {
+    type Item = &'a KarmaToken<'a>;
+    type Iter = Enumerate<::std::slice::Iter<'a, KarmaToken<'a>>>;
+    type IterElem = ::std::slice::Iter<'a, KarmaToken<'a>>;
+
+    #[inline]
+    fn iter_indices(&self) -> Enumerate<::std::slice::Iter<'a, KarmaToken<'a>>> {
+        self.tok.iter().enumerate()
+    }
+    #[inline]
+    fn iter_elements(&self) -> ::std::slice::Iter<'a, KarmaToken<'a>> {
+        self.tok.iter()
+    }
+    #[inline]
+    fn position<P>(&self, predicate: P) -> Option<usize>
+    where
+        P: Fn(Self::Item) -> bool,
+    {
+        self.tok.iter().position(|b| predicate(b))
+    }
+    #[inline]
+    fn slice_index(&self, count: usize) -> Result<usize, nom::Needed> {
+        if self.tok.len() >= count {
+            Ok(count)
+        } else {
+            Err(nom::Needed::Unknown)
+        }
+    }
+}
+
+impl UnspecializedInput for Tokens<'_> {}
+
+
+
+// Now here begins the actual structural karma parser (Karma Structure Tree (KST))
+// Some simple rules for now:
+// 1. asdf
+#[derive(Debug, PartialEq)]
+enum KST {
+    Test
+}
+
+
+fn structural_karma(input: Tokens) -> IResult<Tokens, KST> {
+    map(
+        take_while1(|c:&KarmaToken| {
+            match c {
+                KarmaToken::Quote   => true,
+                _ => false,
+            }
+        }),
+        |_| KST::Test
+    )(input)
+}
+
+
 
 
 
@@ -131,6 +294,15 @@ mod test_structural_karma {
 
     #[test]
     fn test_karma() {
+        let token = all_token("\"\"++");
+
+        let kst = token.unwrap().1;
+        let kst = structural_karma(Tokens::new(&kst));
+
+        let empty = vec![KarmaToken::Karma("++")];
+        let empty = Tokens::new(&empty);
+
+        assert_eq!(kst, Ok((empty, KST::Test)));
     }
 }
 
