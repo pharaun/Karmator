@@ -378,6 +378,25 @@ fn kenclosed(input: Tokens) -> IResult<Tokens, String> {
     }
 }
 
+fn kspacetext(input: Tokens) -> IResult<Tokens, String> {
+    let (input, tkt) = take_while1(|kt:&KarmaToken|
+        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_))
+    )(input)?;
+
+    // Validate that last entity isn't a space
+    match tkt.tok.last() {
+        Some(&KarmaToken::Space(_)) => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
+        _ => {
+            // Collapse the list into string and trim it
+            let temp = tkt.tok.iter().map(
+                |k:&KarmaToken| k.to_string()
+            ).collect::<Vec<String>>().join("").trim_start().to_string();
+
+            Ok((input, temp))
+        },
+    }
+}
+
 
 // Macro for cleaning up the test cases
 macro_rules! success_test {
@@ -416,17 +435,25 @@ macro_rules! kst {
 
 
 // Simple Karma:
-// 1. a++     -> ("",     Karma("a", "++"))
-// 2. a++ b++ -> (" b++", Karma("a", "++"))
-// 3. a++ b   -> (" b",   Karma("a", "++"))
-// 4. a++b    -> Invalid
+// 1. a++       -> ("",     Karma("a", "++"))
+// 2. a b++     -> ("",     Karma("a b", "++"))
+// 3. a++ b++   -> (" b++", Karma("a", "++"))
+// 4. a b++ c   -> (" c",   Karma("a b", "++"))
+// 5.   a++     -> ("",     Karma("a", "++")) - Trim preceeding
+// 6. a b++c    -> Invalid
+// 7. a++b      -> Invalid
+// 8. a b ++    -> Invalid
 //
 // Ground rule for this particular parse:
-// 1. Text followed by karma
-// 2. Karma followed by whitespace/eol
+// 1. Any Text/Space followed by karma
+// 2. Karma must follow a Text
+// 3. karma must be followed by space/eol
 fn simple(input: Tokens) -> IResult<Tokens, KST> {
     map(terminated(
-            pair(ktext, kkarma),
+            pair(
+                kspacetext,
+                kkarma
+            ),
             alt((
                 peek(kspace),
                 map(eof, |_| "".to_string()),
@@ -653,24 +680,8 @@ mod test_quoted {
 mod test_simple {
     use super::*;
 
-    success_test!(
-        test_case_one,
-        simple,
-        "a++",
-        vec![],
-        kst!("a", "++")
-    );
-
-    success_test!(
-        test_case_two,
-        simple,
-        "a++ b",
-        vec![
-            KarmaToken::Space(" "),
-            KarmaToken::Text("b")
-        ],
-        kst!("a", "++")
-    );
+    success_test!(test_case_one, simple, "a++", vec![], kst!("a", "++"));
+    success_test!(test_case_two, simple, "a b++", vec![], kst!("a b", "++"));
 
     success_test!(
         test_case_three,
@@ -684,12 +695,47 @@ mod test_simple {
         kst!("a", "++")
     );
 
-    fail_test!(
+    success_test!(
         test_case_four,
+        simple,
+        "a b++ c",
+        vec![
+            KarmaToken::Space(" "),
+            KarmaToken::Text("c"),
+        ],
+        kst!("a b", "++")
+    );
+
+    success_test!(
+        test_case_five,
+        simple,
+        "  a++",
+        vec![],
+        kst!("a", "++")
+    );
+
+    fail_test!(
+        test_case_six,
+        simple,
+        "a b++c",
+        vec![KarmaToken::Text("c")],
+        ErrorKind::Eof
+    );
+
+    fail_test!(
+        test_case_seven,
         simple,
         "a++b",
         vec![KarmaToken::Text("b")],
         ErrorKind::Eof
+    );
+
+    fail_test!(
+        test_case_eight,
+        simple,
+        "a b ++",
+        vec![KarmaToken::Karma("++")],
+        ErrorKind::Tag
     );
 }
 
