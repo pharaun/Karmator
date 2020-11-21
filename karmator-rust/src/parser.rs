@@ -436,6 +436,76 @@ fn quoted(input: Tokens) -> IResult<Tokens, KST> {
 }
 
 
+// Simple MultiQuoted:
+// 1. "a"++       -> ("",         [Karma("a", "++")])
+// 2. "a"++ "b"   -> (" \"b\"",   [Karma("a", "++")])
+// 3. "a"++ "b"++ -> ("",         [Karma("a", "++"), Karma("b", "++")])
+// 4. "a"++ " "++ -> (" \" \"++", [Karma("a", "++")]) - TODO: should we eat the empty quote?
+//
+// Ground rule for this particular parse:
+// 1. Quoted separated by whitespace
+fn multi_quoted(input: Tokens) -> IResult<Tokens, Vec<KST>> {
+    separated_list0(kspace, quoted)(input)
+}
+
+
+
+
+
+#[cfg(test)]
+mod test_multi_quoted {
+    use super::*;
+
+    #[test]
+    fn test_case_one() {
+        let token = all_token("\"a\"++").unwrap().1;
+        let parse = multi_quoted(Tokens::new(&token));
+
+        let empty = vec![];
+        let empty = Tokens::new(&empty);
+        assert_eq!(parse, Ok((empty, vec![KST::Karma("a".to_string(), "++".to_string())])));
+    }
+
+    #[test]
+    fn test_case_two() {
+        let token = all_token("\"a\"++ \"b\"").unwrap().1;
+        let parse = multi_quoted(Tokens::new(&token));
+
+        let empty = vec![KarmaToken::Space(" "), KarmaToken::Quote, KarmaToken::Text("b"), KarmaToken::Quote];
+        let empty = Tokens::new(&empty);
+        assert_eq!(parse, Ok((empty, vec![KST::Karma("a".to_string(), "++".to_string())])));
+    }
+
+    #[test]
+    fn test_case_three() {
+        let token = all_token("\"a\"++ \"b\"++").unwrap().1;
+        let parse = multi_quoted(Tokens::new(&token));
+
+        let empty = vec![];
+        let empty = Tokens::new(&empty);
+        assert_eq!(parse, Ok((empty, vec![
+            KST::Karma("a".to_string(), "++".to_string()),
+            KST::Karma("b".to_string(), "++".to_string())
+        ])));
+    }
+
+    #[test]
+    fn test_case_four() {
+        let token = all_token("\"a\"++ \" \"++").unwrap().1;
+        let parse = multi_quoted(Tokens::new(&token));
+
+        // TODO: Should we consume/discard this?
+        let empty = vec![
+            KarmaToken::Space(" "),
+            KarmaToken::Quote,
+            KarmaToken::Space(" "),
+            KarmaToken::Quote,
+            KarmaToken::Karma("++")
+        ];
+        let empty = Tokens::new(&empty);
+        assert_eq!(parse, Ok((empty, vec![KST::Karma("a".to_string(), "++".to_string())])));
+    }
+}
 
 
 #[cfg(test)]
