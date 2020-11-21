@@ -379,14 +379,40 @@ fn kenclosed(input: Tokens) -> IResult<Tokens, String> {
 }
 
 
-// TODO: develop invalid cases to test extent of the parser
-// TODO: make basic parsers for - quote/(open/close brace)
-//enum KarmaToken<'a>{ Text(&'a str), Space(&'a str), Quote, OpenBrace, CloseBrace, Karma(&'a str) }
+// Macro for cleaning up the test cases
+macro_rules! success_test {
+    ($name:ident, $parse:ident, $data:expr, $buff:expr, $res:expr) => (
+        #[test]
+        fn $name() {
+            let token = all_token($data).unwrap().1;
+            let parse = $parse(Tokens::new(&token));
 
+            let empty = $buff;
+            let empty = Tokens::new(&empty);
+            assert_eq!(parse, Ok((empty, $res)));
+        }
+    )
+}
 
+macro_rules! fail_test {
+    ($name:ident, $parse:ident, $data:expr, $buff:expr, $kind:expr) => (
+        #[test]
+        fn $name() {
+            let token = all_token($data).unwrap().1;
+            let parse = $parse(Tokens::new(&token));
 
+            let empty = $buff;
+            let empty = Tokens::new(&empty);
+            assert_eq!(parse, Err(nom::Err::Error(Error::new(empty, $kind))));
+        }
+    )
+}
 
-
+macro_rules! kst {
+    ($data:expr, $karma:expr) => {
+        KST::Karma($data.to_string(), $karma.to_string())
+    }
+}
 
 
 // Simple Karma:
@@ -487,6 +513,7 @@ fn braced(input: Tokens) -> IResult<Tokens, KST> {
 
 
 // TODO: evolve this one to be a more through impl
+// TODO: develop invalid cases to test extent of the parser
 // MultiKarma
 // 1. a++     -> ("",   [Karma("a", "++")])
 // 2. a++ b++ -> ("",   [Karma("a", "++"), Karma("b", "++")])
@@ -496,196 +523,6 @@ fn braced(input: Tokens) -> IResult<Tokens, KST> {
 // 1. SimpleKarma separated by whitespace
 fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
     separated_list0(kspace, simple)(input)
-}
-
-
-
-
-#[cfg(test)]
-mod test_braced {
-    use super::*;
-
-    #[test]
-    fn test_case_one() {
-        let token = all_token("[a]++").unwrap().1;
-        let parse = braced(Tokens::new(&token));
-
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_two() {
-        let token = all_token("[a b]++").unwrap().1;
-        let parse = braced(Tokens::new(&token));
-
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a b".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_three() {
-        let token = all_token("[ a b ]++").unwrap().1;
-        let parse = braced(Tokens::new(&token));
-
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a b".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_four() {
-        let token = all_token("[a++]++").unwrap().1;
-        let parse = braced(Tokens::new(&token));
-
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a++".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_five() {
-        let token = all_token("[++]++").unwrap().1;
-        let parse = braced(Tokens::new(&token));
-
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("++".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_six() {
-        let token = all_token("[a]++ [b]++").unwrap().1;
-        let parse = braced(Tokens::new(&token));
-
-        let empty = vec![
-            KarmaToken::Space(" "),
-            KarmaToken::OpenBrace,
-            KarmaToken::Text("b"),
-            KarmaToken::CloseBrace,
-            KarmaToken::Karma("++")
-        ];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_seven() {
-        let token = all_token("[]++").unwrap().1;
-        let parse = braced(Tokens::new(&token));
-
-        // TODO: partial parse, do we want this?)
-        let empty = vec![KarmaToken::CloseBrace, KarmaToken::Karma("++")];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Err(nom::Err::Error(Error::new(empty, ErrorKind::TakeWhile1))));
-    }
-
-    #[test]
-    fn test_case_eight() {
-        let token = all_token("[ ]++").unwrap().1;
-        let parse = braced(Tokens::new(&token));
-
-        // TODO: partial parse, do we want this?)
-        let empty = vec![KarmaToken::CloseBrace, KarmaToken::Karma("++")];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Err(nom::Err::Error(Error::new(empty, ErrorKind::Tag))));
-    }
-}
-
-
-#[cfg(test)]
-mod test_quoted {
-    use super::*;
-
-    #[test]
-    fn test_case_one() {
-        let token = all_token("\"a\"++").unwrap().1;
-        let parse = quoted(Tokens::new(&token));
-
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_two() {
-        let token = all_token("\"a b\"++").unwrap().1;
-        let parse = quoted(Tokens::new(&token));
-
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a b".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_three() {
-        let token = all_token("\" a b \"++").unwrap().1;
-        let parse = quoted(Tokens::new(&token));
-
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a b".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_four() {
-        let token = all_token("\"a++\"++").unwrap().1;
-        let parse = quoted(Tokens::new(&token));
-
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a++".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_five() {
-        let token = all_token("\"++\"++").unwrap().1;
-        let parse = quoted(Tokens::new(&token));
-
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("++".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_six() {
-        let token = all_token("\"a\"++ \"b\"++").unwrap().1;
-        let parse = quoted(Tokens::new(&token));
-
-        let empty = vec![
-            KarmaToken::Space(" "),
-            KarmaToken::Quote,
-            KarmaToken::Text("b"),
-            KarmaToken::Quote,
-            KarmaToken::Karma("++")
-        ];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_seven() {
-        let token = all_token("\"\"++").unwrap().1;
-        let parse = quoted(Tokens::new(&token));
-
-        // TODO: partial parse, do we want this?)
-        let empty = vec![KarmaToken::Quote, KarmaToken::Karma("++")];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Err(nom::Err::Error(Error::new(empty, ErrorKind::TakeWhile1))));
-    }
-
-    #[test]
-    fn test_case_eight() {
-        let token = all_token("\" \"++").unwrap().1;
-        let parse = quoted(Tokens::new(&token));
-
-        // TODO: partial parse, do we want this?)
-        let empty = vec![KarmaToken::Quote, KarmaToken::Karma("++")];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Err(nom::Err::Error(Error::new(empty, ErrorKind::Tag))));
-    }
 }
 
 
@@ -729,49 +566,131 @@ mod test_multi {
 
 
 #[cfg(test)]
+mod test_braced {
+    use super::*;
+
+    success_test!(test_case_one,   braced, "[a]++",     vec![], kst!("a", "++"));
+    success_test!(test_case_two,   braced, "[a b]++",   vec![], kst!("a b", "++"));
+    success_test!(test_case_three, braced, "[ a b ]++", vec![], kst!("a b", "++"));
+    success_test!(test_case_four,  braced, "[a++]++",   vec![], kst!("a++", "++"));
+    success_test!(test_case_five,  braced, "[++]++",    vec![], kst!("++", "++"));
+
+    success_test!(
+        test_case_six,
+        braced,
+        "[a]++ [b]++",
+        vec![
+            KarmaToken::Space(" "),
+            KarmaToken::OpenBrace,
+            KarmaToken::Text("b"),
+            KarmaToken::CloseBrace,
+            KarmaToken::Karma("++")
+        ],
+        kst!("a", "++")
+    );
+
+    fail_test!(
+        test_case_seven,
+        braced,
+        "[]++",
+        vec![KarmaToken::CloseBrace, KarmaToken::Karma("++")],
+        ErrorKind::TakeWhile1
+    );
+
+    fail_test!(
+        test_case_eight,
+        braced,
+        "[ ]++",
+        vec![KarmaToken::CloseBrace, KarmaToken::Karma("++")],
+        ErrorKind::Tag
+    );
+}
+
+
+#[cfg(test)]
+mod test_quoted {
+    use super::*;
+
+    success_test!(test_case_one,   quoted, "\"a\"++",     vec![], kst!("a", "++"));
+    success_test!(test_case_two,   quoted, "\"a b\"++",   vec![], kst!("a b", "++"));
+    success_test!(test_case_three, quoted, "\" a b \"++", vec![], kst!("a b", "++"));
+    success_test!(test_case_four,  quoted, "\"a++\"++",   vec![], kst!("a++", "++"));
+    success_test!(test_case_five,  quoted, "\"++\"++",    vec![], kst!("++", "++"));
+
+    success_test!(
+        test_case_six,
+        quoted,
+        "\"a\"++ \"b\"++",
+        vec![
+            KarmaToken::Space(" "),
+            KarmaToken::Quote,
+            KarmaToken::Text("b"),
+            KarmaToken::Quote,
+            KarmaToken::Karma("++")
+        ],
+        kst!("a", "++")
+    );
+
+    fail_test!(
+        test_case_seven,
+        quoted,
+        "\"\"++",
+        vec![KarmaToken::Quote, KarmaToken::Karma("++")],
+        ErrorKind::TakeWhile1
+    );
+
+    fail_test!(
+        test_case_eight,
+        quoted,
+        "\" \"++",
+        vec![KarmaToken::Quote, KarmaToken::Karma("++")],
+        ErrorKind::Tag
+    );
+}
+
+
+#[cfg(test)]
 mod test_simple {
     use super::*;
 
-    #[test]
-    fn test_case_one() {
-        let token = all_token("a++").unwrap().1;
-        let parse = simple(Tokens::new(&token));
+    success_test!(
+        test_case_one,
+        simple,
+        "a++",
+        vec![],
+        kst!("a", "++")
+    );
 
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a".to_string(), "++".to_string()))));
-    }
+    success_test!(
+        test_case_two,
+        simple,
+        "a++ b",
+        vec![
+            KarmaToken::Space(" "),
+            KarmaToken::Text("b")
+        ],
+        kst!("a", "++")
+    );
 
-    #[test]
-    fn test_case_two() {
-        let token = all_token("a++ b").unwrap().1;
-        let parse = simple(Tokens::new(&token));
+    success_test!(
+        test_case_three,
+        simple,
+        "a++ b++",
+        vec![
+            KarmaToken::Space(" "),
+            KarmaToken::Text("b"),
+            KarmaToken::Karma("++")
+        ],
+        kst!("a", "++")
+    );
 
-        let empty = vec![KarmaToken::Space(" "), KarmaToken::Text("b")];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_three() {
-        let token = all_token("a++ b++").unwrap().1;
-        let parse = simple(Tokens::new(&token));
-
-        let empty = vec![KarmaToken::Space(" "), KarmaToken::Text("b"), KarmaToken::Karma("++")];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a".to_string(), "++".to_string()))));
-    }
-
-    #[test]
-    fn test_case_four() {
-        let token = all_token("a++b").unwrap().1;
-        let parse = simple(Tokens::new(&token));
-
-        // TODO: partial parse, do we want this?)
-        let empty = vec![KarmaToken::Text("b")];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Err(nom::Err::Error(Error::new(empty, ErrorKind::Eof))));
-    }
+    fail_test!(
+        test_case_four,
+        simple,
+        "a++b",
+        vec![KarmaToken::Text("b")],
+        ErrorKind::Eof
+    );
 }
 
 
