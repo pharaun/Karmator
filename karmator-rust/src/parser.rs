@@ -290,56 +290,70 @@ impl UnspecializedInput for Tokens<'_> {}
 
 // Now here begins the actual structural karma parser (Karma Structure Tree (KST))
 #[derive(Debug, PartialEq)]
-enum KST<'a> {
-    Karma(&'a str, &'a str),
-
-    // Experiment for skipping on copy
-    VKarma(&'a [&'a str], &'a str),
+enum KST {
+    Karma(String, String),
 }
 
 
 fn structural_karma(input: Tokens) -> IResult<Tokens, KST> {
-    Ok((input, KST::Karma("str", "++")))
+    Ok((input, KST::Karma("str".to_string(), "++".to_string())))
 }
 
 
-fn ktext(input: Tokens) -> IResult<Tokens, &str> {
+fn ktext(input: Tokens) -> IResult<Tokens, String> {
     let (input, tkt) = take(1usize)(input)?;
 
     // Extract this out of the Tokens structure
     match tkt.tok.get(0) {
-        Some(KarmaToken::Text(t)) => Ok((input, t)),
+        Some(KarmaToken::Text(t)) => Ok((input, t.to_string())),
         _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
     }
 }
 
-fn kkarma(input: Tokens) -> IResult<Tokens, &str> {
+fn kkarma(input: Tokens) -> IResult<Tokens, String> {
     let (input, tkt) = take(1usize)(input)?;
 
     // Extract this out of the Tokens structure
     match tkt.tok.get(0) {
-        Some(KarmaToken::Karma(t)) => Ok((input, t)),
+        Some(KarmaToken::Karma(t)) => Ok((input, t.to_string())),
         _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
     }
 }
 
-fn kspace(input: Tokens) -> IResult<Tokens, &str> {
+fn kspace(input: Tokens) -> IResult<Tokens, String> {
     let (input, tkt) = take(1usize)(input)?;
 
     // Extract this out of the Tokens structure
     match tkt.tok.get(0) {
-        Some(KarmaToken::Space(t)) => Ok((input, t)),
+        Some(KarmaToken::Space(t)) => Ok((input, t.to_string())),
         _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
     }
 }
 
-fn kquote(input: Tokens) -> IResult<Tokens, &str> {
+fn kquote(input: Tokens) -> IResult<Tokens, String> {
     let (input, tkt) = take(1usize)(input)?;
 
     // Extract this out of the Tokens structure
     match tkt.tok.get(0) {
-        Some(KarmaToken::Quote) => Ok((input, "\"")),
+        Some(KarmaToken::Quote) => Ok((input, "\"".to_string())),
         _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
+    }
+}
+
+fn kenclosed(input: Tokens) -> IResult<Tokens, String> {
+    let (input, tkt) = take_while1(|kt:&KarmaToken|
+        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::Karma(_))
+    )(input)?;
+
+    // Collapse the list into string and trim it
+    let temp = tkt.tok.iter().map(
+        |k:&KarmaToken| k.to_string()
+    ).collect::<Vec<String>>().join("").trim().to_string();
+
+    if temp.is_empty() {
+        Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
+    } else {
+        Ok((input, temp))
     }
 }
 
@@ -366,7 +380,7 @@ fn simple(input: Tokens) -> IResult<Tokens, KST> {
             pair(ktext, kkarma),
             alt((
                 peek(kspace),
-                map(eof, |_| ""),
+                map(eof, |_| "".to_string()),
             )),
         ),
         |(t, k)| KST::Karma(t, k)
@@ -403,55 +417,24 @@ fn multi_simple(input: Tokens) -> IResult<Tokens, Vec<KST>> {
 // 4. Closing Quote followed by karma
 // 5. Karma followed by whitespace/eol
 fn quoted(input: Tokens) -> IResult<Tokens, KST> {
-    Ok((input, KST::Karma("a", "++")))
-    //let (input, a) = kenclosed(input)?;
-    //Ok((input, KST::Karma(a, a)))
-//    terminated(
-//        pair(
-//            delimited!(
-//                kquote,
-//                ?, //TODO: its own kparse here (complicated)
-//                kquote,
-//            ),
-//            kkarma
-//        ),
-//        alt((
-//            peek(kspace),
-//            map(eof, |_| ""),
-//        )),
-//    )
+    map(terminated(
+            pair(
+                delimited(
+                    kquote,
+                    kenclosed,
+                    kquote
+                ),
+                kkarma
+            ),
+            alt((
+                peek(kspace),
+                map(eof, |_| "".to_string())
+            ))
+        ),
+        |(t, k)| KST::Karma(t, k)
+    )(input)
 }
 
-
-// TODO: make this take a second parse for "inside" bits (ie take_(these)_till)
-// 1. Quote followed by any; Karma/Text/Space
-// 2. Closing with another Quote
-// 3. At least 1 Text in between Quotes
-fn kenclosed(input: Tokens) -> IResult<Tokens, &[&str]> {
-    let (input, tkt) = take_while1(|kt:&KarmaToken|
-        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::Karma(_))
-    )(input)?;
-
-    // Collapse the list into string and trim it
-    let temp = tkt.tok.iter().skip_while(
-        |i| matches!(i, &KarmaToken::Space(_))
-    ).collect::<Vec<&KarmaToken>>().drain(..).rev().skip_while(
-        |i| matches!(i, &KarmaToken::Space(_))
-    ).collect::<Vec<&KarmaToken>>().drain(..).rev().map(|i|
-        match i {
-            &KarmaToken::Space(s) => s,
-            &KarmaToken::Text(s)  => s,
-            &KarmaToken::Karma(s) => s,
-            _ => ""
-        }
-    ).collect::<Vec<&str>>();
-
-    if temp.is_empty() {
-        Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
-    } else {
-        Ok((input, &temp))
-    }
-}
 
 
 
@@ -460,95 +443,91 @@ mod test_quoted {
     use super::*;
 
     #[test]
-    fn test_kenclosed() {
-        let token = all_token("   text ++ ").unwrap().1;
-        let parse = kenclosed(Tokens::new(&token));
-
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, "")));
-    }
-
-    #[test]
     fn test_case_one() {
         let token = all_token("\"a\"++").unwrap().1;
-        let parse = multi_simple(Tokens::new(&token));
+        let parse = quoted(Tokens::new(&token));
 
         let empty = vec![];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, vec![KST::Karma("a", "++")])));
+        assert_eq!(parse, Ok((empty, KST::Karma("a".to_string(), "++".to_string()))));
     }
 
     #[test]
     fn test_case_two() {
         let token = all_token("\"a b\"++").unwrap().1;
-        let parse = multi_simple(Tokens::new(&token));
+        let parse = quoted(Tokens::new(&token));
 
         let empty = vec![];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, vec![KST::Karma("a b", "++")])));
+        assert_eq!(parse, Ok((empty, KST::Karma("a b".to_string(), "++".to_string()))));
     }
 
     #[test]
     fn test_case_three() {
         let token = all_token("\" a b \"++").unwrap().1;
-        let parse = multi_simple(Tokens::new(&token));
+        let parse = quoted(Tokens::new(&token));
 
         let empty = vec![];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, vec![KST::Karma("a b", "++")])));
+        assert_eq!(parse, Ok((empty, KST::Karma("a b".to_string(), "++".to_string()))));
     }
 
     #[test]
     fn test_case_four() {
         let token = all_token("\"a++\"++").unwrap().1;
-        let parse = multi_simple(Tokens::new(&token));
+        let parse = quoted(Tokens::new(&token));
 
         let empty = vec![];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, vec![KST::Karma("a++", "++")])));
+        assert_eq!(parse, Ok((empty, KST::Karma("a++".to_string(), "++".to_string()))));
     }
 
     #[test]
     fn test_case_five() {
         let token = all_token("\"++\"++").unwrap().1;
-        let parse = multi_simple(Tokens::new(&token));
+        let parse = quoted(Tokens::new(&token));
 
         let empty = vec![];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, vec![KST::Karma("++", "++")])));
+        assert_eq!(parse, Ok((empty, KST::Karma("++".to_string(), "++".to_string()))));
     }
 
     #[test]
     fn test_case_six() {
         let token = all_token("\"a\"++ \"b\"++").unwrap().1;
-        let parse = multi_simple(Tokens::new(&token));
+        let parse = quoted(Tokens::new(&token));
 
-        let empty = vec![KarmaToken::Quote, KarmaToken::Text("b"), KarmaToken::Quote, KarmaToken::Karma("++")];
+        let empty = vec![
+            KarmaToken::Space(" "),
+            KarmaToken::Quote,
+            KarmaToken::Text("b"),
+            KarmaToken::Quote,
+            KarmaToken::Karma("++")
+        ];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, vec![KST::Karma("++", "++")])));
+        assert_eq!(parse, Ok((empty, KST::Karma("a".to_string(), "++".to_string()))));
     }
 
     #[test]
     fn test_case_seven() {
         let token = all_token("\"\"++").unwrap().1;
-        let parse = simple(Tokens::new(&token));
+        let parse = quoted(Tokens::new(&token));
 
         // TODO: partial parse, do we want this?)
-        let empty = vec![KarmaToken::Quote, KarmaToken::Quote, KarmaToken::Karma("++")];
+        let empty = vec![KarmaToken::Quote, KarmaToken::Karma("++")];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Err(nom::Err::Error(Error::new(empty, ErrorKind::Eof))));
+        assert_eq!(parse, Err(nom::Err::Error(Error::new(empty, ErrorKind::TakeWhile1))));
     }
 
     #[test]
     fn test_case_eight() {
         let token = all_token("\" \"++").unwrap().1;
-        let parse = simple(Tokens::new(&token));
+        let parse = quoted(Tokens::new(&token));
 
         // TODO: partial parse, do we want this?)
-        let empty = vec![KarmaToken::Quote, KarmaToken::Space(" "), KarmaToken::Quote, KarmaToken::Karma("++")];
+        let empty = vec![KarmaToken::Quote, KarmaToken::Karma("++")];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Err(nom::Err::Error(Error::new(empty, ErrorKind::Eof))));
+        assert_eq!(parse, Err(nom::Err::Error(Error::new(empty, ErrorKind::Tag))));
     }
 }
 
@@ -564,7 +543,7 @@ mod test_multi_simple {
 
         let empty = vec![];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, vec![KST::Karma("a", "++")])));
+        assert_eq!(parse, Ok((empty, vec![KST::Karma("a".to_string(), "++".to_string())])));
     }
 
     #[test]
@@ -574,7 +553,7 @@ mod test_multi_simple {
 
         let empty = vec![KarmaToken::Space(" "), KarmaToken::Text("b")];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, vec![KST::Karma("a", "++")])));
+        assert_eq!(parse, Ok((empty, vec![KST::Karma("a".to_string(), "++".to_string())])));
     }
 
     #[test]
@@ -584,7 +563,10 @@ mod test_multi_simple {
 
         let empty = vec![];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, vec![KST::Karma("a", "++"), KST::Karma("b", "++")])));
+        assert_eq!(parse, Ok((empty, vec![
+            KST::Karma("a".to_string(), "++".to_string()),
+            KST::Karma("b".to_string(), "++".to_string())
+        ])));
     }
 }
 
@@ -600,7 +582,7 @@ mod test_simple {
 
         let empty = vec![];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a", "++"))));
+        assert_eq!(parse, Ok((empty, KST::Karma("a".to_string(), "++".to_string()))));
     }
 
     #[test]
@@ -610,7 +592,7 @@ mod test_simple {
 
         let empty = vec![KarmaToken::Space(" "), KarmaToken::Text("b")];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a", "++"))));
+        assert_eq!(parse, Ok((empty, KST::Karma("a".to_string(), "++".to_string()))));
     }
 
     #[test]
@@ -620,7 +602,7 @@ mod test_simple {
 
         let empty = vec![KarmaToken::Space(" "), KarmaToken::Text("b"), KarmaToken::Karma("++")];
         let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, KST::Karma("a", "++"))));
+        assert_eq!(parse, Ok((empty, KST::Karma("a".to_string(), "++".to_string()))));
     }
 
     #[test]
