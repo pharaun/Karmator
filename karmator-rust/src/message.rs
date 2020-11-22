@@ -156,7 +156,7 @@ async fn send_query(
     query: RunQuery,
 ) -> Result<ResQuery, &'static str> {
     let (tx, rx) = oneshot::channel();
-    sql_tx.send((query, Some(tx))).await.map_err(|_| "Error sending");
+    sql_tx.send((query, Some(tx))).await.map_err(|_| "Error sending")?;
     rx.await.map_err(|_| "Error recieving")
 }
 
@@ -265,7 +265,7 @@ where
                                 //  - for now can probs query it as needed, but should
                                 //      be cached
                                 if arg.is_empty() {
-                                    TopN(
+                                    top_n(
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
@@ -279,7 +279,7 @@ where
                                         ("highest karma", "lowest karma"),
                                     ).await;
                                 } else {
-                                    Partial(
+                                    partial(
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
@@ -292,7 +292,7 @@ where
                             },
                             Ok((_, parser::Command("givers", arg))) => {
                                 if arg.is_empty() {
-                                    TopN(
+                                    top_n(
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
@@ -306,7 +306,7 @@ where
                                         ("most positive", "most negative"),
                                     ).await;
                                 } else {
-                                    Partial(
+                                    partial(
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
@@ -319,7 +319,7 @@ where
                             },
                             Ok((_, parser::Command("sidevotes", arg))) => {
                                 if arg.is_empty() {
-                                    TopN(
+                                    top_n(
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
@@ -348,7 +348,7 @@ where
 
                                     match user_display {
                                         Some(ud) => {
-                                            Ranking(
+                                            ranking(
                                                 msg_id,
                                                 &mut tx,
                                                 &mut sql_tx,
@@ -372,7 +372,7 @@ where
                                     // Rank up with one target
                                     let target = arg.get(0).unwrap();
 
-                                    Ranking(
+                                    ranking(
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
@@ -398,7 +398,7 @@ where
 
                                     match user_display {
                                         Some(ud) => {
-                                            Ranking(
+                                            ranking(
                                                 msg_id,
                                                 &mut tx,
                                                 &mut sql_tx,
@@ -422,7 +422,7 @@ where
                                     // Rank up with one target
                                     let target = arg.get(0).unwrap();
 
-                                    Ranking(
+                                    ranking(
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
@@ -465,7 +465,7 @@ where
 }
 
 
-async fn TopN(
+async fn top_n(
     msg_id: MsgId,
     tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
     sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
@@ -520,7 +520,8 @@ async fn TopN(
         }
     });
 
-    match (high, low) {
+    // TODO: do something about this
+    let _ = match (high, low) {
         (Ok(h), Ok(l)) => send_simple_message(
             msg_id,
             tx,
@@ -536,7 +537,7 @@ async fn TopN(
     };
 }
 
-async fn Partial(
+async fn partial(
     msg_id: MsgId,
     tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
     sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
@@ -568,7 +569,8 @@ async fn Partial(
         }
     });
 
-    match res {
+    // TODO: do something here
+    let _ = match res {
         Ok(x) => send_simple_message(
             msg_id,
             tx,
@@ -585,7 +587,7 @@ async fn Partial(
 }
 
 
-async fn Ranking(
+async fn ranking(
     msg_id: MsgId,
     tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
     sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
