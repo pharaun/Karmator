@@ -539,15 +539,27 @@ fn braced(input: Tokens) -> IResult<Tokens, KST> {
 }
 
 
-// TODO: evolve this one to be a more through impl
 // TODO: develop invalid cases to test extent of the parser
-// MultiKarma
-// 1. a++     -> ("",   [Karma("a", "++")])
-// 2. a++ b++ -> ("",   [Karma("a", "++"), Karma("b", "++")])
-// 3. a++ b   -> (" b", [Karma("a", "++")])
+// MultiKarma (K(x) == Karma(x, "++"))
+// 1. a++ "b"++ [c]++       -> ("", [K("a"), K("b"), K("c")])
+// 2. a b++ c d++           -> ("", [K("a b"), K("c d")])
+// 3. abc "d"++ def         -> ("", [K("d")])
+// 4. a"b[c]d++             -> ("", [K("a\"b[c]d")])
+// 5. "[a]]b["++            -> ("", [K("[a]]b[")])
+// 6. [a"b"c]++             -> ("", [K("a\"b\"c")])
+// 7. [a b]++ c d++ "e f"++ -> ("", [K("a b"), K("c d"), K("e f")])
 //
 // Ground rule for this particular parse:
-// 1. SimpleKarma separated by whitespace
+// 1. Apply simple combinator as many times as possible (till eof)
+// 2. If there is still more, discard Text/Space/CloseBrace till Quote or OpenBrace
+//
+// 3a. [if Quote] Apply quote combinator as many time as possible
+// 3b.   [if fails] consume the quote, go to 1
+//
+// 4a. [if OpenBrace] Apply brace combinator as many time as possible
+// 4b.   [if fails] consume the OpenBrace, go to 1
+//
+// 5. If there is still more, go to 1
 fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
     separated_list0(kspace, simple)(input)
 }
@@ -557,38 +569,61 @@ fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
 mod test_multi {
     use super::*;
 
-    #[test]
-    fn test_case_one() {
-        let token = all_token("a++").unwrap().1;
-        let parse = multi(Tokens::new(&token));
+    success_test!(
+        test_case_one,
+        multi,
+        "a++ \"b\"++ [c]++",
+        vec![],
+        vec![kst!("a", "++"), kst!("b", "++"), kst!("c", "++")]
+    );
 
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, vec![KST::Karma("a".to_string(), "++".to_string())])));
-    }
+    success_test!(
+        test_case_two,
+        multi,
+        "a b++ c d++",
+        vec![],
+        vec![kst!("a b", "++"), kst!("c d", "++")]
+    );
 
-    #[test]
-    fn test_case_two() {
-        let token = all_token("a++ b").unwrap().1;
-        let parse = multi(Tokens::new(&token));
+    success_test!(
+        test_case_three,
+        multi,
+        "abc \"d\"++ def",
+        vec![],
+        vec![kst!("d", "++")]
+    );
 
-        let empty = vec![KarmaToken::Space(" "), KarmaToken::Text("b")];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, vec![KST::Karma("a".to_string(), "++".to_string())])));
-    }
+    success_test!(
+        test_case_four,
+        multi,
+        "a\"b[c]d++",
+        vec![],
+        vec![kst!("a\"b[c]d", "++")]
+    );
 
-    #[test]
-    fn test_case_three() {
-        let token = all_token("a++ b++").unwrap().1;
-        let parse = multi(Tokens::new(&token));
+    success_test!(
+        test_case_five,
+        multi,
+        "a\"b[c]d++",
+        vec![],
+        vec![kst!("a\"b[c]d", "++")]
+    );
 
-        let empty = vec![];
-        let empty = Tokens::new(&empty);
-        assert_eq!(parse, Ok((empty, vec![
-            KST::Karma("a".to_string(), "++".to_string()),
-            KST::Karma("b".to_string(), "++".to_string())
-        ])));
-    }
+    success_test!(
+        test_case_six,
+        multi,
+        "[a\"b\"c]++",
+        vec![],
+        vec![kst!("a\"b\"c", "++")]
+    );
+
+    success_test!(
+        test_case_seven,
+        multi,
+        "[a b]++ c d++ \"e f\"++",
+        vec![],
+        vec![kst!("a b", "++"), kst!("c d", "++"), kst!("e f", "++")]
+    );
 }
 
 
