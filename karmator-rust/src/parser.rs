@@ -3,6 +3,7 @@ use nom::{
   bytes::complete::{
       tag,
       take_while1,
+      take_till1,
       take,
   },
   multi::{
@@ -561,7 +562,45 @@ fn braced(input: Tokens) -> IResult<Tokens, KST> {
 //
 // 5. If there is still more, go to 1
 fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
-    separated_list0(kspace, simple)(input)
+    let mut ret = vec![];
+    let mut cur_input = input;
+
+    loop {
+        // 1. Apply simple combinator as many times as possible (till eof)
+        let (input, res) = many0(simple)(cur_input)?;
+        cur_input = input;
+        ret.extend(res);
+
+        // 2. If there is still more, discard Text/Space/CloseBrace till Quote or OpenBrace
+        if cur_input.tok.len() != 0 {
+            let (input, _) = take_till1(|kt:&KarmaToken|
+                matches!(kt, &KarmaToken::Quote | &KarmaToken::OpenBrace)
+            )(cur_input)?;
+            cur_input = input;
+
+            let (_, tkt) = peek(take(1usize))(cur_input)?;
+            let tok = tkt.tok.get(0);
+
+            if matches!(tok, Some(&KarmaToken::Quote)) {
+                // 3a. [if Quote] Apply quote combinator as many time as possible
+                let (input, res) = many0(quoted)(cur_input)?;
+                cur_input = input;
+                ret.extend(res);
+
+            } else {
+                // 4a. [if OpenBrace] Apply brace combinator as many time as possible
+                let (input, res) = many0(braced)(cur_input)?;
+                cur_input = input;
+                ret.extend(res);
+            }
+        }
+
+        if cur_input.tok.len() == 0 {
+            break;
+        }
+    }
+
+    Ok((cur_input, ret))
 }
 
 
