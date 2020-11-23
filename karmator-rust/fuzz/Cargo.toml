@@ -25,3 +25,9 @@ name = "parse_command"
 path = "fuzz_targets/parse_command.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "parse_karma"
+path = "fuzz_targets/parse_karma.rs"
+test = false
+doc = false
