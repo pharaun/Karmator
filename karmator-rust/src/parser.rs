@@ -4,7 +4,6 @@ use nom::{
       tag,
       take_while1,
       take_till1,
-      take_till,
       take,
   },
   multi::{
@@ -323,16 +322,6 @@ pub fn parse_karma(input: &str) -> Result<Vec<KST>, String> {
 }
 
 
-fn ktext(input: Tokens) -> IResult<Tokens, String> {
-    let (input, tkt) = take(1usize)(input)?;
-
-    // Extract this out of the Tokens structure
-    match tkt.tok.get(0) {
-        Some(KarmaToken::Text(t)) => Ok((input, t.to_string())),
-        _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
-    }
-}
-
 fn kkarma(input: Tokens) -> IResult<Tokens, String> {
     let (input, tkt) = take(1usize)(input)?;
 
@@ -438,6 +427,7 @@ fn kspacetext(input: Tokens) -> IResult<Tokens, String> {
 
 
 // Macro for cleaning up the test cases
+#[cfg(test)]
 macro_rules! success_test {
     ($name:ident, $parse:ident, $data:expr, $buff:expr, $res:expr) => (
         #[test]
@@ -452,6 +442,7 @@ macro_rules! success_test {
     )
 }
 
+#[cfg(test)]
 macro_rules! fail_test {
     ($name:ident, $parse:ident, $data:expr, $buff:expr, $kind:expr) => (
         #[test]
@@ -466,6 +457,7 @@ macro_rules! fail_test {
     )
 }
 
+#[cfg(test)]
 macro_rules! kst {
     ($data:expr, $karma:expr) => {
         KST($data.to_string(), $karma.to_string())

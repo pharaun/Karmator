@@ -447,8 +447,18 @@ where
                                 // Not a command parse, time to consider allkarma parser
                                 println!("Input - All Karma");
 
-                                //let res = parser::all_karma(&t);
-                                //println!("Input - All Karma - {:?}", res);
+                                let res = parser::parse_karma(&t);
+
+                                match res {
+                                    Ok(karma) => {
+                                        println!("Input - All Karma - {:?}", karma);
+                                    },
+                                    Err(e) => {
+                                        // The parse should return empty if its valid, something
+                                        // broke, should log it here
+                                        eprintln!("All Karma - Error - {:?}", e);
+                                    },
+                                }
                             },
                         }
                     },
