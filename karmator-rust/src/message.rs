@@ -205,10 +205,10 @@ where
                         }
 
                         // Parse string to see if its a command one
-                        let res = parser::command(&t);
+                        let res = parser::parse_command(&t);
 
                         match res {
-                            Ok((_, parser::Command("version", _))) => {
+                            Ok(parser::Command("version", _)) => {
                                 let ver = build_info::PKG_VERSION;
                                 let dat = build_info::BUILT_TIME_UTC;
                                 let sha = build_info::GIT_COMMIT_HASH.unwrap_or("Unknown");
@@ -222,7 +222,7 @@ where
                                 println!("Inbound - \t\t!version");
 
                             },
-                            Ok((_, parser::Command("uptime", _))) => {
+                            Ok(parser::Command("uptime", _)) => {
                                 let end_time: DateTime<Utc> = Utc::now();
                                 let durt = end_time.signed_duration_since(start_time).to_std().unwrap_or(
                                     Duration::from_secs(3122064000));
@@ -236,7 +236,7 @@ where
                                 println!("Inbound - \t\t!uptime");
 
                             },
-                            Ok((_, parser::Command("help", _))) => {
+                            Ok(parser::Command("help", _)) => {
                                 let help = "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote";
                                 let _ = send_simple_message(
                                     msg_id,
@@ -247,7 +247,7 @@ where
                                 println!("Inbound - \t\t!help");
 
                             },
-                            Ok((_, parser::Command("github", _))) => {
+                            Ok(parser::Command("github", _)) => {
                                 let github = "Github repo: https://github.com/pharaun/Karmator";
 
                                 let _ = send_simple_message(
@@ -259,7 +259,7 @@ where
                                 println!("Inbound - \t\t!github");
 
                             },
-                            Ok((_, parser::Command("karma", arg))) => {
+                            Ok(parser::Command("karma", arg)) => {
                                 // asdf「asdf」asdf
                                 // TODO: Implement a 'slack id' to unix name mapper
                                 //  - for now can probs query it as needed, but should
@@ -290,7 +290,7 @@ where
                                     ).await;
                                 }
                             },
-                            Ok((_, parser::Command("givers", arg))) => {
+                            Ok(parser::Command("givers", arg)) => {
                                 if arg.is_empty() {
                                     top_n(
                                         msg_id,
@@ -317,7 +317,7 @@ where
                                     ).await;
                                 }
                             },
-                            Ok((_, parser::Command("sidevotes", arg))) => {
+                            Ok(parser::Command("sidevotes", arg)) => {
                                 if arg.is_empty() {
                                     top_n(
                                         msg_id,
@@ -341,7 +341,7 @@ where
                                     ).await;
                                 }
                             },
-                            Ok((_, parser::Command("rank", arg))) => {
+                            Ok(parser::Command("rank", arg)) => {
                                 if arg.is_empty() {
                                     // Rank with yourself
                                     let user_display = cache.get_user_display(&u).await;
@@ -391,7 +391,7 @@ where
                                     ).await;
                                 }
                             },
-                            Ok((_, parser::Command("ranksidevote", arg))) => {
+                            Ok(parser::Command("ranksidevote", arg)) => {
                                 if arg.is_empty() {
                                     // Rank with yourself
                                     let user_display = cache.get_user_display(&u).await;
@@ -441,7 +441,7 @@ where
                                     ).await;
                                 }
                             },
-                            Ok((_, parser::Command(x, _))) => println!("Input - Parse - No Handler: {:?}", x),
+                            Ok(parser::Command(x, _)) => println!("Input - Parse - No Handler: {:?}", x),
 
                             Err(_) => {
                                 // Not a command parse, time to consider allkarma parser

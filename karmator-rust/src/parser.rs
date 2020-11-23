@@ -15,6 +15,7 @@ use nom::{
       map,
       eof,
       peek,
+      complete,
   },
   branch::alt,
   sequence::{
@@ -53,7 +54,17 @@ use std::ops::Range;
 pub struct Command<'a> (pub &'a str, pub Vec<&'a str>);
 
 
-pub fn command(input: &str) -> IResult<&str, Command> {
+pub fn parse_command(input: &str) -> Result<Command, String> {
+    let cmd = complete(command)(input);
+
+    match cmd {
+        Err(x)       => Err(format!("{:?}", x)),
+        Ok((_, res)) => Ok(res),
+    }
+}
+
+
+fn command(input: &str) -> IResult<&str, Command> {
     let (input, _) = tag("!")(input)?;
     let (input, cmd) = command_string(input)?;
     let (input, _) = multispace0(input)?;
@@ -292,13 +303,23 @@ impl UnspecializedInput for Tokens<'_> {}
 
 // Now here begins the actual structural karma parser (Karma Structure Tree (KST))
 #[derive(Debug, PartialEq)]
-enum KST {
-    Karma(String, String),
-}
+pub struct KST(pub String, pub String);
 
 
-fn structural_karma(input: Tokens) -> IResult<Tokens, KST> {
-    Ok((input, KST::Karma("str".to_string(), "++".to_string())))
+pub fn parse_karma(input: &str) -> Result<Vec<KST>, String> {
+    let tokens = complete(all_token)(input);
+
+    match tokens {
+        Err(x)           => Err(format!("{:?}", x)),
+        Ok((_, tok)) => {
+            let result = complete(multi)(Tokens::new(&tok));
+
+            match result {
+                Err(x)       => Err(format!("{:?}", x)),
+                Ok((_, res)) => Ok(res),
+            }
+        },
+    }
 }
 
 
@@ -447,7 +468,7 @@ macro_rules! fail_test {
 
 macro_rules! kst {
     ($data:expr, $karma:expr) => {
-        KST::Karma($data.to_string(), $karma.to_string())
+        KST($data.to_string(), $karma.to_string())
     }
 }
 
@@ -478,7 +499,7 @@ fn simple(input: Tokens) -> IResult<Tokens, KST> {
                 map(eof, |_| "".to_string()),
             )),
         ),
-        |(t, k)| KST::Karma(t, k)
+        |(t, k)| KST(t, k)
     )(input)
 }
 
@@ -515,7 +536,7 @@ fn quoted(input: Tokens) -> IResult<Tokens, KST> {
                 map(eof, |_| "".to_string())
             ))
         ),
-        |(t, k)| KST::Karma(t, k)
+        |(t, k)| KST(t, k)
     )(input)
 }
 
@@ -553,7 +574,7 @@ fn braced(input: Tokens) -> IResult<Tokens, KST> {
                 map(eof, |_| "".to_string())
             ))
         ),
-        |(t, k)| KST::Karma(t, k)
+        |(t, k)| KST(t, k)
     )(input)
 }
 
