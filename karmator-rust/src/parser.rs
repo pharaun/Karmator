@@ -4,6 +4,7 @@ use nom::{
       tag,
       take_while1,
       take_till1,
+      take_till,
       take,
   },
   multi::{
@@ -361,10 +362,26 @@ fn kclosebrace(input: Tokens) -> IResult<Tokens, String> {
     }
 }
 
-// TODO: admit quote or braces depending on which one is being used
-fn kenclosed(input: Tokens) -> IResult<Tokens, String> {
+fn kenclosedquote(input: Tokens) -> IResult<Tokens, String> {
     let (input, tkt) = take_while1(|kt:&KarmaToken|
-        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::Karma(_))
+        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::Karma(_) | &KarmaToken::Quote)
+    )(input)?;
+
+    // Collapse the list into string and trim it
+    let temp = tkt.tok.iter().map(
+        |k:&KarmaToken| k.to_string()
+    ).collect::<Vec<String>>().join("").trim().to_string();
+
+    if temp.is_empty() {
+        Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
+    } else {
+        Ok((input, temp))
+    }
+}
+
+fn kenclosedbrace(input: Tokens) -> IResult<Tokens, String> {
+    let (input, tkt) = take_while1(|kt:&KarmaToken|
+        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::Karma(_) | &KarmaToken::OpenBrace | &KarmaToken::CloseBrace)
     )(input)?;
 
     // Collapse the list into string and trim it
@@ -444,6 +461,7 @@ macro_rules! kst {
 // 6. a b++c    -> Invalid
 // 7. a++b      -> Invalid
 // 8. a b ++    -> Invalid
+// 9. [""]++    -> Invalid
 //
 // Ground rule for this particular parse:
 // 1. Any Text/Space followed by karma
@@ -474,8 +492,8 @@ fn simple(input: Tokens) -> IResult<Tokens, KST> {
 // 6. "a"++ "b"++ -> (" \"b\"++", Karma("a", "++"))
 // 7. ""++        -> Invalid
 // 8. " "++       -> Invalid
+// 9. "[]"++      -> "", Karma("[]", "++")
 //
-// TODO: Allow Braces inside Quote
 // Ground rule for this particular parse:
 // 1. Quote followed by any; Karma/Text/Space
 // 2. Closing with another Quote
@@ -487,7 +505,7 @@ fn quoted(input: Tokens) -> IResult<Tokens, KST> {
             pair(
                 delimited(
                     kquote,
-                    kenclosed,
+                    kenclosedbrace,
                     kquote
                 ),
                 kkarma
@@ -512,8 +530,8 @@ fn quoted(input: Tokens) -> IResult<Tokens, KST> {
 // 6. [a]++ [b]++
 // 7. []++
 // 8. [ ]++
+// 9. [""]++
 //
-// TODO: allow Quotes inside braces
 // Ground rule for this particular parse:
 // 1. OpenBrace followed by any; Karma/Text/Space
 // 2. Closing with CloseBrace
@@ -525,7 +543,7 @@ fn braced(input: Tokens) -> IResult<Tokens, KST> {
             pair(
                 delimited(
                     kopenbrace,
-                    kenclosed,
+                    kenclosedquote,
                     kclosebrace
                 ),
                 kkarma
@@ -540,59 +558,78 @@ fn braced(input: Tokens) -> IResult<Tokens, KST> {
 }
 
 
+// Hail Mary parse
+// 1. a"b[c]d++   -> ("", Karma("a\"b[c]d", "++"))
+// 2. "[a]]b["++  -> ("", Karma("\"[a]]b[\"", "++"))
+// 3. a["++ "]b++ -> (" \"]b++", Karma("a[\"", "++"))
+// 4. asdf ++     -> Invalid
+// 5. asdf++bas   -> Invalid
+// 6. ++          -> Invalid
+//
+// Ground rule for this particular parse:
+// 1. Anything to Karma
+// 2. Karma must not be preeced by a space
+// 3. Karma must not be preeced by the start of the line
+// 4. Karma must be followed by space/eol
+
+
+
 // TODO: develop invalid cases to test extent of the parser
 // MultiKarma (K(x) == Karma(x, "++"))
 // 1. a++ "b"++ [c]++       -> ("", [K("a"), K("b"), K("c")])
 // 2. a b++ c d++           -> ("", [K("a b"), K("c d")])
 // 3. abc "d"++ def         -> ("", [K("d")])
-// 4. a"b[c]d++             -> ("", [K("a\"b[c]d")])
-// 5. "[a]]b["++            -> ("", [K("[a]]b[")])
-// 6. [a"b"c]++             -> ("", [K("a\"b\"c")])
-// 7. [a b]++ c d++ "e f"++ -> ("", [K("a b"), K("c d"), K("e f")])
+// 4. [a"b"c]++             -> ("", [K("a\"b\"c")])
+// 5. [a b]++ c d++ "e f"++ -> ("", [K("a b"), K("c d"), K("e f")])
+// 6. a"b[c]d++             -> Hail mary (Separate parse attempt)
+// 7. "[a]]b["++            -> Hail mary (Separate parse attempt)
 //
 // Ground rule for this particular parse:
-// 1. Apply simple combinator as many times as possible (till eof)
-// 2. If there is still more, discard Text/Space/CloseBrace till Quote or OpenBrace
-//
-// 3a. [if Quote] Apply quote combinator as many time as possible
-// 3b.   [if fails] consume the quote, go to 1
-//
-// 4a. [if OpenBrace] Apply brace combinator as many time as possible
-// 4b.   [if fails] consume the OpenBrace, go to 1
-//
-// 5. If there is still more, go to 1
+// 1. Apply simple combinator as many time as possible
+// 2. Apply quote combinator as many time as possible
+// 3. Apply brace combinator as many time as possible
+// 4. If still more, discard 1 token and go to 1
+// 5. If no result, do a hail mary pass? (TODO)
 fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
     let mut ret = vec![];
     let mut cur_input = input;
 
+    let mut i = 0;
+
     loop {
-        // 1. Apply simple combinator as many times as possible (till eof)
+        // Debugging
+        i += 1;
+        println!("=========");
+        println!("iter = {}", i);
+        println!("ret  = {:?}", ret);
+
+        // 1. Apply simple combinator as many times as possible
         let (input, res) = many0(simple)(cur_input)?;
         cur_input = input;
         ret.extend(res);
 
-        // 2. If there is still more, discard Text/Space/CloseBrace till Quote or OpenBrace
+        println!("i1s: {:?}", cur_input);
+
+        // 2. Apply quote combinator as many time as possible
+        let (input, res) = many0(quoted)(cur_input)?;
+        cur_input = input;
+        ret.extend(res);
+
+        println!("i1q: {:?}", cur_input);
+
+        // 3. Apply brace combinator as many time as possible
+        let (input, res) = many0(braced)(cur_input)?;
+        cur_input = input;
+        ret.extend(res);
+
+        println!("i1b: {:?}", cur_input);
+
+        // 4. If still more, discard 1 token and go to 1
         if cur_input.tok.len() != 0 {
-            let (input, _) = take_till1(|kt:&KarmaToken|
-                matches!(kt, &KarmaToken::Quote | &KarmaToken::OpenBrace)
-            )(cur_input)?;
+            let (input, _) = take(1usize)(input)?;
             cur_input = input;
 
-            let (_, tkt) = peek(take(1usize))(cur_input)?;
-            let tok = tkt.tok.get(0);
-
-            if matches!(tok, Some(&KarmaToken::Quote)) {
-                // 3a. [if Quote] Apply quote combinator as many time as possible
-                let (input, res) = many0(quoted)(cur_input)?;
-                cur_input = input;
-                ret.extend(res);
-
-            } else {
-                // 4a. [if OpenBrace] Apply brace combinator as many time as possible
-                let (input, res) = many0(braced)(cur_input)?;
-                cur_input = input;
-                ret.extend(res);
-            }
+            println!("i2t: {:?}", cur_input);
         }
 
         if cur_input.tok.len() == 0 {
@@ -635,34 +672,36 @@ mod test_multi {
     success_test!(
         test_case_four,
         multi,
-        "a\"b[c]d++",
-        vec![],
-        vec![kst!("a\"b[c]d", "++")]
-    );
-
-    success_test!(
-        test_case_five,
-        multi,
-        "a\"b[c]d++",
-        vec![],
-        vec![kst!("a\"b[c]d", "++")]
-    );
-
-    success_test!(
-        test_case_six,
-        multi,
         "[a\"b\"c]++",
         vec![],
         vec![kst!("a\"b\"c", "++")]
     );
 
     success_test!(
-        test_case_seven,
+        test_case_five,
         multi,
         "[a b]++ c d++ \"e f\"++",
         vec![],
         vec![kst!("a b", "++"), kst!("c d", "++"), kst!("e f", "++")]
     );
+
+    // Hail Mary pass
+    success_test!(
+        test_case_six,
+        multi,
+        "a\"b[c]d++",
+        vec![],
+        vec![kst!("a\"b[c]d", "++")]
+    );
+
+    success_test!(
+        test_case_seven,
+        multi,
+        "a\"b[c]d++",
+        vec![],
+        vec![kst!("a\"b[c]d", "++")]
+    );
+
 }
 
 
@@ -705,6 +744,8 @@ mod test_braced {
         vec![KarmaToken::CloseBrace, KarmaToken::Karma("++")],
         ErrorKind::Tag
     );
+
+    success_test!(test_case_nine, braced, "[\"\"]++", vec![], kst!("\"\"", "++"));
 }
 
 
@@ -747,6 +788,8 @@ mod test_quoted {
         vec![KarmaToken::Quote, KarmaToken::Karma("++")],
         ErrorKind::Tag
     );
+
+    success_test!(test_case_nine, quoted, "\"[]\"++", vec![], kst!("[]", "++"));
 }
 
 
@@ -810,6 +853,20 @@ mod test_simple {
         "a b ++",
         vec![KarmaToken::Karma("++")],
         ErrorKind::Tag
+    );
+
+    fail_test!(
+        test_case_nine,
+        simple,
+        "[\"\"]++",
+        vec![
+            KarmaToken::OpenBrace,
+            KarmaToken::Quote,
+            KarmaToken::Quote,
+            KarmaToken::CloseBrace,
+            KarmaToken::Karma("++")
+        ],
+        ErrorKind::TakeWhile1
     );
 }
 
