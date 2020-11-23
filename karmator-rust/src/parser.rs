@@ -49,6 +49,7 @@ use std::ops::Range;
 
 // TODO: add in specific support for parsing at-here and other special <!user_id> entities
 // so that in the message subsystem it can do the right thing
+// TODO: make command parser support [] and "" for querying the karma system
 #[derive(Debug, PartialEq)]
 pub struct Command<'a> (pub &'a str, pub Vec<&'a str>);
 
@@ -591,35 +592,21 @@ fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
     let mut ret = vec![];
     let mut cur_input = input;
 
-    let mut i = 0;
-
     loop {
-        // Debugging
-        i += 1;
-        println!("=========");
-        println!("iter = {}", i);
-        println!("ret  = {:?}", ret);
-
         // 1. Apply simple combinator as many times as possible
         let (input, res) = many0(simple)(cur_input)?;
         cur_input = input;
         ret.extend(res);
-
-        println!("i1s: {:?}", cur_input);
 
         // 2. Apply quote combinator as many time as possible
         let (input, res) = many0(quoted)(cur_input)?;
         cur_input = input;
         ret.extend(res);
 
-        println!("i1q: {:?}", cur_input);
-
         // 3. Apply brace combinator as many time as possible
         let (input, res) = many0(braced)(cur_input)?;
         cur_input = input;
         ret.extend(res);
-
-        println!("i1b: {:?}", cur_input);
 
         // 4. If still more, discard 1 token and go to 1
         if cur_input.tok.len() != 0 {
@@ -628,16 +615,12 @@ fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
                 Some(KarmaToken::Space(_)) | Some(KarmaToken::Karma(_)) => {
                     let (input, _) = take(1usize)(input)?;
                     cur_input = input;
-
-                    println!("i2d: {:?}", cur_input);
                 },
                 _ => {
                     let (input, _) = take_till1(|kt:&KarmaToken|
                         matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Karma(_))
                     )(input)?;
                     cur_input = input;
-
-                    println!("i2t: {:?}", cur_input);
                 }
             }
         }
