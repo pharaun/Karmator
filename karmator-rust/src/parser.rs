@@ -558,22 +558,6 @@ fn braced(input: Tokens) -> IResult<Tokens, KST> {
 }
 
 
-// Hail Mary parse
-// 1. a"b[c]d++   -> ("", Karma("a\"b[c]d", "++"))
-// 2. "[a]]b["++  -> ("", Karma("\"[a]]b[\"", "++"))
-// 3. a["++ "]b++ -> (" \"]b++", Karma("a[\"", "++"))
-// 4. asdf ++     -> Invalid
-// 5. asdf++bas   -> Invalid
-// 6. ++          -> Invalid
-//
-// Ground rule for this particular parse:
-// 1. Anything to Karma
-// 2. Karma must not be preeced by a space
-// 3. Karma must not be preeced by the start of the line
-// 4. Karma must be followed by space/eol
-
-
-
 // TODO: develop invalid cases to test extent of the parser
 // MultiKarma (K(x) == Karma(x, "++"))
 // 1. a++ "b"++ [c]++       -> ("", [K("a"), K("b"), K("c")])
@@ -581,15 +565,15 @@ fn braced(input: Tokens) -> IResult<Tokens, KST> {
 // 3. abc "d"++ def         -> ("", [K("d")])
 // 4. [a"b"c]++             -> ("", [K("a\"b\"c")])
 // 5. [a b]++ c d++ "e f"++ -> ("", [K("a b"), K("c d"), K("e f")])
-// 6. a"b[c]d++             -> Hail mary (Separate parse attempt)
-// 7. "[a]]b["++            -> Hail mary (Separate parse attempt)
+// 6. a"b[c]d++             -> ("", [])
+// 7. [a]]b["++             -> ("", [])
+// 8. <empty string>        -> ("", [])
 //
 // Ground rule for this particular parse:
 // 1. Apply simple combinator as many time as possible
 // 2. Apply quote combinator as many time as possible
 // 3. Apply brace combinator as many time as possible
-// 4. If still more, discard 1 token and go to 1
-// 5. If no result, do a hail mary pass? (TODO)
+// 4. If still more, discard till space/karma, goto 1
 fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
     let mut ret = vec![];
     let mut cur_input = input;
@@ -626,10 +610,23 @@ fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
 
         // 4. If still more, discard 1 token and go to 1
         if cur_input.tok.len() != 0 {
-            let (input, _) = take(1usize)(input)?;
-            cur_input = input;
+            // If space or karma, drop 1, otherwise eat till space/karma
+            match cur_input.tok.get(0) {
+                Some(KarmaToken::Space(_)) | Some(KarmaToken::Karma(_)) => {
+                    let (input, _) = take(1usize)(input)?;
+                    cur_input = input;
 
-            println!("i2t: {:?}", cur_input);
+                    println!("i2d: {:?}", cur_input);
+                },
+                _ => {
+                    let (input, _) = take_till1(|kt:&KarmaToken|
+                        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Karma(_))
+                    )(input)?;
+                    cur_input = input;
+
+                    println!("i2t: {:?}", cur_input);
+                }
+            }
         }
 
         if cur_input.tok.len() == 0 {
@@ -685,23 +682,29 @@ mod test_multi {
         vec![kst!("a b", "++"), kst!("c d", "++"), kst!("e f", "++")]
     );
 
-    // Hail Mary pass
     success_test!(
         test_case_six,
         multi,
         "a\"b[c]d++",
         vec![],
-        vec![kst!("a\"b[c]d", "++")]
+        vec![]
     );
 
     success_test!(
         test_case_seven,
         multi,
-        "a\"b[c]d++",
+        "[a]]b[\"++",
         vec![],
-        vec![kst!("a\"b[c]d", "++")]
+        vec![]
     );
 
+    success_test!(
+        test_case_eight,
+        multi,
+        "",
+        vec![],
+        vec![]
+    );
 }
 
 
