@@ -15,6 +15,7 @@ use nom::{
       eof,
       peek,
       complete,
+      not,
   },
   branch::alt,
   sequence::{
@@ -95,6 +96,7 @@ fn args(input: &str) -> IResult<&str, Vec<&str>> {
 
 // This starts karma tokenizer stream
 // TODO: make fancy but for now basic objective
+// TODO: we probs want to stress test the round-trip feature (use a fuzzer to help this)
 // 1. Convert inbound &str to a token stream and work on that (for structural concerns)
 // 2. support 2 types of braces '"' and '['/']' to support single type and open/close
 // 3. suppport 3 types of karma, up, down, side
@@ -150,6 +152,14 @@ fn all_token(input: &str) -> IResult<&str, Vec<KarmaToken>> {
 // back into a Text
 fn token(input: &str) -> IResult<&str, KarmaToken> {
     alt((
+        symbols,
+        space,
+        text,
+    ))(input)
+}
+
+fn symbols(input: &str) -> IResult<&str, KarmaToken> {
+    alt((
         map(tag(":++:"), |k| KarmaToken::Karma(k)),
         map(tag("++"),   |k| KarmaToken::Karma(k)),
         map(tag("--"),   |k| KarmaToken::Karma(k)),
@@ -158,8 +168,6 @@ fn token(input: &str) -> IResult<&str, KarmaToken> {
         map(tag("\""),   |_| KarmaToken::Quote),
         map(tag("["),    |_| KarmaToken::OpenBrace),
         map(tag("]"),    |_| KarmaToken::CloseBrace),
-        space,
-        text,
     ))(input)
 }
 
@@ -167,8 +175,13 @@ fn space(input: &str) -> IResult<&str, KarmaToken> {
     map(take_while1(|c:char| c.is_whitespace()), |s| KarmaToken::Space(s))(input)
 }
 
+// TODO: this variant is a little bit more accepting, but is still pretty garbage, need
+// a better way to accumulate not(alt((symbols, space))) but to do that will need to change
+// this to <String> instead of <&str>
 fn text(input: &str) -> IResult<&str, KarmaToken> {
-    map(take_while1(|c:char| c.is_alphanumeric()), |s| KarmaToken::Text(s))(input)
+    map(take_while1(|c:char| {
+        !c.is_whitespace() & (c != ':') & (c != '+') & (c != '-') & (c != '"') & (c != '[') & (c != ']') & (c != '±')
+    }), |s| KarmaToken::Text(s))(input)
 }
 
 
@@ -582,6 +595,7 @@ fn braced(input: Tokens) -> IResult<Tokens, KST> {
 // 6. a"b[c]d++             -> ("", [])
 // 7. [a]]b["++             -> ("", [])
 // 8. <empty string>        -> ("", [])
+// 9. a-b++                 -> ("", [K("a-b")])
 //
 // Ground rule for this particular parse:
 // 1. Apply simple combinator as many time as possible
@@ -700,6 +714,14 @@ mod test_multi {
         "",
         vec![],
         vec![]
+    );
+
+    success_test!(
+        test_case_nine,
+        multi,
+        "a-b++",
+        vec![],
+        vec![kst!("a-b", "++")]
     );
 }
 
@@ -930,8 +952,8 @@ mod test_karma_token {
     #[test]
     fn test_text() {
         assert_eq!(
-            all_token("this藏test"),
-            Ok(("", vec![KarmaToken::Text("this藏test")]))
+            all_token("this藏test-d"),
+            Ok(("", vec![KarmaToken::Text("this藏test-d")]))
         );
     }
 
