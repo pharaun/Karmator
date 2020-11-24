@@ -188,18 +188,36 @@ fn text(input: &str) -> IResult<&str, KarmaToken> {
     let mut ret = "".to_string();
     let mut cur_input = input;
 
+    // Bail out if empty input
+    if input.is_empty() {
+        return Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)));
+    }
+
     loop {
-        let (input, tok) = take_while1(|c:char| !c.is_whitespace() & !is_symbol(c))(cur_input)?;
-        cur_input = input;
-        ret.push_str(tok);
+        println!("========");
+        println!("1i: {:?}", cur_input);
+        println!("1r: {:?}", ret);
+
+        // Force forward progress
+        let par: IResult<&str, &str> = take_while1(|c:char| !c.is_whitespace() & !is_symbol(c))(cur_input);
+        println!("1p: {:?}", par);
+        if let Ok((input, tok)) = par {
+            cur_input = input;
+            ret.push_str(tok);
+        }
+
+        println!("\n");
+        println!("2i: {:?}", cur_input);
+        println!("2r: {:?}", ret);
 
         // Check if it is a whitespace or symbol parse
         let par = peek(alt((space, symbols)))(cur_input);
+        println!("2p: {:?}", par);
         match par {
             Ok(_)  => break,
             Err(_) => {
                 // Check if it hit eof, if so exit
-                if cur_input.len() == 0 {
+                if cur_input.is_empty() {
                     break;
                 }
 
@@ -207,11 +225,18 @@ fn text(input: &str) -> IResult<&str, KarmaToken> {
                 let (input, tok) = take(1usize)(cur_input)?;
                 cur_input = input;
                 ret.push_str(tok);
+
+                println!("\n");
+                println!("3i: {:?}", cur_input);
+                println!("3r: {:?}", ret);
             },
         }
     }
 
-    Ok((cur_input, KarmaToken::Text(ret)))
+    let stuff = Ok((cur_input, KarmaToken::Text(ret)));
+    println!("========");
+    println!("ret: {:?}", stuff);
+    stuff
 }
 
 
@@ -690,7 +715,7 @@ fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
             }
         }
 
-        if cur_input.tok.len() == 0 {
+        if cur_input.tok.is_empty() {
             break;
         }
     }
@@ -1005,6 +1030,23 @@ mod test_karma_token {
         assert_eq!(
             all_token("this藏test-d"),
             Ok(("", vec![text!("this藏test-d")]))
+        );
+    }
+
+    #[test]
+    fn test_text_starting_ending_hypen() {
+        assert_eq!(
+            all_token("-test-"),
+            Ok(("", vec![text!("-test-")]))
+        );
+    }
+
+    // TODO: this test depends on us supporting "+-" but not "-+" find alternatives later
+    #[test]
+    fn test_text_unsupported_karma() {
+        assert_eq!(
+            all_token("text-+"),
+            Ok(("", vec![text!("text-+")]))
         );
     }
 
