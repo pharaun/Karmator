@@ -103,12 +103,12 @@ fn args(input: &str) -> IResult<&str, Vec<&str>> {
 // 4. support single character or multiple character karma token, for now '++', '--', '+-' '±'
 // 5. support 'emoji' karma token - ':++:'
 #[derive(Debug, PartialEq, Clone)]
-enum KarmaToken<'a>{
+enum KarmaToken{
     // Alphanumberic
-    Text(&'a str),
+    Text(String),
     // Whitespace (with a copy in so we can reproduce the string exactly) (only because we care if
     // there is whitespace before the karma or not)
-    Space(&'a str),
+    Space(String),
     // Only the " mark
     // TODO: quotation escaping?
     Quote,
@@ -118,10 +118,10 @@ enum KarmaToken<'a>{
     CloseBrace,
     // Karma (only complete chunk makes it in) (':++:', '++', '--', '+-', '±' for now)
     // TODO: this is eager, will need to figure out if we want to deal with "+++" at all
-    Karma(&'a str)
+    Karma(String)
 }
 
-impl <'a> fmt::Display for KarmaToken<'a> {
+impl <'a> fmt::Display for KarmaToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             KarmaToken::Text(t)    => write!(f, "{}", t),
@@ -160,11 +160,11 @@ fn token(input: &str) -> IResult<&str, KarmaToken> {
 
 fn symbols(input: &str) -> IResult<&str, KarmaToken> {
     alt((
-        map(tag(":++:"), |k| KarmaToken::Karma(k)),
-        map(tag("++"),   |k| KarmaToken::Karma(k)),
-        map(tag("--"),   |k| KarmaToken::Karma(k)),
-        map(tag("+-"),   |k| KarmaToken::Karma(k)),
-        map(tag("±"),    |k| KarmaToken::Karma(k)),
+        map(tag(":++:"), |k:&str| KarmaToken::Karma(k.to_string())),
+        map(tag("++"),   |k:&str| KarmaToken::Karma(k.to_string())),
+        map(tag("--"),   |k:&str| KarmaToken::Karma(k.to_string())),
+        map(tag("+-"),   |k:&str| KarmaToken::Karma(k.to_string())),
+        map(tag("±"),    |k:&str| KarmaToken::Karma(k.to_string())),
         map(tag("\""),   |_| KarmaToken::Quote),
         map(tag("["),    |_| KarmaToken::OpenBrace),
         map(tag("]"),    |_| KarmaToken::CloseBrace),
@@ -172,7 +172,7 @@ fn symbols(input: &str) -> IResult<&str, KarmaToken> {
 }
 
 fn space(input: &str) -> IResult<&str, KarmaToken> {
-    map(take_while1(|c:char| c.is_whitespace()), |s| KarmaToken::Space(s))(input)
+    map(take_while1(|c:char| c.is_whitespace()), |s:&str| KarmaToken::Space(s.to_string()))(input)
 }
 
 // TODO: this variant is a little bit more accepting, but is still pretty garbage, need
@@ -181,20 +181,20 @@ fn space(input: &str) -> IResult<&str, KarmaToken> {
 fn text(input: &str) -> IResult<&str, KarmaToken> {
     map(take_while1(|c:char| {
         !c.is_whitespace() & (c != ':') & (c != '+') & (c != '-') & (c != '"') & (c != '[') & (c != ']') & (c != '±')
-    }), |s| KarmaToken::Text(s))(input)
+    }), |s:&str| KarmaToken::Text(s.to_string()))(input)
 }
 
 
 // Engine for allowing us to parse on top of tokens
 #[derive(Debug, PartialEq, Clone, Copy)]
 struct Tokens<'a> {
-    tok: &'a [KarmaToken<'a>],
+    tok: &'a [KarmaToken],
     start: usize,
     end: usize,
 }
 
 impl<'a> Tokens<'a> {
-    fn new(vec: &'a Vec<KarmaToken<'a>>) -> Self {
+    fn new(vec: &'a Vec<KarmaToken>) -> Self {
         Tokens {
             tok: vec.as_slice(),
             start: 0,
@@ -237,7 +237,7 @@ impl<'a> InputTake for Tokens<'a> {
     }
 }
 
-impl<'a> InputLength for KarmaToken<'a> {
+impl<'a> InputLength for KarmaToken {
     #[inline]
     fn input_len(&self) -> usize {
         1
@@ -281,16 +281,16 @@ impl<'a> Slice<RangeFull> for Tokens<'a> {
 }
 
 impl<'a> InputIter for Tokens<'a> {
-    type Item = &'a KarmaToken<'a>;
-    type Iter = Enumerate<::std::slice::Iter<'a, KarmaToken<'a>>>;
-    type IterElem = ::std::slice::Iter<'a, KarmaToken<'a>>;
+    type Item = &'a KarmaToken;
+    type Iter = Enumerate<::std::slice::Iter<'a, KarmaToken>>;
+    type IterElem = ::std::slice::Iter<'a, KarmaToken>;
 
     #[inline]
-    fn iter_indices(&self) -> Enumerate<::std::slice::Iter<'a, KarmaToken<'a>>> {
+    fn iter_indices(&self) -> Enumerate<::std::slice::Iter<'a, KarmaToken>> {
         self.tok.iter().enumerate()
     }
     #[inline]
-    fn iter_elements(&self) -> ::std::slice::Iter<'a, KarmaToken<'a>> {
+    fn iter_elements(&self) -> ::std::slice::Iter<'a, KarmaToken> {
         self.tok.iter()
     }
     #[inline]
@@ -475,6 +475,27 @@ macro_rules! fail_test {
 macro_rules! kst {
     ($data:expr, $karma:expr) => {
         KST($data.to_string(), $karma.to_string())
+    }
+}
+
+#[cfg(test)]
+macro_rules! space {
+    ($data:expr) => {
+        KarmaToken::Space($data.to_string())
+    }
+}
+
+#[cfg(test)]
+macro_rules! text {
+    ($data:expr) => {
+        KarmaToken::Text($data.to_string())
+    }
+}
+
+#[cfg(test)]
+macro_rules! karma {
+    ($data:expr) => {
+        KarmaToken::Karma($data.to_string())
     }
 }
 
@@ -741,11 +762,11 @@ mod test_braced {
         braced,
         "[a]++ [b]++",
         vec![
-            KarmaToken::Space(" "),
+            space!(" "),
             KarmaToken::OpenBrace,
-            KarmaToken::Text("b"),
+            text!("b"),
             KarmaToken::CloseBrace,
-            KarmaToken::Karma("++")
+            karma!("++")
         ],
         kst!("a", "++")
     );
@@ -754,7 +775,7 @@ mod test_braced {
         test_case_seven,
         braced,
         "[]++",
-        vec![KarmaToken::CloseBrace, KarmaToken::Karma("++")],
+        vec![KarmaToken::CloseBrace, karma!("++")],
         ErrorKind::TakeWhile1
     );
 
@@ -762,7 +783,7 @@ mod test_braced {
         test_case_eight,
         braced,
         "[ ]++",
-        vec![KarmaToken::CloseBrace, KarmaToken::Karma("++")],
+        vec![KarmaToken::CloseBrace, karma!("++")],
         ErrorKind::Tag
     );
 
@@ -785,11 +806,11 @@ mod test_quoted {
         quoted,
         "\"a\"++ \"b\"++",
         vec![
-            KarmaToken::Space(" "),
+            space!(" "),
             KarmaToken::Quote,
-            KarmaToken::Text("b"),
+            text!("b"),
             KarmaToken::Quote,
-            KarmaToken::Karma("++")
+            karma!("++")
         ],
         kst!("a", "++")
     );
@@ -798,7 +819,7 @@ mod test_quoted {
         test_case_seven,
         quoted,
         "\"\"++",
-        vec![KarmaToken::Quote, KarmaToken::Karma("++")],
+        vec![KarmaToken::Quote, karma!("++")],
         ErrorKind::TakeWhile1
     );
 
@@ -806,7 +827,7 @@ mod test_quoted {
         test_case_eight,
         quoted,
         "\" \"++",
-        vec![KarmaToken::Quote, KarmaToken::Karma("++")],
+        vec![KarmaToken::Quote, karma!("++")],
         ErrorKind::Tag
     );
 
@@ -826,9 +847,9 @@ mod test_simple {
         simple,
         "a++ b++",
         vec![
-            KarmaToken::Space(" "),
-            KarmaToken::Text("b"),
-            KarmaToken::Karma("++")
+            space!(" "),
+            text!("b"),
+            karma!("++")
         ],
         kst!("a", "++")
     );
@@ -838,8 +859,8 @@ mod test_simple {
         simple,
         "a b++ c",
         vec![
-            KarmaToken::Space(" "),
-            KarmaToken::Text("c"),
+            space!(" "),
+            text!("c"),
         ],
         kst!("a b", "++")
     );
@@ -856,7 +877,7 @@ mod test_simple {
         test_case_six,
         simple,
         "a b++c",
-        vec![KarmaToken::Text("c")],
+        vec![text!("c")],
         ErrorKind::Eof
     );
 
@@ -864,7 +885,7 @@ mod test_simple {
         test_case_seven,
         simple,
         "a++b",
-        vec![KarmaToken::Text("b")],
+        vec![text!("b")],
         ErrorKind::Eof
     );
 
@@ -872,7 +893,7 @@ mod test_simple {
         test_case_eight,
         simple,
         "a b ++",
-        vec![KarmaToken::Karma("++")],
+        vec![karma!("++")],
         ErrorKind::Tag
     );
 
@@ -885,7 +906,7 @@ mod test_simple {
             KarmaToken::Quote,
             KarmaToken::Quote,
             KarmaToken::CloseBrace,
-            KarmaToken::Karma("++")
+            karma!("++")
         ],
         ErrorKind::TakeWhile1
     );
@@ -902,7 +923,7 @@ mod test_karma_token {
 
         assert_eq!(
             all_token(&karma.join("")),
-            Ok(("", karma.iter().map(|k| KarmaToken::Karma(k)).collect()))
+            Ok(("", karma.iter().map(|k| karma!(k)).collect()))
         );
     }
 
@@ -931,7 +952,7 @@ mod test_karma_token {
     fn test_whitespace() {
         assert_eq!(
             all_token(" \t"),
-            Ok(("", vec![KarmaToken::Space(" \t")]))
+            Ok(("", vec![space!(" \t")]))
         );
     }
 
@@ -940,11 +961,11 @@ mod test_karma_token {
         assert_eq!(
             all_token(" ]\t[  "),
             Ok(("", vec![
-                KarmaToken::Space(" "),
+                space!(" "),
                 KarmaToken::CloseBrace,
-                KarmaToken::Space("\t"),
+                space!("\t"),
                 KarmaToken::OpenBrace,
-                KarmaToken::Space("  ")
+                space!("  ")
             ]))
         );
     }
@@ -953,7 +974,7 @@ mod test_karma_token {
     fn test_text() {
         assert_eq!(
             all_token("this藏test-d"),
-            Ok(("", vec![KarmaToken::Text("this藏test-d")]))
+            Ok(("", vec![text!("this藏test-d")]))
         );
     }
 
@@ -962,13 +983,13 @@ mod test_karma_token {
         assert_eq!(
             all_token("this\t[\"藏  ++]"),
             Ok(("", vec![
-                KarmaToken::Text("this"),
-                KarmaToken::Space("\t"),
+                text!("this"),
+                space!("\t"),
                 KarmaToken::OpenBrace,
                 KarmaToken::Quote,
-                KarmaToken::Text("藏"),
-                KarmaToken::Space("  "),
-                KarmaToken::Karma("++"),
+                text!("藏"),
+                space!("  "),
+                karma!("++"),
                 KarmaToken::CloseBrace,
             ]))
         );
