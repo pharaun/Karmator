@@ -15,7 +15,6 @@ use nom::{
       eof,
       peek,
       complete,
-      not,
   },
   branch::alt,
   sequence::{
@@ -175,13 +174,44 @@ fn space(input: &str) -> IResult<&str, KarmaToken> {
     map(take_while1(|c:char| c.is_whitespace()), |s:&str| KarmaToken::Space(s.to_string()))(input)
 }
 
-// TODO: this variant is a little bit more accepting, but is still pretty garbage, need
-// a better way to accumulate not(alt((symbols, space))) but to do that will need to change
-// this to <String> instead of <&str>
+fn is_symbol(s: char) -> bool {
+    let sym = vec![':', '+', '-', '"', '[', ']', '±'];
+    sym.contains(&s)
+}
+
+// Steps needed:
+// 1. Take any non [whitespace, part of karma, or braces]
+// 2. When take_while stops, do a peek parse of [whitespace/karma/braces]
+// 3. [if fail] add the character to the string and resume take_while
+// 4. [if succ] exit parser with a Text(ret)
 fn text(input: &str) -> IResult<&str, KarmaToken> {
-    map(take_while1(|c:char| {
-        !c.is_whitespace() & (c != ':') & (c != '+') & (c != '-') & (c != '"') & (c != '[') & (c != ']') & (c != '±')
-    }), |s:&str| KarmaToken::Text(s.to_string()))(input)
+    let mut ret = "".to_string();
+    let mut cur_input = input;
+
+    loop {
+        let (input, tok) = take_while1(|c:char| !c.is_whitespace() & !is_symbol(c))(cur_input)?;
+        cur_input = input;
+        ret.push_str(tok);
+
+        // Check if it is a whitespace or symbol parse
+        let par = peek(alt((space, symbols)))(cur_input);
+        match par {
+            Ok(_)  => break,
+            Err(_) => {
+                // Check if it hit eof, if so exit
+                if cur_input.len() == 0 {
+                    break;
+                }
+
+                // It did not parse, grab the next char and append it and continue
+                let (input, tok) = take(1usize)(cur_input)?;
+                cur_input = input;
+                ret.push_str(tok);
+            },
+        }
+    }
+
+    Ok((cur_input, KarmaToken::Text(ret)))
 }
 
 
