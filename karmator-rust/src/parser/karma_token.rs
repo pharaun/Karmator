@@ -29,6 +29,7 @@ use std::fmt;
 // 3. suppport 3 types of karma, up, down, side
 // 4. support single character or multiple character karma token, for now '++', '--', '+-' '±'
 #[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum KarmaToken{
     // Alphanumberic
     Text(String),
@@ -80,6 +81,11 @@ fn token(input: &str) -> IResult<&str, KarmaToken> {
     alt((
         symbols,
         space,
+        // TODO: should be able to make this work better if we break up the
+        // rightmost_karma into 2 pieces, a karma parse, and a 'remaining text' parse
+        // and then have one return karma, one return text, and then make text_or_karma
+        // do a karma/symbol/rightmost parse and bail if it hits it. this will result in
+        // a bit more text(), text() ... sequence but that should be overall harmless?
         text_or_karma,
     ))(input)
 }

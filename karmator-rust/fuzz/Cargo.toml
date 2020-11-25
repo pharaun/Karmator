@@ -15,6 +15,7 @@ arbitrary = { version = "0.4", features = ["derive"] }
 
 [dependencies.karmator-rust]
 path = ".."
+features = ["arbitrary"]
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -29,5 +30,11 @@ doc = false
 [[bin]]
 name = "parse_karma"
 path = "fuzz_targets/parse_karma.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "karma_token_roundtrip"
+path = "fuzz_targets/karma_token_roundtrip.rs"
 test = false
 doc = false
