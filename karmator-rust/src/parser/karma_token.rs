@@ -432,4 +432,12 @@ mod test_karma_token {
 
         assert_eq!(parse.iter().map(|t| t.to_string()).collect::<Vec<String>>().join(""), text);
     }
+
+    #[test]
+    fn test_fuzz_one() {
+        assert_eq!(
+            all_token("±+\""),
+            Ok(("", vec![text!("±+\"")]))
+        );
+    }
 }

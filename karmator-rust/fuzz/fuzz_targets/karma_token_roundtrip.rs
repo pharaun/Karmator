@@ -18,8 +18,14 @@ fuzz_target!(|data: &[u8]| {
         let cmd = value.dat;
         let dat = cmd.iter().map(|k| k.to_string()).collect::<Vec<String>>().join("");
 
-        let new_dat = kt::all_token(&dat);
+        let new_cmd = kt::all_token(&dat);
+        let new_dat = new_cmd.map(|(i, k)| {
+            let nk = k.iter().map(|k| k.to_string()).collect::<Vec<String>>().join("");
+            (i, nk)
+        });
 
-        assert_eq!(new_dat, Ok(("", cmd)));
+        // TODO: find a way to compare the structure, main issue is incoming ("") which wont be in
+        // the output...
+        assert_eq!(new_dat, Ok(("", dat.clone())));
     }
 });
