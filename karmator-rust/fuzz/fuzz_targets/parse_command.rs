@@ -17,6 +17,6 @@ fuzz_target!(|data: &[u8]| {
         let cmd = value.dat;
 
         // TODO: for now focus on just crashes
-        karmator_rust::parser::parse_command(&cmd);
+        karmator_rust::parser::command::parse(&cmd);
     }
 });
