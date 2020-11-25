@@ -19,6 +19,7 @@ use nom::{
   },
 };
 use std::fmt;
+use unicode_segmentation::UnicodeSegmentation;
 
 
 // This starts karma tokenizer stream
@@ -110,9 +111,18 @@ fn rightmost_karma(input: &str) -> IResult<&str, (&str, &str)> {
     let klist = ["++", "--", "+-", "±"];
     let mut longest = "";
 
+    // Debug block
+    let ktup = klist.iter().map(|k| (k, k.len())).collect::<Vec<_>>();
+    println!("ktup {:?}", ktup);
+
+    let g = UnicodeSegmentation::graphemes(input, true).collect::<Vec<&str>>();
+    println!("input: {:?}\nunicode: {:?}", input, g);
+
     for k in klist.iter() {
         // Make sure candidate length is greater or equal to the karma token length
         if candidate.len() >= k.len() {
+            // TODO: the issue here is that we are slicing on bytes, but... characters...
+            // Find a better way to do the slicing
             let c_slice = &candidate[
                 (candidate.len() - k.len())..
             ];
