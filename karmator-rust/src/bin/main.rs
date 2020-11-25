@@ -16,12 +16,9 @@ use std::thread;
 use chrono::prelude::{Utc, DateTime};
 
 
-// Bot breakup
-mod database;
-mod message;
-mod build_info;
-mod cache;
-mod parser;
+use karmator_rust::database;
+use karmator_rust::message;
+use karmator_rust::cache;
 
 
 #[tokio::main]

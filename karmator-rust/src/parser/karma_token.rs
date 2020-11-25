@@ -3,48 +3,22 @@ use nom::{
   bytes::complete::{
       tag,
       take_while1,
-      take_till1,
       take,
   },
   multi::{
-      separated_list0,
       many0,
   },
   combinator::{
       map,
-      eof,
       peek,
-      complete,
   },
   branch::alt,
-  sequence::{
-      delimited,
-      pair,
-      terminated,
-  },
-  character::complete::{
-      multispace1,
-      multispace0,
-  },
   error::{
       Error,
       ErrorKind,
   },
 };
 use std::fmt;
-use std::matches;
-
-use nom::InputLength;
-use nom::InputTake;
-use nom::InputIter;
-use nom::Slice;
-use nom::UnspecializedInput;
-
-use std::iter::Enumerate;
-use std::ops::RangeFull;
-use std::ops::RangeFrom;
-use std::ops::RangeTo;
-use std::ops::Range;
 
 
 // This starts karma tokenizer stream
@@ -124,7 +98,7 @@ fn karma(input: &str) -> IResult<&str, &str> {
 }
 
 fn rightmost_karma(input: &str) -> IResult<&str, (&str, &str)> {
-    let (tmp_input, candidate) = take_while1(|c:char| is_karma_symbol(c))(input)?;
+    let (_, candidate) = take_while1(|c:char| is_karma_symbol(c))(input)?;
 
     // Let's try a list of karma
     let klist = ["++", "--", "+-", "±"];
@@ -274,6 +248,28 @@ fn text_or_karma(input: &str) -> IResult<&str, KarmaToken> {
     println!("========");
     println!("ret: {:?}", stuff);
     stuff
+}
+
+
+#[cfg(test)]
+macro_rules! space {
+    ($data:expr) => {
+        KarmaToken::Space($data.to_string())
+    }
+}
+
+#[cfg(test)]
+macro_rules! text {
+    ($data:expr) => {
+        KarmaToken::Text($data.to_string())
+    }
+}
+
+#[cfg(test)]
+macro_rules! karma {
+    ($data:expr) => {
+        KarmaToken::Karma($data.to_string())
+    }
 }
 
 

@@ -3,48 +3,22 @@ use nom::{
   bytes::complete::{
       tag,
       take_while1,
-      take_till1,
-      take,
   },
   multi::{
       separated_list0,
-      many0,
   },
   combinator::{
-      map,
-      eof,
-      peek,
       complete,
   },
   branch::alt,
   sequence::{
       delimited,
-      pair,
-      terminated,
   },
   character::complete::{
       multispace1,
       multispace0,
   },
-  error::{
-      Error,
-      ErrorKind,
-  },
 };
-use std::fmt;
-use std::matches;
-
-use nom::InputLength;
-use nom::InputTake;
-use nom::InputIter;
-use nom::Slice;
-use nom::UnspecializedInput;
-
-use std::iter::Enumerate;
-use std::ops::RangeFull;
-use std::ops::RangeFrom;
-use std::ops::RangeTo;
-use std::ops::Range;
 
 
 // TODO: add in specific support for parsing at-here and other special <!user_id> entities

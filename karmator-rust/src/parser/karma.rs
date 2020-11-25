@@ -1,13 +1,11 @@
 use nom::{
   IResult,
   bytes::complete::{
-      tag,
       take_while1,
       take_till1,
       take,
   },
   multi::{
-      separated_list0,
       many0,
   },
   combinator::{
@@ -22,29 +20,12 @@ use nom::{
       pair,
       terminated,
   },
-  character::complete::{
-      multispace1,
-      multispace0,
-  },
   error::{
       Error,
       ErrorKind,
   },
 };
-use std::fmt;
 use std::matches;
-
-use nom::InputLength;
-use nom::InputTake;
-use nom::InputIter;
-use nom::Slice;
-use nom::UnspecializedInput;
-
-use std::iter::Enumerate;
-use std::ops::RangeFull;
-use std::ops::RangeFrom;
-use std::ops::RangeTo;
-use std::ops::Range;
 
 use crate::parser::karma_token::all_token;
 use crate::parser::karma_token::KarmaToken;
@@ -177,64 +158,6 @@ fn kspacetext(input: Tokens) -> IResult<Tokens, String> {
 }
 
 
-// Macro for cleaning up the test cases
-#[cfg(test)]
-macro_rules! success_test {
-    ($name:ident, $parse:ident, $data:expr, $buff:expr, $res:expr) => (
-        #[test]
-        fn $name() {
-            let token = all_token($data).unwrap().1;
-            let parse = $parse(Tokens::new(&token));
-
-            let empty = $buff;
-            let empty = Tokens::new(&empty);
-            assert_eq!(parse, Ok((empty, $res)));
-        }
-    )
-}
-
-#[cfg(test)]
-macro_rules! fail_test {
-    ($name:ident, $parse:ident, $data:expr, $buff:expr, $kind:expr) => (
-        #[test]
-        fn $name() {
-            let token = all_token($data).unwrap().1;
-            let parse = $parse(Tokens::new(&token));
-
-            let empty = $buff;
-            let empty = Tokens::new(&empty);
-            assert_eq!(parse, Err(nom::Err::Error(Error::new(empty, $kind))));
-        }
-    )
-}
-
-#[cfg(test)]
-macro_rules! kst {
-    ($data:expr, $karma:expr) => {
-        KST($data.to_string(), $karma.to_string())
-    }
-}
-
-#[cfg(test)]
-macro_rules! space {
-    ($data:expr) => {
-        KarmaToken::Space($data.to_string())
-    }
-}
-
-#[cfg(test)]
-macro_rules! text {
-    ($data:expr) => {
-        KarmaToken::Text($data.to_string())
-    }
-}
-
-#[cfg(test)]
-macro_rules! karma {
-    ($data:expr) => {
-        KarmaToken::Karma($data.to_string())
-    }
-}
 
 
 // Simple Karma:
@@ -405,6 +328,66 @@ fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
     Ok((cur_input, ret))
 }
 
+
+
+// Macro for cleaning up the test cases
+#[cfg(test)]
+macro_rules! success_test {
+    ($name:ident, $parse:ident, $data:expr, $buff:expr, $res:expr) => (
+        #[test]
+        fn $name() {
+            let token = all_token($data).unwrap().1;
+            let parse = $parse(Tokens::new(&token));
+
+            let empty = $buff;
+            let empty = Tokens::new(&empty);
+            assert_eq!(parse, Ok((empty, $res)));
+        }
+    )
+}
+
+#[cfg(test)]
+macro_rules! fail_test {
+    ($name:ident, $parse:ident, $data:expr, $buff:expr, $kind:expr) => (
+        #[test]
+        fn $name() {
+            let token = all_token($data).unwrap().1;
+            let parse = $parse(Tokens::new(&token));
+
+            let empty = $buff;
+            let empty = Tokens::new(&empty);
+            assert_eq!(parse, Err(nom::Err::Error(Error::new(empty, $kind))));
+        }
+    )
+}
+
+#[cfg(test)]
+macro_rules! kst {
+    ($data:expr, $karma:expr) => {
+        KST($data.to_string(), $karma.to_string())
+    }
+}
+
+#[cfg(test)]
+macro_rules! space {
+    ($data:expr) => {
+        KarmaToken::Space($data.to_string())
+    }
+}
+
+#[cfg(test)]
+macro_rules! text {
+    ($data:expr) => {
+        KarmaToken::Text($data.to_string())
+    }
+}
+
+#[cfg(test)]
+macro_rules! karma {
+    ($data:expr) => {
+        KarmaToken::Karma($data.to_string())
+    }
+}
 
 #[cfg(test)]
 mod test_multi {
