@@ -29,7 +29,6 @@ nom = "6"
 rusqlite = { version = "0.24.1", features = ["bundled"] }
 
 # For karma parsing
-unicode-segmentation = "1.7"
 unicode-normalization = "0.1.16"
 
 # For fuzzing

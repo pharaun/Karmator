@@ -19,7 +19,6 @@ use nom::{
   },
 };
 use std::fmt;
-use unicode_segmentation::UnicodeSegmentation;
 
 
 // This starts karma tokenizer stream
@@ -111,24 +110,19 @@ fn rightmost_karma(input: &str) -> IResult<&str, (&str, &str)> {
     let klist = ["++", "--", "+-", "±"];
     let mut longest = "";
 
-    // Debug block
-    let ktup = klist.iter().map(|k| (k, k.len())).collect::<Vec<_>>();
-    println!("ktup {:?}", ktup);
-
-    let g = UnicodeSegmentation::graphemes(input, true).collect::<Vec<&str>>();
-    println!("input: {:?}\nunicode: {:?}", input, g);
-
     for k in klist.iter() {
-        // Make sure candidate length is greater or equal to the karma token length
-        if candidate.len() >= k.len() {
-            // TODO: the issue here is that we are slicing on bytes, but... characters...
-            // Find a better way to do the slicing
-            let c_slice = &candidate[
-                (candidate.len() - k.len())..
-            ];
+        // Try a rmatch approach first
+        let v: Vec<_> = candidate.rmatch_indices(k).collect();
+        println!("candidate: {:?}, k: {:?}", candidate, k);
+        println!("rmatch: {:?}", v);
 
-            // Check if the karma candidate match
-            if &c_slice == k {
+        // Check if there is any possible match at all
+        if !v.is_empty() {
+            // There is, let's verify if the index of the match is eol
+            let (idx, _) = v.get(0).unwrap();
+            let offset = candidate.len() - k.len();
+
+            if idx == &offset {
                 if k.len() >= longest.len() {
                     longest = k;
                 }
@@ -447,7 +441,7 @@ mod test_karma_token {
     fn test_fuzz_one() {
         assert_eq!(
             all_token("±+\""),
-            Ok(("", vec![text!("±+\"")]))
+            Ok(("", vec![text!("±+"), KarmaToken::Quote]))
         );
     }
 }
