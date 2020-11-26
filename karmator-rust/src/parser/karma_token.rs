@@ -45,7 +45,9 @@ pub enum KarmaToken{
     CloseBrace,
     // Karma (only complete chunk makes it in) ('++', '--', '+-', '±' for now)
     // TODO: this is eager, will need to figure out if we want to deal with "+++" at all
-    Karma(String)
+    Karma(String),
+    // TODO: Consider KText(String) for karma runs since it'll have slightly more restrictions than
+    // Text
 }
 
 impl <'a> fmt::Display for KarmaToken {
@@ -81,29 +83,32 @@ fn token(input: &str) -> IResult<&str, KarmaToken> {
     alt((
         symbols,
         space,
-        // TODO: should be able to make this work better if we break up the
-        // rightmost_karma into 2 pieces, a karma parse, and a 'remaining text' parse
-        // and then have one return karma, one return text, and then make text_or_karma
-        // do a karma/symbol/rightmost parse and bail if it hits it. this will result in
-        // a bit more text(), text() ... sequence but that should be overall harmless?
-        text_or_karma,
+        karma_run,
+        karma,
+        text,
     ))(input)
 }
 
 fn symbols(input: &str) -> IResult<&str, KarmaToken> {
     alt((
-        //map(karma,       |k| KarmaToken::Karma(k.to_string())),
         map(tag("\""),   |_| KarmaToken::Quote),
         map(tag("["),    |_| KarmaToken::OpenBrace),
         map(tag("]"),    |_| KarmaToken::CloseBrace),
     ))(input)
 }
 
-fn karma(input: &str) -> IResult<&str, &str> {
-    alt((tag("++"), tag("--"), tag("+-"), tag("±")))(input)
+fn space(input: &str) -> IResult<&str, KarmaToken> {
+    map(take_while1(|c:char| c.is_whitespace()), |s:&str| KarmaToken::Space(s.to_string()))(input)
 }
 
-fn rightmost_karma(input: &str) -> IResult<&str, (&str, &str)> {
+fn karma(input: &str) -> IResult<&str, KarmaToken> {
+    map(
+        alt((tag("++"), tag("--"), tag("+-"), tag("±"))),
+        |k:&str| KarmaToken::Karma(k.to_string())
+    )(input)
+}
+
+fn karma_run(input: &str) -> IResult<&str, KarmaToken> {
     let (_, candidate) = take_while1(|c:char| is_karma_symbol(c))(input)?;
 
     // Let's try a list of karma
@@ -111,10 +116,18 @@ fn rightmost_karma(input: &str) -> IResult<&str, (&str, &str)> {
     let mut longest = "";
 
     for k in klist.iter() {
+        // Short circuit this check if
+        // 1. karma is shorter than longest match, it won't win
+        // 2. candidate is shorter than the karma to be checked
+        if (longest.len() > k.len()) | (k.len() > candidate.len()) {
+            continue;
+        }
+
         // Try a rmatch approach first
         let v: Vec<_> = candidate.rmatch_indices(k).collect();
         println!("candidate: {:?}, k: {:?}", candidate, k);
         println!("rmatch: {:?}", v);
+        println!("c-len: {:?}, k-len: {:?}, c-k-len: {:?}", candidate.len(), k.len(), candidate.len() - k.len());
 
         // Check if there is any possible match at all
         if !v.is_empty() {
@@ -145,13 +158,18 @@ fn rightmost_karma(input: &str) -> IResult<&str, (&str, &str)> {
             input_slice.len()..
         ];
 
-        Ok((&ret_slice, (&input_slice, longest)))
+        // If text to be returned is empty, we only got the karma/other parse now
+        if input_slice.is_empty() {
+            Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
+
+        } else {
+            println!("===");
+            println!("Winning: {:?}, text: {:?}, input: {:?}", longest, &input_slice, &ret_slice);
+            println!("===");
+
+            Ok((&ret_slice, KarmaToken::Text(input_slice.to_string())))
+        }
     }
-}
-
-
-fn space(input: &str) -> IResult<&str, KarmaToken> {
-    map(take_while1(|c:char| c.is_whitespace()), |s:&str| KarmaToken::Space(s.to_string()))(input)
 }
 
 fn is_karma_symbol(s: char) -> bool {
@@ -169,7 +187,7 @@ fn is_symbol(s: char) -> bool {
 // 2. When take_while stops, do a peek parse of [whitespace/karma/braces]
 // 3. [if fail] add the character to the string and resume take_while
 // 4. [if succ] exit parser with a Text(ret)
-fn text_or_karma(input: &str) -> IResult<&str, KarmaToken> {
+fn text(input: &str) -> IResult<&str, KarmaToken> {
     let mut ret = "".to_string();
     let mut cur_input = input;
 
@@ -198,7 +216,12 @@ fn text_or_karma(input: &str) -> IResult<&str, KarmaToken> {
         println!("2r: {:?}", ret);
 
         // Check if it is a whitespace or symbol parse
-        let par = peek(alt((space, symbols)))(cur_input);
+        let par = peek(alt((
+            space,
+            symbols,
+            karma_run,
+            karma,
+        )))(cur_input);
         println!("2p: {:?}", par);
         match par {
             Ok(_)  => break,
@@ -208,44 +231,9 @@ fn text_or_karma(input: &str) -> IResult<&str, KarmaToken> {
                     break;
                 }
 
-                // Check if its a rightmost karma parse
-                let kpar = rightmost_karma(cur_input);
-                println!("2k: {:?}", kpar);
-                match kpar {
-                    Ok((input, (txt, kar))) => {
-                        // Check if the returned txt is empty, if so then its a valid karma
-                        // and we should bail here to allow the karma tag to parse it?
-                        //
-                        // TODO: identify if we should return early instead of exit early with a
-                        // karma parse
-                        println!("********");
-                        println!("cur_input: {:?}", cur_input);
-                        println!("ret      : {:?}", ret);
-                        println!("input    : {:?}", input);
-                        println!("karma    : {:?}", kar);
-                        println!("kar-text : {:?}", txt);
-                        println!("********");
-
-                        // If ret and txt is empty, return a karma parse
-                        if txt.is_empty() & ret.is_empty() {
-                            // Do a karma parse
-                            return map(karma, |k| KarmaToken::Karma(k.to_string()))(cur_input);
-
-                        } else if txt.is_empty() {
-                            break;
-
-                        } else {
-                            cur_input = input;
-                            ret.push_str(txt);
-                        }
-                    },
-                    Err(_) => {
-                        // It did not parse, grab the next char and append it and continue
-                        let (input, tok) = take(1usize)(cur_input)?;
-                        cur_input = input;
-                        ret.push_str(tok);
-                    },
-                }
+                let (input, tok) = take(1usize)(cur_input)?;
+                cur_input = input;
+                ret.push_str(tok);
 
                 println!("");
                 println!("3i: {:?}", cur_input);
@@ -290,23 +278,23 @@ mod test_karma_token {
     #[test]
     fn test_rightmost_valid() {
         assert_eq!(
-            rightmost_karma("--++"),
-            Ok(("++", ("--", "++")))
+            karma_run("--++"),
+            Ok(("++", text!("--")))
         );
     }
 
     #[test]
     fn test_rightmost_only_karma() {
         assert_eq!(
-            rightmost_karma("++"),
-            Ok(("++", ("", "++")))
+            karma_run("++"),
+            Err(nom::Err::Error(Error::new("++", ErrorKind::Tag)))
         );
     }
 
     #[test]
     fn test_rightmost_text_before() {
         assert_eq!(
-            rightmost_karma("text++"),
+            karma_run("text++"),
             Err(nom::Err::Error(Error::new("text++", ErrorKind::TakeWhile1)))
         );
     }
@@ -314,8 +302,8 @@ mod test_karma_token {
     #[test]
     fn test_rightmost_text_after() {
         assert_eq!(
-            rightmost_karma("++text"),
-            Ok(("++text", ("", "++")))
+            karma_run("++text"),
+            Err(nom::Err::Error(Error::new("++text", ErrorKind::Tag)))
         );
     }
 
@@ -340,7 +328,7 @@ mod test_karma_token {
     fn test_karma_incomplete_not_valid_run() {
         assert_eq!(
             all_token("+-+"),
-            Ok(("", vec![text!("+-+")]))
+            Ok(("", vec![karma!("+-"), text!("+")]))
         );
     }
 
@@ -388,7 +376,7 @@ mod test_karma_token {
     }
 
     #[test]
-    fn test_text() {
+    fn test_text_plain() {
         assert_eq!(
             all_token("this藏test-d"),
             Ok(("", vec![text!("this藏test-d")]))
@@ -441,7 +429,7 @@ mod test_karma_token {
     fn test_fuzz_one() {
         assert_eq!(
             all_token("±+\""),
-            Ok(("", vec![text!("±+"), KarmaToken::Quote]))
+            Ok(("", vec![karma!("±"), text!("+"), KarmaToken::Quote]))
         );
     }
 }
