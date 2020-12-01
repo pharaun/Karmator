@@ -44,10 +44,12 @@ pub enum KarmaToken{
     // Only the ] mark
     CloseBrace,
     // Karma (only complete chunk makes it in) ('++', '--', '+-', '±' for now)
-    // TODO: this is eager, will need to figure out if we want to deal with "+++" at all
+    // For runs to the left of this, see KText()
     Karma(String),
-    // TODO: Consider KText(String) for karma runs since it'll have slightly more restrictions than
-    // Text
+    // Karma Run text, this contains any karma runs ie. "+++++++++" that is to the left of
+    // an valid karma parse (to support c++--), It needs to be its own type becaue it is slightly
+    // more restrictive than plain Text in downstream parsers
+    KText(String),
 }
 
 impl <'a> fmt::Display for KarmaToken {
@@ -56,6 +58,7 @@ impl <'a> fmt::Display for KarmaToken {
             KarmaToken::Text(t)    => write!(f, "{}", t),
             KarmaToken::Space(t)   => write!(f, "{}", t),
             KarmaToken::Karma(t)   => write!(f, "{}", t),
+            KarmaToken::KText(t)   => write!(f, "{}", t),
             KarmaToken::Quote      => write!(f, "\""),
             KarmaToken::OpenBrace  => write!(f, "["),
             KarmaToken::CloseBrace => write!(f, "]"),
@@ -167,7 +170,7 @@ fn karma_run(input: &str) -> IResult<&str, KarmaToken> {
             println!("Winning: {:?}, text: {:?}, input: {:?}", longest, &input_slice, &ret_slice);
             println!("===");
 
-            Ok((&ret_slice, KarmaToken::Text(input_slice.to_string())))
+            Ok((&ret_slice, KarmaToken::KText(input_slice.to_string())))
         }
     }
 }
@@ -270,6 +273,13 @@ macro_rules! karma {
     }
 }
 
+#[cfg(test)]
+macro_rules! ktext {
+    ($data:expr) => {
+        KarmaToken::KText($data.to_string())
+    }
+}
+
 
 #[cfg(test)]
 mod test_karma_token {
@@ -279,7 +289,7 @@ mod test_karma_token {
     fn test_rightmost_valid() {
         assert_eq!(
             karma_run("--++"),
-            Ok(("++", text!("--")))
+            Ok(("++", ktext!("--")))
         );
     }
 
@@ -311,7 +321,7 @@ mod test_karma_token {
     fn test_karma_run() {
         assert_eq!(
             all_token("++--++"),
-            Ok(("", vec![text!("++--"), karma!("++")]))
+            Ok(("", vec![ktext!("++--"), karma!("++")]))
         );
     }
 
@@ -319,7 +329,7 @@ mod test_karma_token {
     fn test_karma_incomplete_run() {
         assert_eq!(
             all_token("+++"),
-            Ok(("", vec![text!("+"), karma!("++")]))
+            Ok(("", vec![ktext!("+"), karma!("++")]))
         );
     }
 

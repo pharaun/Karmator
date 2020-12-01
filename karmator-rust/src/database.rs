@@ -228,6 +228,7 @@ pub fn process_queries(
                 }
 
                 // Evaulate if there's missing ones and add if so
+                // TODO: this should be case insensitive (Ie database can return B and we have b)
                 for n in users.difference(&has) {
                     ret.push((n.to_string(), 0, 0, 0));
                 }

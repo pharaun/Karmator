@@ -106,7 +106,7 @@ fn kclosebrace(input: Tokens) -> IResult<Tokens, String> {
 
 fn kenclosedquote(input: Tokens) -> IResult<Tokens, String> {
     let (input, tkt) = take_while1(|kt:&KarmaToken|
-        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::Karma(_) | &KarmaToken::Quote)
+        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::Karma(_) | &KarmaToken::Quote | &KarmaToken::KText(_))
     )(input)?;
 
     // Collapse the list into string and trim it
@@ -123,7 +123,7 @@ fn kenclosedquote(input: Tokens) -> IResult<Tokens, String> {
 
 fn kenclosedbrace(input: Tokens) -> IResult<Tokens, String> {
     let (input, tkt) = take_while1(|kt:&KarmaToken|
-        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::Karma(_) | &KarmaToken::OpenBrace | &KarmaToken::CloseBrace)
+        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::Karma(_) | &KarmaToken::OpenBrace | &KarmaToken::CloseBrace | &KarmaToken::KText(_))
     )(input)?;
 
     // Collapse the list into string and trim it
@@ -138,6 +138,7 @@ fn kenclosedbrace(input: Tokens) -> IResult<Tokens, String> {
     }
 }
 
+// TODO: this can consume KText unless it is preceeding a Karma,
 fn kspacetext(input: Tokens) -> IResult<Tokens, String> {
     let (input, tkt) = take_while1(|kt:&KarmaToken|
         matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_))
@@ -161,20 +162,24 @@ fn kspacetext(input: Tokens) -> IResult<Tokens, String> {
 
 
 // Simple Karma:
-// 1. a++       -> ("",     Karma("a", "++"))
-// 2. a b++     -> ("",     Karma("a b", "++"))
-// 3. a++ b++   -> (" b++", Karma("a", "++"))
-// 4. a b++ c   -> (" c",   Karma("a b", "++"))
-// 5.   a++     -> ("",     Karma("a", "++")) - Trim preceeding
-// 6. a b++c    -> Invalid
-// 7. a++b      -> Invalid
-// 8. a b ++    -> Invalid
-// 9. [""]++    -> Invalid
+//  1. a++       -> ("",     Karma("a", "++"))
+//  2. a b++     -> ("",     Karma("a b", "++"))
+//  3. a++ b++   -> (" b++", Karma("a", "++"))
+//  4. a b++ c   -> (" c",   Karma("a b", "++"))
+//  5.   a++     -> ("",     Karma("a", "++")) - Trim preceeding
+//  6. a b++c    -> Invalid
+//  7. a++b      -> Invalid
+//  8. a b ++    -> Invalid
+//  9. [""]++    -> Invalid
+// 10. a--++     -> ("",     Karma("a--", "++"))
+// 11. --++      -> Invalid
+// 12. a --++    -> Invalid
 //
 // Ground rule for this particular parse:
-// 1. Any Text/Space followed by karma
-// 2. Karma must follow a Text
+// 1. Any Text/Space/KText followed by karma
+// 2. Karma must follow a Text/KText
 // 3. karma must be followed by space/eol
+// 4. KText must follow a Text
 fn simple(input: Tokens) -> IResult<Tokens, KST> {
     map(terminated(
             pair(
@@ -192,22 +197,25 @@ fn simple(input: Tokens) -> IResult<Tokens, KST> {
 
 
 // Quoted Karma
-// 1. "a"++       -> ("", Karma("a", "++"))
-// 2. "a b"++     -> ("", Karma("a b", "++"))
-// 3. " a b "++   -> ("", Karma("a b", "++")) - Trim " a b "
-// 4. "a++"++     -> ("", Karma("a++", "++"))
-// 5. "++"++      -> ("", Karma("++", "++"))
-// 6. "a"++ "b"++ -> (" \"b\"++", Karma("a", "++"))
-// 7. ""++        -> Invalid
-// 8. " "++       -> Invalid
-// 9. "[]"++      -> "", Karma("[]", "++")
+//  1. "a"++       -> ("", Karma("a", "++"))
+//  2. "a b"++     -> ("", Karma("a b", "++"))
+//  3. " a b "++   -> ("", Karma("a b", "++")) - Trim " a b "
+//  4. "a++"++     -> ("", Karma("a++", "++"))
+//  5. "++"++      -> ("", Karma("++", "++"))
+//  6. "a"++ "b"++ -> (" \"b\"++", Karma("a", "++"))
+//  7. ""++        -> Invalid
+//  8. " "++       -> Invalid
+//  9. "[]"++      -> ("", Karma("[]", "++"))
+// 10. "--++"++    -> ("", Karma("--++", "++"))
+// 11. "++"--++    -> Invalid
 //
 // Ground rule for this particular parse:
-// 1. Quote followed by any; Karma/Text/Space
+// 1. Quote followed by any; Karma/Text/Space/KText
 // 2. Closing with another Quote
 // 3. At least 1 Text in between Quotes
 // 4. Closing Quote followed by karma
 // 5. Karma followed by whitespace/eol
+// 6. KText must not follow Quote
 fn quoted(input: Tokens) -> IResult<Tokens, KST> {
     map(terminated(
             pair(
@@ -230,22 +238,25 @@ fn quoted(input: Tokens) -> IResult<Tokens, KST> {
 
 // Braced Karma
 // Same outcome as quoted case just with [ ] instead of " "
-// 1. [a]++
-// 2. [a b]++
-// 3. [ a b ]++
-// 4. [a++]++
-// 5. [++]++
-// 6. [a]++ [b]++
-// 7. []++
-// 8. [ ]++
-// 9. [""]++
+//  1. [a]++
+//  2. [a b]++
+//  3. [ a b ]++
+//  4. [a++]++
+//  5. [++]++
+//  6. [a]++ [b]++
+//  7. []++
+//  8. [ ]++
+//  9. [""]++
+// 10. [--++]++
+// 11. [++]--++
 //
 // Ground rule for this particular parse:
-// 1. OpenBrace followed by any; Karma/Text/Space
+// 1. OpenBrace followed by any; Karma/Text/Space/KText
 // 2. Closing with CloseBrace
 // 3. At least 1 Text in between Open/Close Brace
-// 4. ClosedBrace followed by karma
+// 4. CloseBrace followed by karma
 // 5. Karma followed by whitespace/eol
+// 6. KText must not follow CloseBrace
 fn braced(input: Tokens) -> IResult<Tokens, KST> {
     map(terminated(
             pair(
@@ -390,6 +401,13 @@ macro_rules! karma {
 }
 
 #[cfg(test)]
+macro_rules! ktext {
+    ($data:expr) => {
+        KarmaToken::KText($data.to_string())
+    }
+}
+
+#[cfg(test)]
 mod test_multi {
     use super::*;
 
@@ -508,6 +526,15 @@ mod test_braced {
     );
 
     success_test!(test_case_nine, braced, "[\"\"]++", vec![], kst!("\"\"", "++"));
+    success_test!(test_case_ten,  braced, "[--++]++",  vec![], kst!("--++", "++"));
+
+    fail_test!(
+        test_case_eleven,
+        braced,
+        "[++]--++",
+        vec![ktext!("--"), karma!("++")],
+        ErrorKind::Tag
+    );
 }
 
 
@@ -551,7 +578,16 @@ mod test_quoted {
         ErrorKind::Tag
     );
 
-    success_test!(test_case_nine, quoted, "\"[]\"++", vec![], kst!("[]", "++"));
+    success_test!(test_case_nine, quoted, "\"[]\"++",   vec![], kst!("[]", "++"));
+    success_test!(test_case_ten,  quoted, "\"--++\"++", vec![], kst!("--++", "++"));
+
+    fail_test!(
+        test_case_eleven,
+        quoted,
+        "\"++\"--++",
+        vec![ktext!("--"), karma!("++")],
+        ErrorKind::Tag
+    );
 }
 
 
@@ -629,5 +665,23 @@ mod test_simple {
             karma!("++")
         ],
         ErrorKind::TakeWhile1
+    );
+
+    success_test!(test_case_ten, simple, "a--++", vec![], kst!("a--", "++"));
+
+    fail_test!(
+        test_case_eleven,
+        simple,
+        "--++",
+        vec![ktext!("--"), karma!("++")],
+        ErrorKind::Tag
+    );
+
+    fail_test!(
+        test_case_twelve,
+        simple,
+        "a --++",
+        vec![space!(" "), ktext!("--"), karma!("++")],
+        ErrorKind::Tag
     );
 }
