@@ -208,7 +208,7 @@ where
                         user: u,
                         thread_ts: tts,
                         ..
-                    } if c == "CAF6S4TRT".to_string() => {
+                    } => {
                         // TODO: don't react to myself
                         // TODO: check if it is a bot, if so, ignore as well
                         //       Should add a bot flag to the user_display cache as well
