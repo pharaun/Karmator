@@ -444,6 +444,7 @@ where
                             },
                             Ok(command::Command(x, _)) => println!("Input - Parse - No Handler: {:?}", x),
 
+                            // TODO: query + double check the user isn't a bot (if so ignore)
                             Err(_) => {
                                 // Not a command parse, time to consider allkarma parser
                                 println!("Input - All Karma");
@@ -451,9 +452,22 @@ where
                                 let res = karma::parse(&t);
 
                                 match res {
-                                    Ok(karma) => {
+                                    Ok(karma) if !karma.is_empty() => {
                                         println!("Input - All Karma - {:?}", karma);
+                                        let user_display = cache.get_user_display(&u).await;
+
+                                        let _ = sql_tx.send((
+                                            RunQuery::AddKarma {
+                                                timestamp: Utc::now(),
+                                                user_id: u,
+                                                username: user_display.map(|ud| KarmaName::new(&ud)),
+                                                channel_id: Some(c),
+                                                karma: karma,
+                                            },
+                                            None
+                                        )).await;
                                     },
+                                    Ok(_) => (),
                                     Err(e) => {
                                         // The parse should return empty if its valid, something
                                         // broke, should log it here

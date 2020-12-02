@@ -15,6 +15,10 @@ use unicode_normalization::{
     IsNormalized,
 };
 
+use chrono::prelude::{Utc, DateTime};
+
+use crate::parser::karma::KST;
+
 
 // Normalize any incoming string to be stored in the database
 fn normalize(input: &str) -> String {
@@ -62,7 +66,14 @@ pub enum RunQuery {
     Partial {
         karma_col: KarmaCol,
         users: HashSet<KarmaName>,
-    }
+    },
+    AddKarma {
+        timestamp: DateTime<Utc>,
+        user_id: String,
+        username: Option<KarmaName>,
+        channel_id: Option<String>,
+        karma: Vec<KST>,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -105,7 +116,7 @@ pub fn process_queries(
     let mut block_sql_rx = block_on_stream(sql_rx);
 
     let filename = "db.sqlite";
-    let conn = rs::Connection::open_with_flags(
+    let mut conn = rs::Connection::open_with_flags(
         Path::new(filename),
         rs::OpenFlags::SQLITE_OPEN_READ_WRITE
     ).expect(&format!("Connection error: {}", filename));
@@ -271,6 +282,92 @@ pub fn process_queries(
                 println!("Sql Worker - Partial - Dump: {:?}", &ret);
                 maybe_send(res_tx, ResQuery::Partial(ret))?;
             },
+            RunQuery::AddKarma{timestamp, user_id, username, channel_id, karma} => {
+                println!(
+                    "Sql Worker - AddKarma - timestamp: {:?}, user_id: {:?}, username: {:?}, channel_id: {:?}, karma: {:?}",
+                    timestamp, user_id, username, channel_id, karma
+                );
+                let un = username.map(|un| un.to_string()).unwrap_or("".to_string());
+
+                // TODO: find out which column we use (and which has slack id vs user name)
+                let nick_id: i64 = {
+                    let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE cleaned_nick = ?").unwrap();
+                    let mut rows = stmt.query(rs::params![user_id]).unwrap();
+
+                    if let Ok(Some(row)) = rows.next() {
+                        row.get(0).unwrap()
+                    } else {
+                        let mut stmt = conn.prepare(
+                            "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, \"\", ?, \"\")"
+                        ).unwrap();
+
+                        stmt.insert(rs::params![user_id, un]).unwrap()
+                    }
+                };
+                println!("Sql Worker - AddKarma - nick_id: {:?}", nick_id);
+
+                let channel_id: Option<i64> = if let Some(cid) = channel_id {
+                    let mut stmt = conn.prepare("SELECT id FROM chan_metadata WHERE channel = ?").unwrap();
+                    let mut rows = stmt.query(rs::params![cid]).unwrap();
+
+                    if let Ok(Some(row)) = rows.next() {
+                        row.get(0).ok()
+                    } else {
+                        let mut stmt = conn.prepare("INSERT INTO chan_metadata (channel) VALUES (?)").unwrap();
+                        stmt.insert(rs::params![cid]).ok()
+                    }
+                } else {
+                    None
+                };
+                println!("Sql Worker - AddKarma - channel_id: {:?}", channel_id);
+
+                // Shove the karma into the db now
+                println!("Sql Worker - AddKarma - Begin Transaction");
+                let tx = conn.transaction()?;
+                {
+                    let mut stmt = tx.prepare(
+                        "INSERT INTO votes
+                            (voted_at, by_whom_name, for_what_name, amount, nick_id, chan_id)
+                        VALUES
+                            (?, ?, ?, ?, ?, ?)"
+                    ).unwrap();
+
+                    // TODO: lazy hack (we check the string here)
+                    for KST(karma_text, k) in karma.iter() {
+                        let amount: Option<i8> = match k.as_str() {
+                            "++" => Some(1),
+                            "--" => Some(-1),
+                            "+-" => Some(0),
+                            "±"  => Some(0),
+                            _    => None,
+                        };
+
+                        if let Some(amount) = amount {
+                            let ts = timestamp.to_rfc3339();
+                            let karma_text = normalize(karma_text);
+
+                            println!(
+                                "Sql Worker - AddKarma - \tInserting Karma - {:?}, {:?}, {:?}",
+                                un, karma_text, amount
+                            );
+
+                            // TODO: better handle failure of username, maybe we should make username
+                            // mandatory before inserting?
+                            match channel_id {
+                                Some(cid) => stmt.insert(
+                                    rs::params![ts, un, karma_text, amount, nick_id, cid]
+                                ).unwrap(),
+                                None      => stmt.insert(
+                                    rs::params![ts, un, karma_text, amount, nick_id, &rs::types::Null]
+                                ).unwrap(),
+                            };
+                        }
+                    }
+                }
+                tx.commit()?;
+                println!("Sql Worker - AddKarma - End Transaction");
+            },
+
         }
     }
 
