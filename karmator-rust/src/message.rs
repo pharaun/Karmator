@@ -18,7 +18,7 @@ use std::time::Duration;
 use humantime::format_duration;
 
 
-use crate::database::{RunQuery, ResQuery, KarmaCol, KarmaTyp, OrdQuery};
+use crate::database::{RunQuery, ResQuery, KarmaCol, KarmaTyp, OrdQuery, KarmaName};
 use crate::cache;
 use crate::build_info;
 use crate::parser::command;
@@ -563,7 +563,7 @@ async fn partial(
         sql_tx,
         RunQuery::Partial {
             karma_col: kcol,
-            users: arg.into_iter().map(|i| i.to_string()).collect(),
+            users: arg.into_iter().map(|i| KarmaName::new(i)).collect(),
         }
     ).await.map(|p| {
         // Format it
@@ -615,7 +615,7 @@ async fn ranking(
         RunQuery::RankingDenormalized {
             karma_col: KarmaCol::Recieved,
             karma_typ: ktyp,
-            user: target.to_string(),
+            user: KarmaName::new(target),
         }
     ).await.map(|t| {
         // Format it
@@ -641,7 +641,7 @@ async fn ranking(
         RunQuery::RankingDenormalized {
             karma_col: KarmaCol::Given,
             karma_typ: ktyp,
-            user: target.to_string(),
+            user: KarmaName::new(target),
         }
     ).await.map(|t| {
         // Format it

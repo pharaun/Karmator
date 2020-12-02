@@ -7,6 +7,25 @@ use rusqlite as rs;
 use tokio::sync::oneshot;
 use std::collections::HashSet;
 use std::path::Path;
+use unicase::UniCase;
+
+
+// Custom Type to handle unicase for the query users
+#[derive(Debug, Eq, PartialEq, Hash)]
+pub struct KarmaName(UniCase<String>);
+
+impl KarmaName {
+    pub fn new(name: &str) -> KarmaName {
+        KarmaName(UniCase::new(name.to_string()))
+    }
+}
+
+impl ToString for KarmaName {
+    fn to_string(&self) -> String {
+        let KarmaName(n) = self;
+        n.to_string()
+    }
+}
 
 
 // TODO: should be able to replace all of these stuff maybe by some trait or some other tricks
@@ -23,12 +42,12 @@ pub enum RunQuery {
     RankingDenormalized {
         karma_col: KarmaCol,
         karma_typ: KarmaTyp,
-        user: String, // TODO: make it support a Set of user
+        user: KarmaName, // TODO: make it support a Set of user
     },
     Count(KarmaCol),
     Partial {
         karma_col: KarmaCol,
-        users: HashSet<String>,
+        users: HashSet<KarmaName>,
     }
 }
 
@@ -153,6 +172,7 @@ pub fn process_queries(
                     ) ELSE NULL END",
                     table=table, t_col1=t_col1, t_col2=t_col2
                 )).unwrap();
+                let user = user.to_string();
                 let mut rows = stmt.query(rs::params![user, user]).unwrap();
 
                 if let Ok(Some(row)) = rows.next() {
@@ -205,7 +225,7 @@ pub fn process_queries(
                 };
 
                 // Params
-                let param: Vec<&String> = users.iter().collect();
+                let param: Vec<String> = users.iter().map(|i| i.to_string()).collect();
 
                 let mut stmt = conn.prepare(&format!(
                     "SELECT name, up, down, side FROM {table} WHERE name in ({p_user}) ORDER BY name DESC",
@@ -215,7 +235,7 @@ pub fn process_queries(
 
                 // A bit more additional work than usual
                 let mut ret: Vec<(String, i32, i32, i32)> = vec![];
-                let mut has: HashSet<String> = HashSet::new();
+                let mut has: HashSet<KarmaName> = HashSet::new();
 
                 while let Ok(Some(row)) = rows.next() {
                     let name: String = row.get(0).unwrap();
@@ -223,8 +243,8 @@ pub fn process_queries(
                     let down: i32 = row.get(2).unwrap();
                     let side: i32 = row.get(3).unwrap();
 
-                    ret.push((name.clone(), up, down, side));
-                    has.insert(name);
+                    has.insert(KarmaName::new(&name));
+                    ret.push((name, up, down, side));
                 }
 
                 // Evaulate if there's missing ones and add if so

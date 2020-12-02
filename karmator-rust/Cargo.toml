@@ -30,6 +30,7 @@ rusqlite = { version = "0.24.1", features = ["bundled"] }
 
 # For karma parsing
 unicode-normalization = "0.1.16"
+unicase = "2.6.0"
 
 # For fuzzing
 arbitrary = { version = "0.4", optional = true, features = ["derive"] }
