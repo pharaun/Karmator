@@ -128,9 +128,6 @@ fn karma_run(input: &str) -> IResult<&str, KarmaToken> {
 
         // Try a rmatch approach first
         let v: Vec<_> = candidate.rmatch_indices(k).collect();
-        println!("candidate: {:?}, k: {:?}", candidate, k);
-        println!("rmatch: {:?}", v);
-        println!("c-len: {:?}, k-len: {:?}, c-k-len: {:?}", candidate.len(), k.len(), candidate.len() - k.len());
 
         // Check if there is any possible match at all
         if !v.is_empty() {
@@ -166,10 +163,6 @@ fn karma_run(input: &str) -> IResult<&str, KarmaToken> {
             Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
 
         } else {
-            println!("===");
-            println!("Winning: {:?}, text: {:?}, input: {:?}", longest, &input_slice, &ret_slice);
-            println!("===");
-
             Ok((&ret_slice, KarmaToken::KText(input_slice.to_string())))
         }
     }
@@ -200,23 +193,14 @@ fn text(input: &str) -> IResult<&str, KarmaToken> {
     }
 
     loop {
-        println!("========");
-        println!("1i: {:?}", cur_input);
-        println!("1r: {:?}", ret);
-
         // Force forward progress
         let par: IResult<&str, &str> = take_while1(
             |c:char| !c.is_whitespace() & !is_symbol(c) & !is_karma_symbol(c)
         )(cur_input);
-        println!("1p: {:?}", par);
         if let Ok((input, tok)) = par {
             cur_input = input;
             ret.push_str(tok);
         }
-
-        println!("");
-        println!("2i: {:?}", cur_input);
-        println!("2r: {:?}", ret);
 
         // Check if it is a whitespace or symbol parse
         let par = peek(alt((
@@ -225,7 +209,7 @@ fn text(input: &str) -> IResult<&str, KarmaToken> {
             karma_run,
             karma,
         )))(cur_input);
-        println!("2p: {:?}", par);
+
         match par {
             Ok(_)  => break,
             Err(_) => {
@@ -237,18 +221,11 @@ fn text(input: &str) -> IResult<&str, KarmaToken> {
                 let (input, tok) = take(1usize)(cur_input)?;
                 cur_input = input;
                 ret.push_str(tok);
-
-                println!("");
-                println!("3i: {:?}", cur_input);
-                println!("3r: {:?}", ret);
             },
         }
     }
 
-    let stuff = Ok((cur_input, KarmaToken::Text(ret)));
-    println!("========");
-    println!("ret: {:?}", stuff);
-    stuff
+    Ok((cur_input, KarmaToken::Text(ret)))
 }
 
 
