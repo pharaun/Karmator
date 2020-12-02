@@ -143,8 +143,6 @@ async fn send_simple_message(
     thread_ts: Option<String>,
     text: String
 ) -> Result<(), &'static str> {
-    println!("Sending: {:?}", text);
-
     // TODO: register this message send to be tracked later
     let ws_msg = match thread_ts {
         Some(ts) => json!({
