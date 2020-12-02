@@ -39,6 +39,12 @@ impl<'a> Tokens<'a> {
         self.tok.last().map(|t| t.clone())
     }
 
+    pub fn second_to_last(&self) -> Option<KarmaToken> {
+        self.tok.split_last().map(
+            |(_, rest)| rest.last().map(|t| t.clone())
+        ).flatten()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.tok.is_empty()
     }

@@ -138,17 +138,29 @@ fn kenclosedbrace(input: Tokens) -> IResult<Tokens, String> {
     }
 }
 
-// TODO: this can consume KText unless it is preceeding a Karma,
 fn kspacetext(input: Tokens) -> IResult<Tokens, String> {
     let (input, tkt) = take_while1(|kt:&KarmaToken|
-        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_))
+        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::KText(_))
     )(input)?;
 
-    // Validate that last entity isn't a space
-    match tkt.last() {
-        Some(KarmaToken::Space(_)) => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
+    match (tkt.second_to_last(), tkt.last()) {
+        // Validate that last entity isn't a space
+        // Text|KText|Space, Text, Karma
+        (_, Some(KarmaToken::Space(_))) => {
+            Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
+        },
+
+        // Do additional check, make sure there is not a space before this token
+        // Text|KText|Space, Text, KText, Karma
+        (Some(KarmaToken::Space(_)), Some(KarmaToken::KText(_))) => {
+            Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
+        },
+        (None, Some(KarmaToken::KText(_))) => {
+            Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
+        },
+
+        // Collapse the list into string and trim it
         _ => {
-            // Collapse the list into string and trim it
             let temp = tkt.iter().map(
                 |k:&KarmaToken| k.to_string()
             ).collect::<Vec<String>>().join("").trim_start().to_string();
@@ -401,13 +413,6 @@ macro_rules! karma {
 }
 
 #[cfg(test)]
-macro_rules! ktext {
-    ($data:expr) => {
-        KarmaToken::KText($data.to_string())
-    }
-}
-
-#[cfg(test)]
 mod test_multi {
     use super::*;
 
@@ -532,7 +537,7 @@ mod test_braced {
         test_case_eleven,
         braced,
         "[++]--++",
-        vec![ktext!("--"), karma!("++")],
+        vec![karma!("++")],
         ErrorKind::Tag
     );
 }
@@ -585,7 +590,7 @@ mod test_quoted {
         test_case_eleven,
         quoted,
         "\"++\"--++",
-        vec![ktext!("--"), karma!("++")],
+        vec![karma!("++")],
         ErrorKind::Tag
     );
 }
@@ -673,7 +678,7 @@ mod test_simple {
         test_case_eleven,
         simple,
         "--++",
-        vec![ktext!("--"), karma!("++")],
+        vec![karma!("++")],
         ErrorKind::Tag
     );
 
@@ -681,7 +686,7 @@ mod test_simple {
         test_case_twelve,
         simple,
         "a --++",
-        vec![space!(" "), ktext!("--"), karma!("++")],
+        vec![karma!("++")],
         ErrorKind::Tag
     );
 }
