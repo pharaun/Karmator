@@ -51,6 +51,7 @@ enum UserEvent {
         user: String,
         text: String,
         ts: String,
+        thread_ts: Option<String>,
     },
 
     // TODO: consider looking at slack_api for types to reuse here
@@ -139,15 +140,27 @@ async fn send_simple_message(
     msg_id: MsgId,
     tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
     channel: String,
+    thread_ts: Option<String>,
     text: String
 ) -> Result<(), &'static str> {
+    println!("Sending: {:?}", text);
+
     // TODO: register this message send to be tracked later
-    let ws_msg = json!({
-        "id": msg_id.inc(),
-        "type": "message",
-        "channel": channel,
-        "text": text,
-    }).to_string();
+    let ws_msg = match thread_ts {
+        Some(ts) => json!({
+            "id": msg_id.inc(),
+            "type": "message",
+            "channel": channel,
+            "text": text,
+            "thread_ts": ts,
+        }).to_string(),
+        None => json!({
+            "id": msg_id.inc(),
+            "type": "message",
+            "channel": channel,
+            "text": text,
+        }).to_string(),
+    };
     tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await.map_err(|_| "Error sending")
 }
 
@@ -186,6 +199,7 @@ where
 
     if let Some(e) = raw_msg.and_then(parse_event) {
         match e {
+            // TODO: support replying to DM (it does not listen successfully)
             Event::UserEvent(event) => {
                 // Check if its a message/certain string, if so, reply
                 match event {
@@ -194,6 +208,7 @@ where
                         channel: Some(c),
                         text: t,
                         user: u,
+                        thread_ts: tts,
                         ..
                     } if c == "CAF6S4TRT".to_string() => {
                         // TODO: don't react to myself
@@ -218,8 +233,9 @@ where
                                     msg_id,
                                     &mut tx,
                                     c,
+                                    tts,
                                     format!("<@{}>: Cargo Version: {} - Build Date: {}, - Build SHA: {}", u, ver, dat, sha),
-                                );
+                                ).await;
                                 println!("Inbound - \t\t!version");
 
                             },
@@ -232,8 +248,9 @@ where
                                     msg_id,
                                     &mut tx,
                                     c,
+                                    tts,
                                     format!("<@{}>: {}", u, format_duration(durt).to_string()),
-                                );
+                                ).await;
                                 println!("Inbound - \t\t!uptime");
 
                             },
@@ -243,8 +260,9 @@ where
                                     msg_id,
                                     &mut tx,
                                     c,
+                                    tts,
                                     format!("<@{}>: {}", u, help),
-                                );
+                                ).await;
                                 println!("Inbound - \t\t!help");
 
                             },
@@ -255,8 +273,9 @@ where
                                     msg_id,
                                     &mut tx,
                                     c,
+                                    tts,
                                     format!("<@{}>: {}", u, github),
-                                );
+                                ).await;
                                 println!("Inbound - \t\t!github");
 
                             },
@@ -271,6 +290,7 @@ where
                                         &mut tx,
                                         &mut sql_tx,
                                         c,
+                                        tts,
                                         u,
                                         KarmaCol::Recieved,
                                         OrdQuery::Desc,
@@ -285,6 +305,7 @@ where
                                         &mut tx,
                                         &mut sql_tx,
                                         c,
+                                        tts,
                                         u,
                                         KarmaCol::Recieved,
                                         arg,
@@ -298,6 +319,7 @@ where
                                         &mut tx,
                                         &mut sql_tx,
                                         c,
+                                        tts,
                                         u,
                                         KarmaCol::Given,
                                         OrdQuery::Desc,
@@ -312,6 +334,7 @@ where
                                         &mut tx,
                                         &mut sql_tx,
                                         c,
+                                        tts,
                                         u,
                                         KarmaCol::Given,
                                         arg,
@@ -325,6 +348,7 @@ where
                                         &mut tx,
                                         &mut sql_tx,
                                         c,
+                                        tts,
                                         u,
                                         KarmaCol::Recieved,
                                         OrdQuery::Desc,
@@ -338,6 +362,7 @@ where
                                         msg_id,
                                         &mut tx,
                                         c,
+                                        tts,
                                         format!("<@{}>: {}", u, "Not supported!"),
                                     ).await;
                                 }
@@ -354,6 +379,7 @@ where
                                                 &mut tx,
                                                 &mut sql_tx,
                                                 c,
+                                                tts,
                                                 u,
                                                 KarmaTyp::Total,
                                                 &ud,
@@ -365,6 +391,7 @@ where
                                                 msg_id,
                                                 &mut tx,
                                                 c,
+                                                tts,
                                                 format!("<@{}>: {}", u, "Cant find your display name, thanks slack"),
                                             ).await;
                                         },
@@ -378,6 +405,7 @@ where
                                         &mut tx,
                                         &mut sql_tx,
                                         c,
+                                        tts,
                                         u,
                                         KarmaTyp::Total,
                                         target,
@@ -388,6 +416,7 @@ where
                                         msg_id,
                                         &mut tx,
                                         c,
+                                        tts,
                                         format!("<@{}>: {}", u, "Can only rank one karma entry at a time!"),
                                     ).await;
                                 }
@@ -404,6 +433,7 @@ where
                                                 &mut tx,
                                                 &mut sql_tx,
                                                 c,
+                                                tts,
                                                 u,
                                                 KarmaTyp::Side,
                                                 &ud,
@@ -415,6 +445,7 @@ where
                                                 msg_id,
                                                 &mut tx,
                                                 c,
+                                                tts,
                                                 format!("<@{}>: {}", u, "Cant find your display name, thanks slack"),
                                             ).await;
                                         },
@@ -428,6 +459,7 @@ where
                                         &mut tx,
                                         &mut sql_tx,
                                         c,
+                                        tts,
                                         u,
                                         KarmaTyp::Side,
                                         target,
@@ -438,6 +470,7 @@ where
                                         msg_id,
                                         &mut tx,
                                         c,
+                                        tts,
                                         format!("<@{}>: {}", u, "Can only rank one karma entry at a time!"),
                                     ).await;
                                 }
@@ -495,6 +528,7 @@ async fn top_n(
     tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
     sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
     channel: String,
+    thread_ts: Option<String>,
     user: String,
     kcol1: KarmaCol,
     kord1: OrdQuery,
@@ -551,12 +585,14 @@ async fn top_n(
             msg_id,
             tx,
             channel,
+            thread_ts,
             format!("<@{}>: {}: {}. {}: {}.", user, label.0, h, label.1, l),
         ).await,
         _ => send_simple_message(
             msg_id,
             tx,
             channel,
+            thread_ts,
             format!("<@{}>: {}", user, "Something went wrong"),
         ).await,
     };
@@ -567,6 +603,7 @@ async fn partial(
     tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
     sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
     channel: String,
+    thread_ts: Option<String>,
     user: String,
     kcol: KarmaCol,
     arg: Vec<&str>,
@@ -600,12 +637,14 @@ async fn partial(
             msg_id,
             tx,
             channel,
+            thread_ts,
             format!("<@{}>: {}", user, x),
         ).await,
         _ => send_simple_message(
             msg_id,
             tx,
             channel,
+            thread_ts,
             format!("<@{}>: {}", user, "Something went wrong"),
         ).await,
     };
@@ -617,6 +656,7 @@ async fn ranking(
     tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
     sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
     channel: String,
+    thread_ts: Option<String>,
     user: String,
     ktyp: KarmaTyp,
     target: &str,
@@ -699,6 +739,7 @@ async fn ranking(
         msg_id,
         tx,
         channel,
+        thread_ts,
         format!("<@{}>: {}", user, rank),
     ).await;
 }
