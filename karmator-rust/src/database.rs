@@ -9,6 +9,20 @@ use std::collections::HashSet;
 use std::path::Path;
 use unicase::UniCase;
 
+use unicode_normalization::{
+    UnicodeNormalization,
+    is_nfc_quick,
+    IsNormalized,
+};
+
+
+// Normalize any incoming string to be stored in the database
+fn normalize(input: &str) -> String {
+    match is_nfc_quick(input.chars()) {
+        IsNormalized::Yes => input.to_string(),
+        _ => input.nfc().collect(),
+    }
+}
 
 // Custom Type to handle unicase for the query users
 #[derive(Debug, Eq, PartialEq, Hash)]
@@ -16,7 +30,7 @@ pub struct KarmaName(UniCase<String>);
 
 impl KarmaName {
     pub fn new(name: &str) -> KarmaName {
-        KarmaName(UniCase::new(name.to_string()))
+        KarmaName(UniCase::new(normalize(name)))
     }
 }
 
