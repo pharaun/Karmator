@@ -23,6 +23,7 @@ use crate::cache;
 use crate::build_info;
 use crate::parser::command;
 use crate::parser::karma;
+use crate::parser::santizer;
 
 
 // Type alias for msg_id
@@ -490,31 +491,65 @@ where
                                 // Not a command parse, time to consider allkarma parser
                                 println!("Input - All Karma");
 
-                                let res = karma::parse(&text);
+                                // Santize the incoming stream
+                                match santizer::parse(&text).ok() {
+                                    None      => println!("Input - All Karma - Failed to santize: {:?}", &text),
+                                    Some(san) => {
+                                        let mut safe_text = vec![];
 
-                                match res {
-                                    Ok(karma) if !karma.is_empty() => {
-                                        println!("Input - All Karma - {:?}", karma);
-                                        let user_display = cache.get_user_display(&user_id).await;
-                                        let user_name = cache.get_user_name(&user_id).await;
+                                        for seg in san.iter() {
+                                            // TODO: do other id reprocessing such as:
+                                            // 1. channel...
+                                            match seg {
+                                                santizer::Segment::User(uid, l) => {
+                                                    // Do a user id lookup
+                                                    let user_display = cache.get_user_display(&user_id).await;
 
-                                        let _ = sql_tx.send((
-                                            RunQuery::AddKarma {
-                                                timestamp: Utc::now(),
-                                                user_id: user_id,
-                                                username: user_display.map(|ud| KarmaName::new(&ud)),
-                                                real_name: user_name.map(|rn| KarmaName::new(&rn)),
-                                                channel_id: Some(channel_id),
-                                                karma: karma,
+                                                    match user_display {
+                                                        Some(name) => safe_text.push(name),
+                                                        None => {
+                                                            // TODO: Log this, but for now fallback to
+                                                            // just rendering it straight into the db
+                                                            safe_text.push(
+                                                                santizer::Segment::User(uid, l).to_string()
+                                                            );
+                                                        },
+                                                    }
+                                                },
+                                                // Everything else
+                                                s => safe_text.push(s.to_string()),
+                                            }
+                                        }
+
+                                        // Parse karma now
+                                        let safe_text = safe_text.join("");
+                                        let res = karma::parse(&safe_text);
+
+                                        match res {
+                                            Ok(karma) if !karma.is_empty() => {
+                                                println!("Input - All Karma - {:?}", karma);
+                                                let user_display = cache.get_user_display(&user_id).await;
+                                                let user_name = cache.get_user_name(&user_id).await;
+
+                                                let _ = sql_tx.send((
+                                                    RunQuery::AddKarma {
+                                                        timestamp: Utc::now(),
+                                                        user_id: user_id,
+                                                        username: user_display.map(|ud| KarmaName::new(&ud)),
+                                                        real_name: user_name.map(|rn| KarmaName::new(&rn)),
+                                                        channel_id: Some(channel_id),
+                                                        karma: karma,
+                                                    },
+                                                    None
+                                                )).await;
                                             },
-                                            None
-                                        )).await;
-                                    },
-                                    Ok(_) => (),
-                                    Err(e) => {
-                                        // The parse should return empty if its valid, something
-                                        // broke, should log it here
-                                        eprintln!("All Karma - Error - {:?}", e);
+                                            Ok(_) => (),
+                                            Err(e) => {
+                                                // The parse should return empty if its valid, something
+                                                // broke, should log it here
+                                                eprintln!("All Karma - Error - {:?}", e);
+                                            },
+                                        }
                                     },
                                 }
                             },
