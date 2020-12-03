@@ -47,8 +47,10 @@ enum UserEvent {
     Message {
         subtype: Option<String>,
         hidden: Option<bool>,
-        channel: Option<String>,
-        user: String,
+        #[serde(rename = "channel")]
+        channel_id: Option<String>,
+        #[serde(rename = "user")]
+        user_id: String,
         text: String,
         ts: String,
         thread_ts: Option<String>,
@@ -56,14 +58,16 @@ enum UserEvent {
 
     // TODO: consider looking at slack_api for types to reuse here
     ReactionAdded {
-        user: String,
+        #[serde(rename = "user")]
+        user_id: String,
         reaction: String,
         item_user: Option<String>,
         // item: ListResponseItem
         event_ts: String,
     },
     ReactionRemoved {
-        user: String,
+        #[serde(rename = "user")]
+        user_id: String,
         reaction: String,
         item_user: Option<String>,
         // item: ListResponseItem
@@ -201,25 +205,31 @@ where
             Event::UserEvent(event) => {
                 // Check if its a message/certain string, if so, reply
                 match event {
-                    // TODO: support DM, right now its only in channels
                     UserEvent::Message {
-                        channel: Some(c),
-                        text: t,
-                        user: u,
-                        thread_ts: tts,
-                        ..
+                        channel_id: Some(channel_id),
+                        text,
+                        user_id,
+                        thread_ts,
+                        subtype: _,
+                        hidden: _,
+                        ts: _,
                     } => {
-                        // TODO: don't react to myself
-                        // TODO: check if it is a bot, if so, ignore as well
-                        //       Should add a bot flag to the user_display cache as well
-                        //       Should also make sure to throttle cache update rate as well
-                        if u == "UALB533UK".to_string() {
-                            println!("Inbound - Ignoring myself");
-                            return Ok(());
+                        // Check if user is a bot, if so ignore (this applies to myself as well)
+                        match cache.is_user_bot(&user_id).await {
+                            None => {
+                                println!("Inbound - No Info on user: {:?}", user_id);
+                                return Ok(());
+                            },
+                            Some(is_bot) => {
+                                if is_bot {
+                                    println!("Inbound - User: {:?} is a bot, ignoring", user_id);
+                                    return Ok(());
+                                }
+                            }
                         }
 
                         // Parse string to see if its a command one
-                        let res = command::parse(&t);
+                        let res = command::parse(&text);
 
                         match res {
                             Ok(command::Command("version", _)) => {
@@ -230,9 +240,9 @@ where
                                 let _ = send_simple_message(
                                     msg_id,
                                     &mut tx,
-                                    c,
-                                    tts,
-                                    format!("<@{}>: Cargo Version: {} - Build Date: {}, - Build SHA: {}", u, ver, dat, sha),
+                                    channel_id,
+                                    thread_ts,
+                                    format!("<@{}>: Cargo Version: {} - Build Date: {}, - Build SHA: {}", user_id, ver, dat, sha),
                                 ).await;
                                 println!("Inbound - \t\t!version");
 
@@ -245,9 +255,9 @@ where
                                 let _ = send_simple_message(
                                     msg_id,
                                     &mut tx,
-                                    c,
-                                    tts,
-                                    format!("<@{}>: {}", u, format_duration(durt).to_string()),
+                                    channel_id,
+                                    thread_ts,
+                                    format!("<@{}>: {}", user_id, format_duration(durt).to_string()),
                                 ).await;
                                 println!("Inbound - \t\t!uptime");
 
@@ -257,9 +267,9 @@ where
                                 let _ = send_simple_message(
                                     msg_id,
                                     &mut tx,
-                                    c,
-                                    tts,
-                                    format!("<@{}>: {}", u, help),
+                                    channel_id,
+                                    thread_ts,
+                                    format!("<@{}>: {}", user_id, help),
                                 ).await;
                                 println!("Inbound - \t\t!help");
 
@@ -270,9 +280,9 @@ where
                                 let _ = send_simple_message(
                                     msg_id,
                                     &mut tx,
-                                    c,
-                                    tts,
-                                    format!("<@{}>: {}", u, github),
+                                    channel_id,
+                                    thread_ts,
+                                    format!("<@{}>: {}", user_id, github),
                                 ).await;
                                 println!("Inbound - \t\t!github");
 
@@ -287,9 +297,9 @@ where
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
-                                        c,
-                                        tts,
-                                        u,
+                                        channel_id,
+                                        thread_ts,
+                                        user_id,
                                         KarmaCol::Recieved,
                                         OrdQuery::Desc,
                                         KarmaCol::Recieved,
@@ -302,9 +312,9 @@ where
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
-                                        c,
-                                        tts,
-                                        u,
+                                        channel_id,
+                                        thread_ts,
+                                        user_id,
                                         KarmaCol::Recieved,
                                         arg,
                                     ).await;
@@ -316,9 +326,9 @@ where
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
-                                        c,
-                                        tts,
-                                        u,
+                                        channel_id,
+                                        thread_ts,
+                                        user_id,
                                         KarmaCol::Given,
                                         OrdQuery::Desc,
                                         KarmaCol::Given,
@@ -331,9 +341,9 @@ where
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
-                                        c,
-                                        tts,
-                                        u,
+                                        channel_id,
+                                        thread_ts,
+                                        user_id,
                                         KarmaCol::Given,
                                         arg,
                                     ).await;
@@ -345,9 +355,9 @@ where
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
-                                        c,
-                                        tts,
-                                        u,
+                                        channel_id,
+                                        thread_ts,
+                                        user_id,
                                         KarmaCol::Recieved,
                                         OrdQuery::Desc,
                                         KarmaCol::Given,
@@ -359,16 +369,16 @@ where
                                     let _ = send_simple_message(
                                         msg_id,
                                         &mut tx,
-                                        c,
-                                        tts,
-                                        format!("<@{}>: {}", u, "Not supported!"),
+                                        channel_id,
+                                        thread_ts,
+                                        format!("<@{}>: {}", user_id, "Not supported!"),
                                     ).await;
                                 }
                             },
                             Ok(command::Command("rank", arg)) => {
                                 if arg.is_empty() {
                                     // Rank with yourself
-                                    let user_display = cache.get_user_display(&u).await;
+                                    let user_display = cache.get_user_display(&user_id).await;
 
                                     match user_display {
                                         Some(ud) => {
@@ -376,9 +386,9 @@ where
                                                 msg_id,
                                                 &mut tx,
                                                 &mut sql_tx,
-                                                c,
-                                                tts,
-                                                u,
+                                                channel_id,
+                                                thread_ts,
+                                                user_id,
                                                 KarmaTyp::Total,
                                                 &ud,
                                                 "Your",
@@ -388,9 +398,9 @@ where
                                             let _ = send_simple_message(
                                                 msg_id,
                                                 &mut tx,
-                                                c,
-                                                tts,
-                                                format!("<@{}>: {}", u, "Cant find your display name, thanks slack"),
+                                                channel_id,
+                                                thread_ts,
+                                                format!("<@{}>: {}", user_id, "Cant find your display name, thanks slack"),
                                             ).await;
                                         },
                                     }
@@ -402,9 +412,9 @@ where
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
-                                        c,
-                                        tts,
-                                        u,
+                                        channel_id,
+                                        thread_ts,
+                                        user_id,
                                         KarmaTyp::Total,
                                         target,
                                         &format!("{}", target),
@@ -413,16 +423,16 @@ where
                                     let _ = send_simple_message(
                                         msg_id,
                                         &mut tx,
-                                        c,
-                                        tts,
-                                        format!("<@{}>: {}", u, "Can only rank one karma entry at a time!"),
+                                        channel_id,
+                                        thread_ts,
+                                        format!("<@{}>: {}", user_id, "Can only rank one karma entry at a time!"),
                                     ).await;
                                 }
                             },
                             Ok(command::Command("ranksidevote", arg)) => {
                                 if arg.is_empty() {
                                     // Rank with yourself
-                                    let user_display = cache.get_user_display(&u).await;
+                                    let user_display = cache.get_user_display(&user_id).await;
 
                                     match user_display {
                                         Some(ud) => {
@@ -430,9 +440,9 @@ where
                                                 msg_id,
                                                 &mut tx,
                                                 &mut sql_tx,
-                                                c,
-                                                tts,
-                                                u,
+                                                channel_id,
+                                                thread_ts,
+                                                user_id,
                                                 KarmaTyp::Side,
                                                 &ud,
                                                 "Your",
@@ -442,9 +452,9 @@ where
                                             let _ = send_simple_message(
                                                 msg_id,
                                                 &mut tx,
-                                                c,
-                                                tts,
-                                                format!("<@{}>: {}", u, "Cant find your display name, thanks slack"),
+                                                channel_id,
+                                                thread_ts,
+                                                format!("<@{}>: {}", user_id, "Cant find your display name, thanks slack"),
                                             ).await;
                                         },
                                     }
@@ -456,9 +466,9 @@ where
                                         msg_id,
                                         &mut tx,
                                         &mut sql_tx,
-                                        c,
-                                        tts,
-                                        u,
+                                        channel_id,
+                                        thread_ts,
+                                        user_id,
                                         KarmaTyp::Side,
                                         target,
                                         &format!("{}", target),
@@ -467,9 +477,9 @@ where
                                     let _ = send_simple_message(
                                         msg_id,
                                         &mut tx,
-                                        c,
-                                        tts,
-                                        format!("<@{}>: {}", u, "Can only rank one karma entry at a time!"),
+                                        channel_id,
+                                        thread_ts,
+                                        format!("<@{}>: {}", user_id, "Can only rank one karma entry at a time!"),
                                     ).await;
                                 }
                             },
@@ -480,19 +490,21 @@ where
                                 // Not a command parse, time to consider allkarma parser
                                 println!("Input - All Karma");
 
-                                let res = karma::parse(&t);
+                                let res = karma::parse(&text);
 
                                 match res {
                                     Ok(karma) if !karma.is_empty() => {
                                         println!("Input - All Karma - {:?}", karma);
-                                        let user_display = cache.get_user_display(&u).await;
+                                        let user_display = cache.get_user_display(&user_id).await;
+                                        let user_name = cache.get_user_name(&user_id).await;
 
                                         let _ = sql_tx.send((
                                             RunQuery::AddKarma {
                                                 timestamp: Utc::now(),
-                                                user_id: u,
+                                                user_id: user_id,
                                                 username: user_display.map(|ud| KarmaName::new(&ud)),
-                                                channel_id: Some(c),
+                                                real_name: user_name.map(|rn| KarmaName::new(&rn)),
+                                                channel_id: Some(channel_id),
                                                 karma: karma,
                                             },
                                             None

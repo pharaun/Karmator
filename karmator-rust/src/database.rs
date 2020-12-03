@@ -71,6 +71,7 @@ pub enum RunQuery {
         timestamp: DateTime<Utc>,
         user_id: String,
         username: Option<KarmaName>,
+        real_name: Option<KarmaName>,
         channel_id: Option<String>,
         karma: Vec<KST>,
     },
@@ -282,26 +283,27 @@ pub fn process_queries(
                 println!("Sql Worker - Partial - Dump: {:?}", &ret);
                 maybe_send(res_tx, ResQuery::Partial(ret))?;
             },
-            RunQuery::AddKarma{timestamp, user_id, username, channel_id, karma} => {
+            RunQuery::AddKarma{timestamp, user_id, username, real_name, channel_id, karma} => {
                 println!(
-                    "Sql Worker - AddKarma - timestamp: {:?}, user_id: {:?}, username: {:?}, channel_id: {:?}, karma: {:?}",
-                    timestamp, user_id, username, channel_id, karma
+                    "Sql Worker - AddKarma - timestamp: {:?}, user_id: {:?}, username: {:?}, real_name: {:?}, channel_id: {:?}, karma: {:?}",
+                    timestamp, user_id, username, real_name, channel_id, karma
                 );
                 let un = username.map(|un| un.to_string()).unwrap_or("".to_string());
+                let urn = real_name.map(|rn| rn.to_string()).unwrap_or("".to_string());
 
                 // TODO: find out which column we use (and which has slack id vs user name)
                 let nick_id: i64 = {
-                    let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE cleaned_nick = ?").unwrap();
+                    let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?").unwrap();
                     let mut rows = stmt.query(rs::params![user_id]).unwrap();
 
                     if let Ok(Some(row)) = rows.next() {
                         row.get(0).unwrap()
                     } else {
                         let mut stmt = conn.prepare(
-                            "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, \"\", ?, \"\")"
+                            "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?)"
                         ).unwrap();
 
-                        stmt.insert(rs::params![user_id, un]).unwrap()
+                        stmt.insert(rs::params![un, urn, user_id, "SlackServer"]).unwrap()
                     }
                 };
                 println!("Sql Worker - AddKarma - nick_id: {:?}", nick_id);
@@ -344,6 +346,7 @@ pub fn process_queries(
 
                         if let Some(amount) = amount {
                             let ts = timestamp.to_rfc3339();
+                            let ts = ts.trim_end_matches("+00:00");
                             let karma_text = normalize(karma_text);
 
                             println!(
