@@ -529,22 +529,40 @@ where
                                         let res = karma::parse(&safe_text);
 
                                         match res {
-                                            Ok(karma) if !karma.is_empty() => {
+                                            Ok(mut karma) if !karma.is_empty() => {
                                                 println!("Input - All Karma - {:?}", karma);
                                                 let user_display = cache.get_user_display(&user_id).await;
                                                 let user_name = cache.get_user_name(&user_id).await;
 
-                                                let _ = sql_tx.send((
-                                                    RunQuery::AddKarma {
-                                                        timestamp: Utc::now(),
-                                                        user_id: user_id,
-                                                        username: user_display.map(|ud| KarmaName::new(&ud)),
-                                                        real_name: user_name.map(|rn| KarmaName::new(&rn)),
-                                                        channel_id: Some(channel_id),
-                                                        karma: karma,
-                                                    },
-                                                    None
-                                                )).await;
+                                                // Filter karma of any entity that is same as
+                                                // user_display, and check if any got filtered, if
+                                                // so, log.
+                                                let before = karma.len();
+                                                match user_display {
+                                                    None     => (),
+                                                    Some(ref ud) => karma.retain(|&karma::KST(ref t, _)| t != ud),
+                                                }
+                                                let after = karma.len();
+
+                                                if before != after {
+                                                    println!("Input - All Karma - user: {:?} self-voted", user_display);
+                                                }
+
+                                                if !karma.is_empty() {
+                                                    println!("Input - All Karma - Actual: {:?}", karma);
+
+                                                    let _ = sql_tx.send((
+                                                        RunQuery::AddKarma {
+                                                            timestamp: Utc::now(),
+                                                            user_id: user_id,
+                                                            username: user_display.map(|ud| KarmaName::new(&ud)),
+                                                            real_name: user_name.map(|rn| KarmaName::new(&rn)),
+                                                            channel_id: Some(channel_id),
+                                                            karma: karma,
+                                                        },
+                                                        None
+                                                    )).await;
+                                                }
                                             },
                                             Ok(_) => (),
                                             Err(e) => {
