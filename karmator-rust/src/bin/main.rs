@@ -23,20 +23,49 @@ use karmator_rust::cache;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let filename = env::var("SQLITE_FILE").map_err(|_| "SQLITE_FILE env var must be set")?;
+    let token = env::var("SLACK_API_TOKEN").map_err(|_| "SLACK_API_TOKEN env var must be set")?;
+    let client = slack::default_client().map_err(|e| format!("Could not get default_client, {:?}", e))?;
+
     // Shared integer counter for message ids
     let msg_id = Arc::new(RelaxedCounter::new(0));
 
     // Uptime of program start
     let start_time: DateTime<Utc> = Utc::now();
 
-    let filename = env::var("SQLITE_FILE").map_err(|_| "SQLITE_FILE env var must be set")?;
-    let token = env::var("SLACK_API_TOKEN").map_err(|_| "SLACK_API_TOKEN env var must be set")?;
-    let client = slack::default_client().map_err(|e| format!("Could not get default_client, {:?}", e))?;
-
-
     // System Cache manager
     let cache = cache::Cache::new(&token, client.clone());
 
+    // Message Tx/Rx from the message loop to the downstream handlers
+    let (tx, mut rx) = mpsc::channel(32);
+
+    // Sql request/reply channels for the downstream handlers to talk to the
+    // sqlite worker thread
+    let (sql_tx, sql_rx) = mpsc::channel(32);
+
+    // Launch the sqlite worker thread
+    let sql_worker = thread::Builder::new().name("sqlite_worker".into()).spawn(move || {
+        println!("Sql Worker - Launching");
+
+        let res = database::process_queries(Path::new(&filename), sql_rx);
+        println!("Sql Worker - {:?}", res);
+
+        // TODO: Worker died, let's make sure everything else goes down as well.
+        println!("Sql Worker - Exiting");
+    })?;
+
+
+    // TODO: figure out how to re-establish an connection upon connection loss or a 'good bye' from
+    // slack
+    //
+    // I think the steps should be:
+    // 1. loop start
+    // 2. establish an WS connection
+    // 3. select!(get/send)
+    // 4. do some processing in 'get' for system control messages (another layer for message
+    //    control)
+    // 5. if system control get/connection lost, exit, causes the select! to end, and the loop
+    //    again
 
     // Work to establish the WS connection
     let response = slack::rtm::connect(&client, &token).await.map_err(|e| format!("Control - {:?}", e))?;
@@ -48,36 +77,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (ws_stream, _) = tungstenite::connect_async(ws_url).await.map_err(|e| format!("Control - \t\t{:?}", e))?;
     println!("Control - \t\tWS connection established");
 
-    // Setup the mpsc channel
-    let (tx, mut rx) = mpsc::channel(32);
-
     // Split the stream
     let (mut ws_write, mut ws_read) = ws_stream.split();
 
-
-    // Setup the mpsc channel for sqlite and spawn the sqlite worker thread
-    // TODO: define a data format for asking the db to query something on your behalf, for now
-    // pass in the raw query string?
-    let (sql_tx, sql_rx) = mpsc::channel(32);
-
-    let sql_worker = thread::spawn(move || {
-        println!("Sql Worker - Launching");
-        // TODO: check result
-        let _ = database::process_queries(Path::new(&filename), sql_rx);
-        println!("Sql Worker - Exiting");
-    });
-
-    // Spawn the inbound ws stream processor
-    let inbound = tokio::spawn(async move {
-        // TODO: we may have some ordering funnyness if we spawn a processor per
-        // inbound message, ponder doing one processor per channel so its consistent
-        // order per channel, if want to be intelligent about it, have a timeout, if a
-        // channel has been quiet long enough, go ahead and shut down the channel processor.
+    loop {
+        // TODO: have each branch return a Ok or Err (or w/e) to indicate all ok or shit is bad
+        // then if shit is bad go to recovery loop, and if its irrevociable, exit loop and
+        // rejoin/terminate the sql worker if its not already terminated
         //
-        // TODO: this could explode if the outstream or database get backed up it will just
-        // spawn more and more inbound message, not good.
-        loop {
-            if let Some(Ok(ws_msg)) = ws_read.next().await {
+        // TODO: nested loop, one for the connection setup/teardown, then one for the inner select
+        // loop
+
+        tokio::select! {
+            Some(Ok(ws_msg)) = ws_read.next() => {
+                // TODO: we may have some ordering funnyness if we spawn a processor per
+                // inbound message, ponder doing one processor per channel so its consistent
+                // order per channel, if want to be intelligent about it, have a timeout, if a
+                // channel has been quiet long enough, go ahead and shut down the channel processor.
+                //
+                // TODO: this could explode if the outstream or database get backed up it will just
+                // spawn more and more inbound message, not good.
                 let msg_id = msg_id.clone();
                 let tx2 = tx.clone();
                 let sql_tx2 = sql_tx.clone();
@@ -94,18 +113,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         cache,
                     ).await;
                 });
+            },
 
-            }
-        }
-    });
-
-    // Spawn outbound ws processor
-    // TODO: need to make sure to wait on sending till we recieve the hello event
-    // could be a oneshot or some sort of flag which it waits till inbound has
-    // gotten the hello
-    let outbound = tokio::spawn(async move {
-        loop {
-            while let Some(message) = rx.recv().await {
+            Some(message) = rx.recv() => {
+                // TODO: need to make sure to wait on sending till we recieve the hello event
+                // could be a oneshot or some sort of flag which it waits till inbound has
+                // gotten the hello
                 println!("Outbound - {:?}", message);
 
                 // TODO: present some way to do plain vs fancy message, and if
@@ -118,17 +131,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // TODO: find a way to handle the ping/pong cycle and monitor
                 // TODO: check result
                 let _ = ws_write.send(message).await;
-            }
+            },
         }
-    });
-
-    // Wait till either exits (error) then begin recovery
-    match tokio::try_join!(inbound, outbound) {
-        Ok((_first, _second)) => println!("Control - \t\t\tBoth exited fine"),
-        Err(err) => println!("Control - \t\t\tSomething failed: {:?}", err),
     }
 
     // The sql_tx got moved into the inbound tokio async, so when that dies....
+    // Its now not moved into a inbound tokio async, should be able to resume
     let res = sql_worker.join();
     println!("Control - \t\t\tSql worker: {:?}", res);
 
