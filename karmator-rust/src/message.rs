@@ -148,8 +148,8 @@ async fn send_simple_message(
     thread_ts: Option<String>,
     text: String
 ) -> Result<(), &'static str> {
-    // TODO: last resort search for <!here|here> or <!here> or its variants
-    // and forcefully strip them, just in case it leaked through somewhere (log if it does so)
+    // TODO: track if it got santized or not
+    let text = santizer::santize_output(&text);
 
     // TODO: register this message send to be tracked later
     let ws_msg = match thread_ts {

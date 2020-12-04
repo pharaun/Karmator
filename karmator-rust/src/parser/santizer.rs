@@ -194,6 +194,69 @@ fn date(input: &str) -> IResult<&str, Segment> {
 }
 
 
+#[derive(Debug, PartialEq)]
+enum SegmentLite<'a> {
+    Text(&'a str),
+    At(AtType),
+    Open,
+}
+
+// This is specifically for parsing any output and santizing it
+impl <'a> fmt::Display for SegmentLite<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SegmentLite::Text(t)              => write!(f, "{}", t),
+            SegmentLite::At(AtType::Here)     => write!(f, "@here"),
+            SegmentLite::At(AtType::Channel)  => write!(f, "@channel"),
+            SegmentLite::At(AtType::Everyone) => write!(f, "@everyone"),
+            SegmentLite::Open                 => write!(f, "<"),
+        }
+    }
+}
+
+pub fn santize_output(input: &str) -> String {
+    let res = complete(many1(segment_lite))(input);
+
+    res.map(
+        |(_, i)| i.iter().map(|i| i.to_string()).collect::<Vec<String>>().join("")
+    ).unwrap_or(
+        input.to_string()
+    )
+}
+
+fn segment_lite(input: &str) -> IResult<&str, SegmentLite> {
+    alt((
+        delimited(tag("<"), mention_lite, tag(">")),
+        text_lite,
+        // Fallback
+        map(tag("<"), |_| SegmentLite::Open),
+    ))(input)
+}
+
+fn text_lite(input: &str) -> IResult<&str, SegmentLite> {
+    let (input, content) = take_till(|c:char| c == '<')(input)?;
+
+    if content.is_empty() {
+        Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)))
+    } else {
+        Ok((input, SegmentLite::Text(content)))
+    }
+}
+
+fn mention_lite(input: &str) -> IResult<&str, SegmentLite> {
+    preceded(
+        tag("!"),
+        alt((
+            map(
+                separated_pair(mention_type, tag("|"), take_till(|c:char| c == '>')),
+                |(t, _)| SegmentLite::At(t)
+            ),
+            map(mention_type, |t| SegmentLite::At(t)),
+        ))
+    )(input)
+}
+
+
 #[cfg(test)]
 mod test_segment {
     use super::*;
@@ -420,6 +483,22 @@ mod test_segment {
                Segment::At(AtType::Here, ""),
                Segment::Text("> bad")
             ])
+        );
+    }
+
+    #[test]
+    fn test_safe_output() {
+        assert_eq!(
+            santize_output(">!here <!here bad"),
+            ">!here <!here bad".to_string()
+        );
+    }
+
+    #[test]
+    fn test_unsafe_output() {
+        assert_eq!(
+            santize_output("<!channel> <!here> <!everyone> hi"),
+            "@channel @here @everyone hi".to_string()
         );
     }
 }
