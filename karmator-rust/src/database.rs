@@ -18,6 +18,7 @@ use unicode_normalization::{
 use chrono::prelude::{Utc, DateTime};
 
 use crate::parser::karma::KST;
+use crate::parser::karma::Karma;
 
 
 // Normalize any incoming string to be stored in the database
@@ -334,37 +335,32 @@ pub fn process_queries(
                             (?, ?, ?, ?, ?, ?)"
                     ).unwrap();
 
-                    // TODO: lazy hack (we check the string here)
                     for KST(karma_text, k) in karma.iter() {
-                        let amount: Option<i8> = match k.as_str() {
-                            "++" => Some(1),
-                            "--" => Some(-1),
-                            "+-" => Some(0),
-                            "±"  => Some(0),
-                            _    => None,
+                        let amount: i8 = match k {
+                            Karma::Up   => 1,
+                            Karma::Down => -1,
+                            Karma::Side => 0,
                         };
 
-                        if let Some(amount) = amount {
-                            let ts = timestamp.to_rfc3339();
-                            let ts = ts.trim_end_matches("+00:00");
-                            let karma_text = normalize(karma_text);
+                        let ts = timestamp.to_rfc3339();
+                        let ts = ts.trim_end_matches("+00:00");
+                        let karma_text = normalize(karma_text);
 
-                            println!(
-                                "Sql Worker - AddKarma - \tInserting Karma - {:?}, {:?}, {:?}",
-                                un, karma_text, amount
-                            );
+                        println!(
+                            "Sql Worker - AddKarma - \tInserting Karma - {:?}, {:?}, {:?}",
+                            un, karma_text, amount
+                        );
 
-                            // TODO: better handle failure of username, maybe we should make username
-                            // mandatory before inserting?
-                            match channel_id {
-                                Some(cid) => stmt.insert(
-                                    rs::params![ts, un, karma_text, amount, nick_id, cid]
-                                ).unwrap(),
-                                None      => stmt.insert(
-                                    rs::params![ts, un, karma_text, amount, nick_id, &rs::types::Null]
-                                ).unwrap(),
-                            };
-                        }
+                        // TODO: better handle failure of username, maybe we should make username
+                        // mandatory before inserting?
+                        match channel_id {
+                            Some(cid) => stmt.insert(
+                                rs::params![ts, un, karma_text, amount, nick_id, cid]
+                            ).unwrap(),
+                            None      => stmt.insert(
+                                rs::params![ts, un, karma_text, amount, nick_id, &rs::types::Null]
+                            ).unwrap(),
+                        };
                     }
                 }
                 tx.commit()?;

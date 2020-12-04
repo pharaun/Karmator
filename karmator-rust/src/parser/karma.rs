@@ -34,7 +34,14 @@ use crate::parser::tokenizer::Tokens;
 
 // Now here begins the actual structural karma parser (Karma Structure Tree (KST))
 #[derive(Debug, PartialEq)]
-pub struct KST(pub String, pub String);
+pub struct KST(pub String, pub Karma);
+
+#[derive(Debug, PartialEq)]
+pub enum Karma {
+    Up,
+    Down,
+    Side
+}
 
 
 pub fn parse(input: &str) -> Result<Vec<KST>, String> {
@@ -54,12 +61,25 @@ pub fn parse(input: &str) -> Result<Vec<KST>, String> {
 }
 
 
-fn kkarma(input: Tokens) -> IResult<Tokens, String> {
+fn kkarma(input: Tokens) -> IResult<Tokens, Karma> {
     let (input, tkt) = take(1usize)(input)?;
 
     // Extract this out of the Tokens structure
     match tkt.first() {
-        Some(KarmaToken::Karma(t)) => Ok((input, t.to_string())),
+        Some(KarmaToken::Karma(t)) => {
+            if t == "++".to_string() {
+                Ok((input, Karma::Up))
+            } else if t == "--".to_string() {
+                Ok((input, Karma::Down))
+            } else if t == "+-".to_string() {
+                Ok((input, Karma::Side))
+            } else if t == "±".to_string() {
+                Ok((input, Karma::Side))
+
+            } else {
+                panic!("Shouldn't arrive here")
+            }
+        },
         _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
     }
 }
