@@ -113,15 +113,15 @@ fn maybe_send(
 
 
 pub fn process_queries(
+    filename: &Path,
     sql_rx: mpsc::Receiver<(RunQuery, Option<oneshot::Sender<ResQuery>>)>
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut block_sql_rx = block_on_stream(sql_rx);
 
-    let filename = "db.sqlite";
     let mut conn = rs::Connection::open_with_flags(
-        Path::new(filename),
+        filename,
         rs::OpenFlags::SQLITE_OPEN_READ_WRITE
-    ).expect(&format!("Connection error: {}", filename));
+    ).expect(&format!("Connection error: {:?}", filename.to_str()));
 
     // Listen for inbound query
     while let Some((query, res_tx)) = block_sql_rx.next() {

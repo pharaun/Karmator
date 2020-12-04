@@ -8,8 +8,8 @@ use tokio::sync::mpsc;
 use atomic_counter::RelaxedCounter;
 
 use std::sync::Arc;
-use std::default::Default;
 use std::env;
+use std::path::Path;
 use std::result::Result;
 use std::thread;
 
@@ -29,6 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Uptime of program start
     let start_time: DateTime<Utc> = Utc::now();
 
+    let filename = env::var("SQLITE_FILE").map_err(|_| "SQLITE_FILE env var must be set")?;
     let token = env::var("SLACK_API_TOKEN").map_err(|_| "SLACK_API_TOKEN env var must be set")?;
     let client = slack::default_client().map_err(|e| format!("Could not get default_client, {:?}", e))?;
 
@@ -36,15 +37,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // System Cache manager
     let cache = cache::Cache::new(&token, client.clone());
 
-
-    // Post a message
-    let msg = slack::chat::PostMessageRequest {
-        channel: "karmator-devs",
-        text: "Pogger, i'm starting up!",
-        as_user: Some(true),
-        ..Default::default()
-    };
-    slack::chat::post_message(&client, &token, &msg).await?;
 
     // Work to establish the WS connection
     let response = slack::rtm::connect(&client, &token).await.map_err(|e| format!("Control - {:?}", e))?;
@@ -71,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sql_worker = thread::spawn(move || {
         println!("Sql Worker - Launching");
         // TODO: check result
-        let _ = database::process_queries(sql_rx);
+        let _ = database::process_queries(Path::new(&filename), sql_rx);
         println!("Sql Worker - Exiting");
     });
 
