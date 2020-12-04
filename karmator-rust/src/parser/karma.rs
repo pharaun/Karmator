@@ -407,7 +407,7 @@ macro_rules! fail_test {
 #[cfg(test)]
 macro_rules! kst {
     ($data:expr, $karma:expr) => {
-        KST($data.to_string(), $karma.to_string())
+        KST($data.to_string(), $karma)
     }
 }
 
@@ -441,7 +441,7 @@ mod test_multi {
         multi,
         "a++ \"b\"++ [c]++",
         vec![],
-        vec![kst!("a", "++"), kst!("b", "++"), kst!("c", "++")]
+        vec![kst!("a", Karma::Up), kst!("b", Karma::Up), kst!("c", Karma::Up)]
     );
 
     success_test!(
@@ -449,7 +449,7 @@ mod test_multi {
         multi,
         "a b++ c d++",
         vec![],
-        vec![kst!("a b", "++"), kst!("c d", "++")]
+        vec![kst!("a b", Karma::Up), kst!("c d", Karma::Up)]
     );
 
     success_test!(
@@ -457,7 +457,7 @@ mod test_multi {
         multi,
         "abc \"d\"++ def",
         vec![],
-        vec![kst!("d", "++")]
+        vec![kst!("d", Karma::Up)]
     );
 
     success_test!(
@@ -465,7 +465,7 @@ mod test_multi {
         multi,
         "[a\"b\"c]++",
         vec![],
-        vec![kst!("a\"b\"c", "++")]
+        vec![kst!("a\"b\"c", Karma::Up)]
     );
 
     success_test!(
@@ -473,7 +473,7 @@ mod test_multi {
         multi,
         "[a b]++ c d++ \"e f\"++",
         vec![],
-        vec![kst!("a b", "++"), kst!("c d", "++"), kst!("e f", "++")]
+        vec![kst!("a b", Karma::Up), kst!("c d", Karma::Up), kst!("e f", Karma::Up)]
     );
 
     success_test!(
@@ -505,7 +505,7 @@ mod test_multi {
         multi,
         "a-b++",
         vec![],
-        vec![kst!("a-b", "++")]
+        vec![kst!("a-b", Karma::Up)]
     );
 }
 
@@ -514,11 +514,11 @@ mod test_multi {
 mod test_braced {
     use super::*;
 
-    success_test!(test_case_one,   braced, "[a]++",     vec![], kst!("a", "++"));
-    success_test!(test_case_two,   braced, "[a b]++",   vec![], kst!("a b", "++"));
-    success_test!(test_case_three, braced, "[ a b ]++", vec![], kst!("a b", "++"));
-    success_test!(test_case_four,  braced, "[a++]++",   vec![], kst!("a++", "++"));
-    success_test!(test_case_five,  braced, "[++]++",    vec![], kst!("++", "++"));
+    success_test!(test_case_one,   braced, "[a]++",     vec![], kst!("a", Karma::Up));
+    success_test!(test_case_two,   braced, "[a b]++",   vec![], kst!("a b", Karma::Up));
+    success_test!(test_case_three, braced, "[ a b ]++", vec![], kst!("a b", Karma::Up));
+    success_test!(test_case_four,  braced, "[a++]++",   vec![], kst!("a++", Karma::Up));
+    success_test!(test_case_five,  braced, "[++]++",    vec![], kst!("++", Karma::Up));
 
     success_test!(
         test_case_six,
@@ -531,7 +531,7 @@ mod test_braced {
             KarmaToken::CloseBrace,
             karma!("++")
         ],
-        kst!("a", "++")
+        kst!("a", Karma::Up)
     );
 
     fail_test!(
@@ -550,8 +550,8 @@ mod test_braced {
         ErrorKind::Tag
     );
 
-    success_test!(test_case_nine, braced, "[\"\"]++", vec![], kst!("\"\"", "++"));
-    success_test!(test_case_ten,  braced, "[--++]++",  vec![], kst!("--++", "++"));
+    success_test!(test_case_nine, braced, "[\"\"]++", vec![], kst!("\"\"", Karma::Up));
+    success_test!(test_case_ten,  braced, "[--++]++",  vec![], kst!("--++", Karma::Up));
 
     fail_test!(
         test_case_eleven,
@@ -567,11 +567,11 @@ mod test_braced {
 mod test_quoted {
     use super::*;
 
-    success_test!(test_case_one,   quoted, "\"a\"++",     vec![], kst!("a", "++"));
-    success_test!(test_case_two,   quoted, "\"a b\"++",   vec![], kst!("a b", "++"));
-    success_test!(test_case_three, quoted, "\" a b \"++", vec![], kst!("a b", "++"));
-    success_test!(test_case_four,  quoted, "\"a++\"++",   vec![], kst!("a++", "++"));
-    success_test!(test_case_five,  quoted, "\"++\"++",    vec![], kst!("++", "++"));
+    success_test!(test_case_one,   quoted, "\"a\"++",     vec![], kst!("a", Karma::Up));
+    success_test!(test_case_two,   quoted, "\"a b\"++",   vec![], kst!("a b", Karma::Up));
+    success_test!(test_case_three, quoted, "\" a b \"++", vec![], kst!("a b", Karma::Up));
+    success_test!(test_case_four,  quoted, "\"a++\"++",   vec![], kst!("a++", Karma::Up));
+    success_test!(test_case_five,  quoted, "\"++\"++",    vec![], kst!("++", Karma::Up));
 
     success_test!(
         test_case_six,
@@ -584,7 +584,7 @@ mod test_quoted {
             KarmaToken::Quote,
             karma!("++")
         ],
-        kst!("a", "++")
+        kst!("a", Karma::Up)
     );
 
     fail_test!(
@@ -603,8 +603,8 @@ mod test_quoted {
         ErrorKind::Tag
     );
 
-    success_test!(test_case_nine, quoted, "\"[]\"++",   vec![], kst!("[]", "++"));
-    success_test!(test_case_ten,  quoted, "\"--++\"++", vec![], kst!("--++", "++"));
+    success_test!(test_case_nine, quoted, "\"[]\"++",   vec![], kst!("[]", Karma::Up));
+    success_test!(test_case_ten,  quoted, "\"--++\"++", vec![], kst!("--++", Karma::Up));
 
     fail_test!(
         test_case_eleven,
@@ -620,8 +620,8 @@ mod test_quoted {
 mod test_simple {
     use super::*;
 
-    success_test!(test_case_one, simple, "a++", vec![], kst!("a", "++"));
-    success_test!(test_case_two, simple, "a b++", vec![], kst!("a b", "++"));
+    success_test!(test_case_one, simple, "a++", vec![], kst!("a", Karma::Up));
+    success_test!(test_case_two, simple, "a b++", vec![], kst!("a b", Karma::Up));
 
     success_test!(
         test_case_three,
@@ -632,7 +632,7 @@ mod test_simple {
             text!("b"),
             karma!("++")
         ],
-        kst!("a", "++")
+        kst!("a", Karma::Up)
     );
 
     success_test!(
@@ -643,7 +643,7 @@ mod test_simple {
             space!(" "),
             text!("c"),
         ],
-        kst!("a b", "++")
+        kst!("a b", Karma::Up)
     );
 
     success_test!(
@@ -651,7 +651,7 @@ mod test_simple {
         simple,
         "  a++",
         vec![],
-        kst!("a", "++")
+        kst!("a", Karma::Up)
     );
 
     fail_test!(
@@ -692,7 +692,7 @@ mod test_simple {
         ErrorKind::TakeWhile1
     );
 
-    success_test!(test_case_ten, simple, "a--++", vec![], kst!("a--", "++"));
+    success_test!(test_case_ten, simple, "a--++", vec![], kst!("a--", Karma::Up));
 
     fail_test!(
         test_case_eleven,
