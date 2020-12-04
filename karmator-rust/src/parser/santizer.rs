@@ -11,12 +11,14 @@ use nom::{
       complete,
       map,
       peek,
+      opt,
   },
   branch::alt,
   sequence::{
       delimited,
       preceded,
       separated_pair,
+      tuple,
   },
   error::{
       Error,
@@ -35,6 +37,9 @@ pub enum Segment<'a> {
     At(AtType, &'a str),
     Link(&'a str, &'a str),
     Open,
+
+    // Timestamp, Formatter, Url, Label
+    Date(&'a str, &'a str, Option<&'a str>, &'a str),
 }
 
 #[derive(Debug, PartialEq)]
@@ -61,6 +66,7 @@ impl <'a> fmt::Display for Segment<'a> {
             Segment::Link(url, "")           => write!(f, "{}", url),
             Segment::Link(_, l)              => write!(f, "{}", l),
             Segment::Open                    => write!(f, "<"),
+            Segment::Date(_, _, _, l)        => write!(f, "{}", l),
         }
     }
 }
@@ -102,6 +108,7 @@ fn special(input: &str) -> IResult<&str, Segment> {
             user,
             group,
             mention,
+            date,
             link,
         )),
         tag(">"),
@@ -171,6 +178,19 @@ fn content(input: &str) -> IResult<&str, (&str, &str)> {
         ),
         map(take_till(|c:char| c == '>'), |s:&str| (s, "")),
     ))(input)
+}
+
+fn date(input: &str) -> IResult<&str, Segment> {
+    // <!date^123123^{text} asdf[^link]|fallback>
+    preceded(
+        tag("!date"),
+        map(tuple((
+            preceded(tag("^"), take_till(|c:char| c == '^')),
+            preceded(tag("^"), take_till(|c:char| c == '^' || c == '|')),
+            opt(preceded(tag("^"), take_till(|c:char| c == '|'))),
+            preceded(tag("|"), take_till(|c:char| c == '>')),
+        )), |(timestamp, format, link, fallback)| Segment::Date(timestamp, format, link, fallback))
+    )(input)
 }
 
 
@@ -336,6 +356,22 @@ mod test_segment {
         assert_eq!(
             segment("<http://www.google.com|gog> text"),
             Ok((" text", Segment::Link("http://www.google.com", "gog")))
+        );
+    }
+
+    #[test]
+    fn test_basic_date() {
+        assert_eq!(
+            segment("<!date^12345^{text}|timedate> text"),
+            Ok((" text", Segment::Date("12345", "{text}", None, "timedate")))
+        );
+    }
+
+    #[test]
+    fn test_url_date() {
+        assert_eq!(
+            segment("<!date^12345^{text}^http://google.com|timedate> text"),
+            Ok((" text", Segment::Date("12345", "{text}", Some("http://google.com"), "timedate")))
         );
     }
 
