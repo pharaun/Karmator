@@ -30,6 +30,7 @@ use std::matches;
 use crate::parser::karma_token::all_token;
 use crate::parser::karma_token::KarmaToken;
 use crate::parser::tokenizer::Tokens;
+use crate::parser::karma_def::str_to_karma;
 
 
 // Now here begins the actual structural karma parser (Karma Structure Tree (KST))
@@ -66,20 +67,7 @@ fn kkarma(input: Tokens) -> IResult<Tokens, Karma> {
 
     // Extract this out of the Tokens structure
     match tkt.first() {
-        Some(KarmaToken::Karma(t)) => {
-            if t == "++".to_string() {
-                Ok((input, Karma::Up))
-            } else if t == "--".to_string() {
-                Ok((input, Karma::Down))
-            } else if t == "+-".to_string() {
-                Ok((input, Karma::Side))
-            } else if t == "±".to_string() {
-                Ok((input, Karma::Side))
-
-            } else {
-                panic!("Shouldn't arrive here")
-            }
-        },
+        Some(KarmaToken::Karma(t)) => Ok((input, str_to_karma(&t))),
         _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
     }
 }

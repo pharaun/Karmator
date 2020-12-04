@@ -20,6 +20,9 @@ use nom::{
 };
 use std::fmt;
 
+use crate::parser::karma_def::karma_tags;
+use crate::parser::karma_def::KARMA_LIST;
+
 
 // This starts karma tokenizer stream
 // TODO: make fancy but for now basic objective
@@ -105,20 +108,15 @@ fn space(input: &str) -> IResult<&str, KarmaToken> {
 }
 
 fn karma(input: &str) -> IResult<&str, KarmaToken> {
-    map(
-        alt((tag("++"), tag("--"), tag("+-"), tag("±"))),
-        |k:&str| KarmaToken::Karma(k.to_string())
-    )(input)
+    map(karma_tags, |k:&str| KarmaToken::Karma(k.to_string()))(input)
 }
 
 fn karma_run(input: &str) -> IResult<&str, KarmaToken> {
     let (_, candidate) = take_while1(|c:char| is_karma_symbol(c))(input)?;
-
-    // Let's try a list of karma
-    let klist = ["++", "--", "+-", "±"];
     let mut longest = "";
 
-    for k in klist.iter() {
+    // Let's try a list of karma
+    for k in KARMA_LIST.iter() {
         // Short circuit this check if
         // 1. karma is shorter than longest match, it won't win
         // 2. candidate is shorter than the karma to be checked

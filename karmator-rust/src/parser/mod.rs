@@ -2,6 +2,7 @@ pub mod command;
 pub mod karma;
 pub mod santizer;
 
+mod karma_def;
 mod karma_token;
 mod tokenizer;
 
