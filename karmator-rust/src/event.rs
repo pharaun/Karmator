@@ -177,6 +177,7 @@ pub async fn send_query(
 pub async fn process_control_message(
     msg_id: MsgId,
     can_send: Arc<AtomicBool>,
+    reconnect: Arc<AtomicBool>,
     msg: tungstenite::tungstenite::Message,
     mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
 ) -> Result<Option<UserEvent>, Box<dyn std::error::Error>>
@@ -203,9 +204,8 @@ pub async fn process_control_message(
                     },
                     SystemControl::Goodbye => {
                         // When this is recieved, reconnect
+                        reconnect.store(true, Ordering::Relaxed);
                         can_send.store(false, Ordering::Relaxed);
-
-                        // TODO: set flag for exiting/reconnecting
                     },
                     SystemControl::Pong{..} => {
                         // TODO: Employ this to keep the connection alive/inspect latency

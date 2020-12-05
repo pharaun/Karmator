@@ -36,6 +36,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Atomic boolean for ensuring send can't happen till the hello is recieved from slack
     let can_send = Arc::new(AtomicBool::new(false));
 
+    // Atomic boolean for exiting and re-establishing the connection
+    let reconnect = Arc::new(AtomicBool::new(false));
+
     // Uptime of program start
     let start_time: DateTime<Utc> = Utc::now();
 
@@ -89,7 +92,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set the can-send to false till its set true by the reciever
     can_send.store(false, Ordering::Relaxed);
 
-    loop {
+    // Set the reconnect to till the system control sets it to true
+    reconnect.store(false, Ordering::Relaxed);
+
+    while !reconnect.load(Ordering::Relaxed) {
         // TODO: have each branch return a Ok or Err (or w/e) to indicate all ok or shit is bad
         // then if shit is bad go to recovery loop, and if its irrevociable, exit loop and
         // rejoin/terminate the sql worker if its not already terminated
@@ -106,14 +112,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 //
                 // TODO: this could explode if the outstream or database get backed up it will just
                 // spawn more and more inbound message, not good.
-                let ue = {
-                    event::process_control_message(
-                        msg_id.clone(),
-                        can_send.clone(),
-                        ws_msg,
-                        tx.clone(),
-                    ).await
-                };
+                let ue = event::process_control_message(
+                    msg_id.clone(),
+                    can_send.clone(),
+                    reconnect.clone(),
+                    ws_msg,
+                    tx.clone(),
+                ).await;
 
                 // If there's an user event returned spawn off the user event processor
                 if let Ok(Some(event)) = ue {
@@ -136,12 +141,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             },
 
-            // TODO: Select if we do atomic check may just make this not be checked till it
-            // loops... Should generally *not* be a issue but...
-            Some(message) = rx.recv() => {
-                // TODO: need to make sure to wait on sending till we recieve the hello event
-                // could be a oneshot or some sort of flag which it waits till inbound has
-                // gotten the hello
+            // The send may not happen right away, the select! checks the (if x)
+            // part before it checks the queue/etc
+            Some(message) = rx.recv(), if can_send.load(Ordering::Relaxed) => {
                 println!("Outbound - {:?}", message);
 
                 // TODO: present some way to do plain vs fancy message, and if
