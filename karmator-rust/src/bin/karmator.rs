@@ -162,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
 
                 // Wake up this select peroidically so it can check the status of shutdown flag
-                _ = Delay::new(Duration::from_secs(1)) => {},
+                _ = Delay::new(Duration::from_millis(100)) => {},
             }
         }
 

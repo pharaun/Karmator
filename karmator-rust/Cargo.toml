@@ -36,6 +36,6 @@ unicase = "2.6.0"
 # For fuzzing
 arbitrary = { version = "0.4", optional = true, features = ["derive"] }
 
-governor = "0.3.1"
+# governor = "0.3.1"
 # consider storing the configuration in sqlite itself
 # toml = "0.5.7"
