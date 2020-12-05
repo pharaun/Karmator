@@ -7,9 +7,6 @@ use rusqlite as rs;
 use tokio::sync::oneshot;
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use unicase::UniCase;
 
 use unicode_normalization::{
@@ -117,7 +114,6 @@ fn maybe_send(
 // TODO: additional check for shutting down
 pub fn process_queries(
     filename: &Path,
-    shutdown: Arc<AtomicBool>,
     sql_rx: mpsc::Receiver<(RunQuery, Option<oneshot::Sender<ResQuery>>)>
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut block_sql_rx = block_on_stream(sql_rx);

@@ -5,6 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use futures_timer::Delay;
 
 use tokio::sync::mpsc;
+use tokio::signal;
 
 use atomic_counter::RelaxedCounter;
 use std::sync::atomic::AtomicBool;
@@ -45,7 +46,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Atomic boolean for shutting down the server if the db thread dies
     let shutdown = Arc::new(AtomicBool::new(false));
-    let sql_shutdown = shutdown.clone();
+
+    // Launch a listener for ctrl-c
+    let ctrl_c_shutdown = shutdown.clone();
+    tokio::spawn(async move {
+        println!("Ctrl-c listener installed");
+        let _ = signal::ctrl_c().await;
+        println!("Ctrl-c listener invoked - shutting down");
+        ctrl_c_shutdown.store(true, Ordering::Relaxed);
+    });
 
     // Uptime of program start
     let start_time: DateTime<Utc> = Utc::now();
@@ -61,10 +70,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (sql_tx, sql_rx) = mpsc::channel(32);
 
     // Launch the sqlite worker thread
+    let sql_shutdown = shutdown.clone();
     let sql_worker = thread::Builder::new().name("sqlite_worker".into()).spawn(move || {
         println!("Sql Worker - Launching");
 
-        let res = database::process_queries(Path::new(&filename), sql_shutdown.clone(), sql_rx);
+        let res = database::process_queries(Path::new(&filename), sql_rx);
         println!("Sql Worker - {:?}", res);
 
         // Worker died, signal the shutdown signal
@@ -95,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Set the reconnect to till the system control sets it to true
         reconnect.store(false, Ordering::Relaxed);
 
-        while !reconnect.load(Ordering::Relaxed) {
+        while !reconnect.load(Ordering::Relaxed) && !shutdown.load(Ordering::Relaxed) {
             tokio::select! {
                 Some(Ok(ws_msg)) = ws_read.next() => {
                     // TODO: we may have some ordering funnyness if we spawn a processor per
@@ -135,6 +145,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // The send may not happen right away, the select! checks the (if x)
                 // part before it checks the queue/etc
+                // TODO: this would be better if instead of exiting the select loop we
+                // gracefully drain the rx queue before exiting
                 Some(message) = rx.recv(), if can_send.load(Ordering::Relaxed) => {
                     println!("Outbound - {:?}", message);
 
@@ -148,13 +160,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // TODO: check result
                     let _ = ws_write.send(message).await;
                 },
+
+                // Wake up this select peroidically so it can check the status of shutdown flag
+                _ = Delay::new(Duration::from_secs(1)) => {},
             }
         }
 
         // We exited the inner loop, wait here and do an exp backoff before trying to reconnect
         // wait for 20s, then increment the reconnect_count by 1, and if it exceeds 10, set the
         // shutdown flag and exit
-        {
+        if !shutdown.load(Ordering::Relaxed) {
             let count = reconnect_count.clone().inc();
 
             if count <= 10 {
@@ -168,6 +183,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Force drop the sender (since all other sender clone should be dropped by now)
+    drop(sql_tx);
     let res = sql_worker.join();
     println!("Control - \t\t\tSql worker: {:?}", res);
 
