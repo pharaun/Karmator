@@ -10,7 +10,6 @@ use std::result::Result;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -175,11 +174,10 @@ pub async fn send_query(
 
 
 pub async fn process_control_message(
-    msg_id: MsgId,
     can_send: Arc<AtomicBool>,
     reconnect: Arc<AtomicBool>,
+    reconnect_count: Arc<RelaxedCounter>,
     msg: tungstenite::tungstenite::Message,
-    mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
 ) -> Result<Option<UserEvent>, Box<dyn std::error::Error>>
 {
     // Parse incoming message
@@ -201,6 +199,7 @@ pub async fn process_control_message(
                     SystemControl::Hello => {
                         // Hold on sending messages till this is recieved.
                         can_send.store(true, Ordering::Relaxed);
+                        reconnect_count.reset();
                     },
                     SystemControl::Goodbye => {
                         // When this is recieved, reconnect
