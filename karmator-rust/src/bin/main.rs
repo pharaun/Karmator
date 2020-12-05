@@ -98,22 +98,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 //
                 // TODO: this could explode if the outstream or database get backed up it will just
                 // spawn more and more inbound message, not good.
-                let msg_id = msg_id.clone();
-                let tx2 = tx.clone();
-                let sql_tx2 = sql_tx.clone();
-                let cache = cache.clone();
+                let ue = {
+                    let msg_id = msg_id.clone();
+                    let tx2 = tx.clone();
+                    let sql_tx2 = sql_tx.clone();
+                    let cache = cache.clone();
 
-                tokio::spawn(async move {
-                    // TODO: check result
-                    let _ = user_event::process_inbound_message(
+                    event::process_control_message(
                         msg_id,
                         ws_msg,
                         tx2,
                         sql_tx2,
                         start_time,
                         cache,
-                    ).await;
-                });
+                    ).await
+                };
+
+                // If there's an user event returned spawn off the user event processor
+                if let Ok(Some(event)) = ue {
+                    let msg_id = msg_id.clone();
+                    let tx2 = tx.clone();
+                    let sql_tx2 = sql_tx.clone();
+                    let cache = cache.clone();
+
+                    tokio::spawn(async move {
+                        // TODO: check result
+                        let _ = user_event::process_user_message(
+                            msg_id,
+                            event,
+                            tx2,
+                            sql_tx2,
+                            start_time,
+                            cache,
+                        ).await;
+                    });
+                }
             },
 
             Some(message) = rx.recv() => {

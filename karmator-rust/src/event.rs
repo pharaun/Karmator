@@ -1,17 +1,23 @@
+use slack_api as slack;
 use tokio_tungstenite as tungstenite;
-
-use tokio::sync::mpsc;
-use tokio::sync::oneshot;
-
-use serde::Deserialize;
-use serde_json::json;
 
 use atomic_counter::AtomicCounter;
 use atomic_counter::RelaxedCounter;
 
-use std::sync::Arc;
-use std::result::Result;
+use chrono::prelude::{Utc, DateTime};
+use humantime::format_duration;
 
+use serde::Deserialize;
+use serde_json::json;
+
+use std::result::Result;
+use std::sync::Arc;
+use std::time::Duration;
+
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
+
+use crate::cache;
 use crate::database::{RunQuery, ResQuery};
 use crate::parser::santizer;
 
@@ -168,4 +174,37 @@ pub async fn send_query(
     let (tx, rx) = oneshot::channel();
     sql_tx.send((query, Some(tx))).await.map_err(|_| "Error sending")?;
     rx.await.map_err(|_| "Error recieving")
+}
+
+
+pub async fn process_control_message<R>(
+    msg_id: MsgId,
+    msg: tungstenite::tungstenite::Message,
+    mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
+    mut sql_tx: mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
+    start_time: DateTime<Utc>,
+    cache: cache::Cache<R>,
+) -> Result<Option<UserEvent>, Box<dyn std::error::Error>>
+where
+    R: slack::requests::SlackWebRequestSender + std::clone::Clone
+{
+    // Parse incoming message
+    let raw_msg = match msg {
+        tungstenite::tungstenite::Message::Text(x) => Some(x),
+        _ => {
+            println!("Inbound - \tUnsupported ws message type - {:?}", msg);
+            None
+        },
+    };
+    //println!("Inbound - raw event = {:?}", raw_msg);
+
+    if let Some(e) = raw_msg.and_then(parse_event) {
+        match e {
+            Event::UserEvent(event)    => Ok(Some(event)),
+            Event::SystemControl(sc)   => Ok(None),
+            Event::MessageControl(_mc) => Ok(None),
+        }
+    } else {
+        Ok(None)
+    }
 }
