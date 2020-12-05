@@ -1,5 +1,6 @@
 pub mod database;
-pub mod message;
+pub mod event;
+pub mod user_event;
 pub mod build_info;
 pub mod cache;
 pub mod parser;

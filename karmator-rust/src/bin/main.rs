@@ -17,7 +17,8 @@ use chrono::prelude::{Utc, DateTime};
 
 
 use karmator_rust::database;
-use karmator_rust::message;
+use karmator_rust::event;
+use karmator_rust::user_event;
 use karmator_rust::cache;
 
 
@@ -104,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 tokio::spawn(async move {
                     // TODO: check result
-                    let _ = message::process_inbound_message(
+                    let _ = user_event::process_inbound_message(
                         msg_id,
                         ws_msg,
                         tx2,
@@ -137,6 +138,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // The sql_tx got moved into the inbound tokio async, so when that dies....
     // Its now not moved into a inbound tokio async, should be able to resume
+    // Upon exit/termination we could in the web workers close the sql pipe which will then
+    // terminate the sql worker loop
     let res = sql_worker.join();
     println!("Control - \t\t\tSql worker: {:?}", res);
 
