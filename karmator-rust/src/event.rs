@@ -1,11 +1,7 @@
-use slack_api as slack;
 use tokio_tungstenite as tungstenite;
 
 use atomic_counter::AtomicCounter;
 use atomic_counter::RelaxedCounter;
-
-use chrono::prelude::{Utc, DateTime};
-use humantime::format_duration;
 
 use serde::Deserialize;
 use serde_json::json;
@@ -17,7 +13,6 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
-use crate::cache;
 use crate::database::{RunQuery, ResQuery};
 use crate::parser::santizer;
 
@@ -27,7 +22,7 @@ pub type MsgId = Arc<RelaxedCounter>;
 
 
 #[derive(Debug)]
-pub enum Event {
+enum Event {
     UserEvent(UserEvent),
     SystemControl(SystemControl),
     MessageControl(MessageControl),
@@ -75,7 +70,7 @@ pub enum UserEvent {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-pub enum SystemControl {
+enum SystemControl {
     // First message upon successful connection establishment
     Hello,
 
@@ -89,7 +84,7 @@ pub enum SystemControl {
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
-pub enum MessageControl {
+enum MessageControl {
     // Reply to message sent
     MessageSent {
         ok: bool,
@@ -107,13 +102,13 @@ pub enum MessageControl {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ErrorDetail {
+struct ErrorDetail {
     code: usize,
     msg: String,
 }
 
 
-pub fn parse_event(s: String) -> Option<Event> {
+fn parse_event(s: String) -> Option<Event> {
     // Return User Events first, then the other two
     serde_json::from_str(&s).and_then(|ue| {
         println!("Inbound - \tUser Event = {:?}", ue);
@@ -177,16 +172,11 @@ pub async fn send_query(
 }
 
 
-pub async fn process_control_message<R>(
+pub async fn process_control_message(
     msg_id: MsgId,
     msg: tungstenite::tungstenite::Message,
     mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
-    mut sql_tx: mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
-    start_time: DateTime<Utc>,
-    cache: cache::Cache<R>,
 ) -> Result<Option<UserEvent>, Box<dyn std::error::Error>>
-where
-    R: slack::requests::SlackWebRequestSender + std::clone::Clone
 {
     // Parse incoming message
     let raw_msg = match msg {

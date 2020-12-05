@@ -18,9 +18,7 @@ use crate::parser::command;
 use crate::parser::karma;
 use crate::parser::santizer;
 use crate::event::MsgId;
-use crate::event::Event;
 use crate::event::UserEvent;
-use crate::event::parse_event;
 use crate::event::send_simple_message;
 use crate::event::send_query;
 
