@@ -8,6 +8,8 @@ use serde_json::json;
 
 use std::result::Result;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -174,6 +176,7 @@ pub async fn send_query(
 
 pub async fn process_control_message(
     msg_id: MsgId,
+    can_send: Arc<AtomicBool>,
     msg: tungstenite::tungstenite::Message,
     mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
 ) -> Result<Option<UserEvent>, Box<dyn std::error::Error>>
@@ -191,8 +194,25 @@ pub async fn process_control_message(
     if let Some(e) = raw_msg.and_then(parse_event) {
         match e {
             Event::UserEvent(event)    => Ok(Some(event)),
-            Event::SystemControl(sc)   => Ok(None),
             Event::MessageControl(_mc) => Ok(None),
+            Event::SystemControl(sc)   => {
+                match sc {
+                    SystemControl::Hello => {
+                        // Hold on sending messages till this is recieved.
+                        can_send.store(true, Ordering::Relaxed);
+                    },
+                    SystemControl::Goodbye => {
+                        // When this is recieved, reconnect
+                        can_send.store(false, Ordering::Relaxed);
+
+                        // TODO: set flag for exiting/reconnecting
+                    },
+                    SystemControl::Pong{..} => {
+                        // TODO: Employ this to keep the connection alive/inspect latency
+                    },
+                }
+                Ok(None)
+            },
         }
     } else {
         Ok(None)

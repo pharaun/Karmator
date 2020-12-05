@@ -6,6 +6,8 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 
 use atomic_counter::RelaxedCounter;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use std::sync::Arc;
 use std::env;
@@ -30,6 +32,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Shared integer counter for message ids
     let msg_id = Arc::new(RelaxedCounter::new(0));
+
+    // Atomic boolean for ensuring send can't happen till the hello is recieved from slack
+    let can_send = Arc::new(AtomicBool::new(false));
 
     // Uptime of program start
     let start_time: DateTime<Utc> = Utc::now();
@@ -81,6 +86,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Split the stream
     let (mut ws_write, mut ws_read) = ws_stream.split();
 
+    // Set the can-send to false till its set true by the reciever
+    can_send.store(false, Ordering::Relaxed);
+
     loop {
         // TODO: have each branch return a Ok or Err (or w/e) to indicate all ok or shit is bad
         // then if shit is bad go to recovery loop, and if its irrevociable, exit loop and
@@ -101,6 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let ue = {
                     event::process_control_message(
                         msg_id.clone(),
+                        can_send.clone(),
                         ws_msg,
                         tx.clone(),
                     ).await
@@ -127,6 +136,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             },
 
+            // TODO: Select if we do atomic check may just make this not be checked till it
+            // loops... Should generally *not* be a issue but...
             Some(message) = rx.recv() => {
                 // TODO: need to make sure to wait on sending till we recieve the hello event
                 // could be a oneshot or some sort of flag which it waits till inbound has
