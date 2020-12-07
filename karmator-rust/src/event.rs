@@ -12,6 +12,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::RwLock;
 use std::time::Instant;
+use chrono::prelude::Utc;
 
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -81,7 +82,7 @@ enum SystemControl {
     Goodbye,
 
     // Reply to Ping = { type: ping, id: num }
-    Pong { reply_to: usize },
+    Pong { reply_to: usize, timestamp: Option<i64> },
 }
 
 
@@ -174,11 +175,10 @@ pub async fn send_slack_ping(
         let mut timer = last_ping_sent.write().unwrap();
         *timer = Instant::now();
     }
-
-    // TODO: optionally include timestamp for the pong func to track the time delta later
     let ws_msg = json!({
 	"id": msg_id.inc(),
 	"type": "ping",
+        "timestamp": Utc::now().timestamp_millis(),
     }).to_string();
     tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await.map_err(|_| "Error sending")
 }
@@ -252,9 +252,11 @@ pub async fn process_control_message(
                         reconnect.store(true, Ordering::Relaxed);
                         can_send.store(false, Ordering::Relaxed);
                     },
-                    SystemControl::Pong{..} => {
-                        // TODO: Employ this to keep the connection alive/inspect latency
-                        // For now we should be ok with just sending out pings
+                    SystemControl::Pong{reply_to: _, timestamp: ts} => {
+                        if let Some(old) = ts {
+                            let now = Utc::now().timestamp_millis();
+                            println!("Pong - Delta: {:?}ms", now - old);
+                        }
                     },
                 }
                 Ok(None)
