@@ -173,6 +173,9 @@ pub async fn send_query(
 }
 
 
+// TODO: monitor the websocket ping + ping+send ping because it seems like the conection died at
+// one point which then the app died, that or figure out how to verify the socket is still open
+// (either send/recieve) it seems like recieve died?
 pub async fn process_control_message(
     can_send: Arc<AtomicBool>,
     reconnect: Arc<AtomicBool>,

@@ -107,39 +107,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         while !reconnect.load(Ordering::Relaxed) && !shutdown.load(Ordering::Relaxed) {
             tokio::select! {
-                Some(Ok(ws_msg)) = ws_read.next() => {
-                    // TODO: we may have some ordering funnyness if we spawn a processor per
-                    // inbound message, ponder doing one processor per channel so its consistent
-                    // order per channel, if want to be intelligent about it, have a timeout, if a
-                    // channel has been quiet long enough, go ahead and shut down the channel processor.
-                    //
-                    // TODO: this could explode if the outstream or database get backed up it will just
-                    // spawn more and more inbound message, not good.
-                    let ue = event::process_control_message(
-                        can_send.clone(),
-                        reconnect.clone(),
-                        reconnect_count.clone(),
-                        ws_msg,
-                    ).await;
-
-                    // If there's an user event returned spawn off the user event processor
-                    if let Ok(Some(event)) = ue {
-                        let msg_id = msg_id.clone();
-                        let tx2 = tx.clone();
-                        let sql_tx2 = sql_tx.clone();
-                        let cache = cache.clone();
-
-                        tokio::spawn(async move {
-                            // TODO: check result
-                            let _ = user_event::process_user_message(
-                                msg_id,
-                                event,
-                                tx2,
-                                sql_tx2,
-                                start_time,
-                                cache,
+                ws_msg = ws_read.next() => {
+                    match ws_msg {
+                        Some(Ok(ws_msg)) => {
+                            // TODO: we may have some ordering funnyness if we spawn a processor per
+                            // inbound message, ponder doing one processor per channel so its consistent
+                            // order per channel, if want to be intelligent about it, have a timeout, if a
+                            // channel has been quiet long enough, go ahead and shut down the channel processor.
+                            //
+                            // TODO: this could explode if the outstream or database get backed up it will just
+                            // spawn more and more inbound message, not good.
+                            let ue = event::process_control_message(
+                                can_send.clone(),
+                                reconnect.clone(),
+                                reconnect_count.clone(),
+                                ws_msg,
                             ).await;
-                        });
+
+                            // If there's an user event returned spawn off the user event processor
+                            if let Ok(Some(event)) = ue {
+                                let msg_id = msg_id.clone();
+                                let tx2 = tx.clone();
+                                let sql_tx2 = sql_tx.clone();
+                                let cache = cache.clone();
+
+                                tokio::spawn(async move {
+                                    // TODO: check result
+                                    let _ = user_event::process_user_message(
+                                        msg_id,
+                                        event,
+                                        tx2,
+                                        sql_tx2,
+                                        start_time,
+                                        cache,
+                                    ).await;
+                                });
+                            }
+                        },
+                        Some(Err(e)) => {
+                            println!("Connection error - {:?}", e);
+                            reconnect.store(true, Ordering::Relaxed);
+                        },
+
+                        // Stream is done/closed
+                        None => {
+                            reconnect.store(true, Ordering::Relaxed);
+                        },
                     }
                 },
 
@@ -156,9 +169,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // TODO: look into tracking the sent message with a confirmation
                     // that it was sent (via msg id) and if it fails, resend with
                     // backoff
-                    //
-                    // TODO: check result
-                    let _ = ws_write.send(message).await;
+                    match ws_write.send(message).await {
+                        Ok(_) => (),
+                        Err(e) => {
+                            println!("Connection error - {:?}", e);
+                            reconnect.store(true, Ordering::Relaxed);
+                        },
+                    }
                 },
 
                 // Wake up this select peroidically so it can check the status of shutdown flag
