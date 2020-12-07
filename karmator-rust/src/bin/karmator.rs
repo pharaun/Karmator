@@ -17,9 +17,11 @@ use std::env;
 use std::path::Path;
 use std::result::Result;
 use std::thread;
+use std::sync::RwLock;
 
 use chrono::prelude::{Utc, DateTime};
 use std::time::Duration;
+use std::time::Instant;
 
 
 use karmator_rust::database;
@@ -46,6 +48,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Atomic boolean for shutting down the server if the db thread dies
     let shutdown = Arc::new(AtomicBool::new(false));
+
+    // Monotonical clock for heartbeat/ping management
+    let last_message_recieved = Arc::new(RwLock::new(Instant::now()));
+    let last_ping_sent = Arc::new(RwLock::new(Instant::now()));
 
     // Launch a listener for ctrl-c
     let ctrl_c_shutdown = shutdown.clone();
@@ -118,9 +124,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // TODO: this could explode if the outstream or database get backed up it will just
                             // spawn more and more inbound message, not good.
                             let ue = event::process_control_message(
+                                tx.clone(),
                                 can_send.clone(),
                                 reconnect.clone(),
                                 reconnect_count.clone(),
+                                last_message_recieved.clone(),
                                 ws_msg,
                             ).await;
 
@@ -145,6 +153,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         },
                         Some(Err(e)) => {
+                            // TODO: if it fails, send a ping, then in the wakeup worker
+                            // check if a message was ever recieved
                             println!("Connection error - {:?}", e);
                             reconnect.store(true, Ordering::Relaxed);
                         },
@@ -172,6 +182,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     match ws_write.send(message).await {
                         Ok(_) => (),
                         Err(e) => {
+                            // TODO: if it fails, send a ping
                             println!("Connection error - {:?}", e);
                             reconnect.store(true, Ordering::Relaxed);
                         },
@@ -179,6 +190,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
 
                 // Wake up this select peroidically so it can check the status of shutdown flag
+                // TODO: also check the timer left on the last-sent message, if there's no reply
+                // in a given time, also set the reconnect flag here.
+                // The timer between the last message and etc is only for websocket messages
+                //
+                // TODO: if timer is great enough between now and the last message, send a ping
+                // and if the timer then hits a second threshold invoke a reconnect
+                //
+                // Also check to make sure the timer between each sent ping is ~1m if its greater
+                // than that send a ping anyway
                 _ = Delay::new(Duration::from_millis(100)) => {},
             }
         }

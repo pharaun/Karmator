@@ -10,6 +10,8 @@ use std::result::Result;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use std::sync::RwLock;
+use std::time::Instant;
 
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -163,6 +165,25 @@ pub async fn send_simple_message(
 }
 
 
+pub async fn send_slack_ping(
+    msg_id: MsgId,
+    tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
+    last_ping_sent: Arc<RwLock<Instant>>,
+) -> Result<(), &'static str> {
+    {
+        let mut timer = last_ping_sent.write().unwrap();
+        *timer = Instant::now();
+    }
+
+    // TODO: optionally include timestamp for the pong func to track the time delta later
+    let ws_msg = json!({
+	"id": msg_id.inc(),
+	"type": "ping",
+    }).to_string();
+    tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await.map_err(|_| "Error sending")
+}
+
+
 pub async fn send_query(
     sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
     query: RunQuery,
@@ -173,19 +194,41 @@ pub async fn send_query(
 }
 
 
-// TODO: monitor the websocket ping + ping+send ping because it seems like the conection died at
-// one point which then the app died, that or figure out how to verify the socket is still open
-// (either send/recieve) it seems like recieve died?
 pub async fn process_control_message(
+    mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
     can_send: Arc<AtomicBool>,
     reconnect: Arc<AtomicBool>,
     reconnect_count: Arc<RelaxedCounter>,
+    last_message_recieved: Arc<RwLock<Instant>>,
     msg: tungstenite::tungstenite::Message,
 ) -> Result<Option<UserEvent>, Box<dyn std::error::Error>>
 {
     // Parse incoming message
     let raw_msg = match msg {
-        tungstenite::tungstenite::Message::Text(x) => Some(x),
+        tungstenite::tungstenite::Message::Text(x) => {
+            {
+                let mut timer = last_message_recieved.write().unwrap();
+                *timer = Instant::now();
+            }
+            Some(x)
+        },
+
+        tungstenite::tungstenite::Message::Ping(_) => {
+            // We got a ping, send a websocket pong
+            println!("Inbound - Ping");
+            let _ = tx.send(tungstenite::tungstenite::Message::Pong(vec![])).await;
+            None
+        },
+
+        tungstenite::tungstenite::Message::Close(reason) => {
+            // We got a Close, reconnect
+            println!("Inbound - Close: {:?}", reason);
+
+            reconnect.store(true, Ordering::Relaxed);
+            can_send.store(false, Ordering::Relaxed);
+            None
+        },
+
         _ => {
             println!("Inbound - \tUnsupported ws message type - {:?}", msg);
             None
@@ -211,6 +254,7 @@ pub async fn process_control_message(
                     },
                     SystemControl::Pong{..} => {
                         // TODO: Employ this to keep the connection alive/inspect latency
+                        // For now we should be ok with just sending out pings
                     },
                 }
                 Ok(None)
