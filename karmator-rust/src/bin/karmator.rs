@@ -153,15 +153,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         },
                         Some(Err(e)) => {
-                            // TODO: if it fails, send a ping, then in the wakeup worker
-                            // check if a message was ever recieved
                             println!("Connection error - {:?}", e);
                             reconnect.store(true, Ordering::Relaxed);
+                            can_send.store(false, Ordering::Relaxed);
                         },
 
                         // Stream is done/closed
                         None => {
                             reconnect.store(true, Ordering::Relaxed);
+                            can_send.store(false, Ordering::Relaxed);
                         },
                     }
                 },
@@ -182,24 +182,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     match ws_write.send(message).await {
                         Ok(_) => (),
                         Err(e) => {
-                            // TODO: if it fails, send a ping
                             println!("Connection error - {:?}", e);
                             reconnect.store(true, Ordering::Relaxed);
+                            can_send.store(false, Ordering::Relaxed);
                         },
                     }
                 },
 
-                // Wake up this select peroidically so it can check the status of shutdown flag
-                // TODO: also check the timer left on the last-sent message, if there's no reply
-                // in a given time, also set the reconnect flag here.
-                // The timer between the last message and etc is only for websocket messages
-                //
-                // TODO: if timer is great enough between now and the last message, send a ping
-                // and if the timer then hits a second threshold invoke a reconnect
-                //
-                // Also check to make sure the timer between each sent ping is ~1m if its greater
-                // than that send a ping anyway
-                _ = Delay::new(Duration::from_millis(100)) => {},
+                // This is woken up peroidically to force a check of the shutdown flag.
+                _ = Delay::new(Duration::from_millis(250)) => {
+                    let now = Instant::now();
+
+                    let last_message_delta = {
+                        let timer = last_message_recieved.read().unwrap();
+                        now.checked_duration_since(*timer)
+                    };
+
+                    let last_ping_delta = {
+                        let timer = last_ping_sent.read().unwrap();
+                        now.checked_duration_since(*timer)
+                    };
+
+                    // Check the delta, If either or both are None, that means
+                    // their timer are *ahead* of the 'now' which is fine, stop checking.
+                    match (last_message_delta, last_ping_delta) {
+                        (Some(lmd), Some(lpd)) => {
+                            // Check if more than 30s has past since the last slack message recieved
+                            //  - [Yes] Check if more than 30s has past since the send of the last ping
+                            //    - [Yes] Send Ping
+                            //    - [No] Do nothing
+                            //  - [No] Do nothing
+                            //
+                            // Check if more than 2m has past since the last slack message recieved
+                            //  - [Yes] Reconnect
+                            //  - [No] Do nothing
+                            if lmd.as_secs() > 30 {
+                                if lpd.as_secs() > 30 {
+                                    println!(
+                                        "Input - last message: {:?}s, last ping: {:?}s, pinging",
+                                        lmd.as_secs(),
+                                        lpd.as_secs(),
+                                    );
+                                    let _ = event::send_slack_ping(
+                                        msg_id.clone(),
+                                        &mut tx.clone(),
+                                        last_ping_sent.clone(),
+                                    ).await;
+                                }
+                            } else if lmd.as_secs() > 120 {
+                                println!("Input - last message: {:?}s, reconnecting", lmd.as_secs());
+                                reconnect.store(true, Ordering::Relaxed);
+                                can_send.store(false, Ordering::Relaxed);
+                            }
+                        },
+                        _ => (),
+                    }
+                },
             }
         }
 

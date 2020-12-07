@@ -213,10 +213,10 @@ pub async fn process_control_message(
             Some(x)
         },
 
-        tungstenite::tungstenite::Message::Ping(_) => {
+        tungstenite::tungstenite::Message::Ping(x) => {
             // We got a ping, send a websocket pong
             println!("Inbound - Ping");
-            let _ = tx.send(tungstenite::tungstenite::Message::Pong(vec![])).await;
+            let _ = tx.send(tungstenite::tungstenite::Message::Pong(x)).await;
             None
         },
 
