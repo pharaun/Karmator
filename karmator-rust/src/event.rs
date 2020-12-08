@@ -115,20 +115,16 @@ struct ErrorDetail {
 fn parse_event(s: String) -> Option<Event> {
     // Return User Events first, then the other two
     serde_json::from_str(&s).and_then(|ue| {
-        println!("Inbound - \tUser Event = {:?}", ue);
         Ok(Event::UserEvent(ue))
     }).or_else(|_| {
         serde_json::from_str(&s).and_then(|sc| {
-            println!("Inbound - \tSystem Control = {:?}", sc);
             Ok(Event::SystemControl(sc))
         }).or_else(|_| {
             serde_json::from_str(&s).and_then(|mc| {
-                println!("Inbound - \tMessage Control = {:?}", mc);
                 Ok(Event::MessageControl(mc))
             }).or_else(|x| {
                 // TODO: for now print to stderr what didn't get deserialized
                 // later can have config option to log to file the error or not
-                //eprintln!("Inbound - \tFail parse = {:?}", s);
                 Err(x)
             })
         })
@@ -218,15 +214,12 @@ pub async fn process_control_message(
         },
 
         tungstenite::tungstenite::Message::Ping(x) => {
-            // We got a ping, send a websocket pong
-            println!("Inbound - Ping");
             let _ = tx.send(tungstenite::tungstenite::Message::Pong(x)).await;
             None
         },
 
         tungstenite::tungstenite::Message::Close(reason) => {
-            // We got a Close, reconnect
-            println!("Inbound - Close: {:?}", reason);
+            println!("SYSTEM [Inbound]: Close: {:?}", reason);
 
             reconnect.store(true, Ordering::Relaxed);
             can_send.store(false, Ordering::Relaxed);
@@ -234,11 +227,10 @@ pub async fn process_control_message(
         },
 
         _ => {
-            println!("Inbound - \tUnsupported ws message type - {:?}", msg);
+            eprintln!("SYSTEM [Inbound]: Unsupported websocket type: {:?}", msg);
             None
         },
     };
-    //println!("Inbound - raw event = {:?}", raw_msg);
 
     if let Some(e) = raw_msg.and_then(parse_event) {
         match e {
@@ -259,7 +251,7 @@ pub async fn process_control_message(
                     SystemControl::Pong{reply_to: _, timestamp: ts} => {
                         if let Some(old) = ts {
                             let now = Utc::now().timestamp_millis();
-                            println!("Pong - Delta: {:?}ms", now - old);
+                            println!("SYSTEM [Inbound]: Ping delta: {:?}ms", now - old);
                         }
                     },
                 }

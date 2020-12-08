@@ -56,9 +56,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Launch a listener for ctrl-c
     let ctrl_c_shutdown = shutdown.clone();
     tokio::spawn(async move {
-        println!("Ctrl-c listener installed");
+        println!("INFO [Ctrl-c listener]: installed");
         let _ = signal::ctrl_c().await;
-        println!("Ctrl-c listener invoked - shutting down");
+        println!("INFO [Ctrl-c listener]: shutting down");
         ctrl_c_shutdown.store(true, Ordering::Relaxed);
     });
 
@@ -78,29 +78,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Launch the sqlite worker thread
     let sql_shutdown = shutdown.clone();
     let sql_worker = thread::Builder::new().name("sqlite_worker".into()).spawn(move || {
-        println!("Sql Worker - Launching");
+        println!("INFO [Sql Worker]: Launching");
 
         let res = database::process_queries(Path::new(&filename), sql_rx);
-        println!("Sql Worker - {:?}", res);
+        eprintln!("ERROR [Sql Worker]: {:?}", res);
 
         // Worker died, signal the shutdown signal
         sql_shutdown.store(true, Ordering::Relaxed);
 
-        // TODO: Worker died, let's make sure everything else goes down as well.
-        println!("Sql Worker - Exiting");
+        println!("INFO [Sql Worker]: Exiting");
     })?;
 
     // Main server loop, exit if the database dies
     while !shutdown.load(Ordering::Relaxed) {
         // Work to establish the WS connection
         let response = slack::rtm::connect(&client, &token).await.map_err(|e| format!("Control - {:?}", e))?;
-        println!("Control - Got an ok reply");
-
         let ws_url = response.url.ok_or(format!("Control - \tNo Ws url"))?;
-        println!("Control - \tGot a WS url: {:?}", ws_url);
+        println!("SYSTEM [Slack RTM]: Websocket Url: {:?}", ws_url);
 
         let (ws_stream, _) = tungstenite::connect_async(ws_url).await.map_err(|e| format!("Control - \t\t{:?}", e))?;
-        println!("Control - \t\tWS connection established");
+        println!("SYSTEM [Slack RTM]: Websocket connection established");
 
         // Split the stream
         let (mut ws_write, mut ws_read) = ws_stream.split();
@@ -153,13 +150,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         },
                         Some(Err(e)) => {
-                            println!("Connection error - {:?}", e);
+                            eprintln!("SYSTEM [Slack RTM]: Connection error: {:?}", e);
                             reconnect.store(true, Ordering::Relaxed);
                             can_send.store(false, Ordering::Relaxed);
                         },
 
                         // Stream is done/closed
                         None => {
+                            println!("SYSTEM [Slack RTM]: Stream closed, reconnecting");
                             reconnect.store(true, Ordering::Relaxed);
                             can_send.store(false, Ordering::Relaxed);
                         },
@@ -171,8 +169,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // TODO: this would be better if instead of exiting the select loop we
                 // gracefully drain the rx queue before exiting
                 Some(message) = rx.recv(), if can_send.load(Ordering::Relaxed) => {
-                    println!("Outbound - {:?}", message);
-
                     // TODO: present some way to do plain vs fancy message, and if
                     // fancy do a webapi post, otherwise dump into the WS
                     //
@@ -182,7 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     match ws_write.send(message).await {
                         Ok(_) => (),
                         Err(e) => {
-                            println!("Connection error - {:?}", e);
+                            eprintln!("SYSTEM [Slack RTM]: Connection error: {:?}", e);
                             reconnect.store(true, Ordering::Relaxed);
                             can_send.store(false, Ordering::Relaxed);
                         },
@@ -218,8 +214,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             //  - [No] Do nothing
                             if lmd.as_secs() > 30 {
                                 if lpd.as_secs() > 30 {
-                                    println!(
-                                        "Input - last message: {:?}s, last ping: {:?}s, pinging",
+                                    println!("SYSTEM [Slack RTM]: Last message: {:?}s, Last ping: {:?}s",
                                         lmd.as_secs(),
                                         lpd.as_secs(),
                                     );
@@ -230,7 +225,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     ).await;
                                 }
                             } else if lmd.as_secs() > 120 {
-                                println!("Input - last message: {:?}s, reconnecting", lmd.as_secs());
+                                eprintln!("SYSTEM [Slack RTM]: Last message: {:?}s, reconnecting", lmd.as_secs());
                                 reconnect.store(true, Ordering::Relaxed);
                                 can_send.store(false, Ordering::Relaxed);
                             }
@@ -248,10 +243,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let count = reconnect_count.clone().inc();
 
             if count <= 10 {
-                println!("Reconnecting... try: {:?}", count);
+                println!("SYSTEM [Slack RTM]: Reconnecting, try: {:?}", count);
                 Delay::new(Duration::from_secs(20)).await;
             } else {
-                println!("Reconnecting... Failed, exceeded 10 retries, shutting down");
+                eprintln!("ERROR [Slack RTM]: Exceeded 10 retries, shutting down");
                 shutdown.clone().store(true, Ordering::Relaxed);
                 break;
             }
@@ -261,7 +256,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Force drop the sender (since all other sender clone should be dropped by now)
     drop(sql_tx);
     let res = sql_worker.join();
-    println!("Control - \t\t\tSql worker: {:?}", res);
+    println!("SYSTEM [Sql Worker]: Thread Join: {:?}", res);
 
     Ok(())
 }

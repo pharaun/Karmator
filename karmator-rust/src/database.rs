@@ -127,11 +127,6 @@ pub fn process_queries(
     while let Some((query, res_tx)) = block_sql_rx.next() {
         match query {
             RunQuery::TopNDenormalized{karma_col, karma_typ, limit, ord} => {
-                println!(
-                    "Sql Worker - TopNDenormalized - karma_col: {:?}, karma_typ: {:?}, limit: {:?}, ord: {:?}",
-                    karma_col, karma_typ, limit, ord
-                );
-
                 let table = match karma_col {
                     KarmaCol::Given    => "karma_given_count",
                     KarmaCol::Recieved => "karma_received_count",
@@ -164,14 +159,9 @@ pub fn process_queries(
 
                     ret.push((name.clone(), count));
                 }
-
-                // Print out for records
-                println!("Sql Worker - TopNDenormalized - Dump: {:?}", &ret);
                 maybe_send(res_tx, ResQuery::TopN(ret))?;
             },
             RunQuery::RankingDenormalized{karma_col, karma_typ, user} => {
-                println!("Sql Worker - RankingDenormalized - karma_col: {:?}, karma_typ: {:?}, user: {:?}", karma_col, karma_typ, user);
-
                 let table = match karma_col {
                     KarmaCol::Given    => "karma_given_count",
                     KarmaCol::Recieved => "karma_received_count",
@@ -206,14 +196,14 @@ pub fn process_queries(
                     let count: Option<u32> = row.get(0).ok();
 
                     maybe_send(res_tx, ResQuery::OCount(count))?;
-                    println!("Sql Worker - RankingDenormalized - Count: {:?}", count);
                 } else {
-                    println!("Sql Worker - RankingDenormalized - Error");
+                    eprintln!(
+                        "ERROR [Sql Worker]: RankingDenormalized - karma_col: {:?}, karma_typ: {:?}, user: {:?}",
+                        karma_col, karma_typ, user
+                    );
                 }
             },
             RunQuery::Count(karma_col) => {
-                println!("Sql Worker - Count - karma_col: {:?}", karma_col);
-
                 let table = match karma_col {
                     KarmaCol::Given => "karma_given_count",
                     KarmaCol::Recieved => "karma_received_count",
@@ -229,14 +219,11 @@ pub fn process_queries(
                     let count: u32 = row.get(0).unwrap();
 
                     maybe_send(res_tx, ResQuery::Count(count))?;
-                    println!("Sql Worker - Count - Tally: {:?}", count);
                 } else {
-                    println!("Sql Worker - Count - Error");
+                    eprintln!("ERROR [Sql Worker]: Count - ERROR - karma_col: {:?}", karma_col);
                 }
             },
             RunQuery::Partial{karma_col, users} => {
-                println!("Sql Worker - Partial - karma_col: {:?}, users: {:?}", karma_col, users);
-
                 let table = match karma_col {
                     KarmaCol::Given    => "karma_given_count",
                     KarmaCol::Recieved => "karma_received_count",
@@ -279,20 +266,12 @@ pub fn process_queries(
                 for n in users.difference(&has) {
                     ret.push((n.to_string(), 0, 0, 0));
                 }
-
-                // Print out for records
-                println!("Sql Worker - Partial - Dump: {:?}", &ret);
                 maybe_send(res_tx, ResQuery::Partial(ret))?;
             },
             RunQuery::AddKarma{timestamp, user_id, username, real_name, channel_id, karma} => {
-                println!(
-                    "Sql Worker - AddKarma - timestamp: {:?}, user_id: {:?}, username: {:?}, real_name: {:?}, channel_id: {:?}, karma: {:?}",
-                    timestamp, user_id, username, real_name, channel_id, karma
-                );
                 let un = username.map(|un| un.to_string()).unwrap_or("".to_string());
                 let urn = real_name.map(|rn| rn.to_string()).unwrap_or("".to_string());
 
-                // TODO: find out which column we use (and which has slack id vs user name)
                 let nick_id: i64 = {
                     let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?").unwrap();
                     let mut rows = stmt.query(rs::params![user_id]).unwrap();
@@ -307,7 +286,6 @@ pub fn process_queries(
                         stmt.insert(rs::params![un, urn, user_id, "SlackServer"]).unwrap()
                     }
                 };
-                println!("Sql Worker - AddKarma - nick_id: {:?}", nick_id);
 
                 let channel_id: Option<i64> = if let Some(cid) = channel_id {
                     let mut stmt = conn.prepare("SELECT id FROM chan_metadata WHERE channel = ?").unwrap();
@@ -322,10 +300,8 @@ pub fn process_queries(
                 } else {
                     None
                 };
-                println!("Sql Worker - AddKarma - channel_id: {:?}", channel_id);
 
                 // Shove the karma into the db now
-                println!("Sql Worker - AddKarma - Begin Transaction");
                 let tx = conn.transaction()?;
                 {
                     let mut stmt = tx.prepare(
@@ -346,11 +322,6 @@ pub fn process_queries(
                         let ts = ts.trim_end_matches("+00:00");
                         let karma_text = normalize(karma_text);
 
-                        println!(
-                            "Sql Worker - AddKarma - \tInserting Karma - {:?}, {:?}, {:?}",
-                            un, karma_text, amount
-                        );
-
                         // TODO: better handle failure of username, maybe we should make username
                         // mandatory before inserting?
                         match channel_id {
@@ -364,7 +335,6 @@ pub fn process_queries(
                     }
                 }
                 tx.commit()?;
-                println!("Sql Worker - AddKarma - End Transaction");
             },
 
         }

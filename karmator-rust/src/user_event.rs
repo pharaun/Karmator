@@ -48,20 +48,18 @@ where
             // Check if user is a bot, if so ignore (this applies to myself as well)
             match cache.is_user_bot(&user_id).await {
                 None => {
-                    println!("Inbound - No Info on user: {:?}", user_id);
+                    eprintln!("ERROR [User Event]: No info on user: {:?}", user_id);
                     return Ok(());
                 },
                 Some(is_bot) => {
                     if is_bot {
-                        println!("Inbound - User: {:?} is a bot, ignoring", user_id);
                         return Ok(());
                     }
-                }
+                },
             }
 
             // Check if text message field is empty, if so (ignore)
             if text.is_empty() {
-                println!("Inbound - Empty text");
                 return Ok(());
             }
 
@@ -81,9 +79,8 @@ where
                         thread_ts,
                         format!("<@{}>: Cargo Version: {} - Build Date: {}, - Build SHA: {}", user_id, ver, dat, sha),
                     ).await;
-                    println!("Inbound - \t\t!version");
-
                 },
+
                 Ok(command::Command("uptime", _)) => {
                     let end_time: DateTime<Utc> = Utc::now();
                     let durt = end_time.signed_duration_since(start_time).to_std().unwrap_or(
@@ -96,9 +93,8 @@ where
                         thread_ts,
                         format!("<@{}>: {}", user_id, format_duration(durt).to_string()),
                     ).await;
-                    println!("Inbound - \t\t!uptime");
-
                 },
+
                 Ok(command::Command("help", _)) => {
                     let help = "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote";
                     let _ = send_simple_message(
@@ -108,9 +104,8 @@ where
                         thread_ts,
                         format!("<@{}>: {}", user_id, help),
                     ).await;
-                    println!("Inbound - \t\t!help");
-
                 },
+
                 Ok(command::Command("github", _)) => {
                     let github = "Github repo: https://github.com/pharaun/Karmator";
 
@@ -121,9 +116,8 @@ where
                         thread_ts,
                         format!("<@{}>: {}", user_id, github),
                     ).await;
-                    println!("Inbound - \t\t!github");
-
                 },
+
                 Ok(command::Command("karma", arg)) => {
                     // asdf「asdf」asdf
                     // TODO: Implement a 'slack id' to unix name mapper
@@ -157,6 +151,7 @@ where
                         ).await;
                     }
                 },
+
                 Ok(command::Command("givers", arg)) => {
                     if arg.is_empty() {
                         top_n(
@@ -186,6 +181,7 @@ where
                         ).await;
                     }
                 },
+
                 Ok(command::Command("sidevotes", arg)) => {
                     if arg.is_empty() {
                         top_n(
@@ -212,6 +208,7 @@ where
                         ).await;
                     }
                 },
+
                 Ok(command::Command("rank", arg)) => {
                     if arg.is_empty() {
                         // Rank with yourself
@@ -266,6 +263,7 @@ where
                         ).await;
                     }
                 },
+
                 Ok(command::Command("ranksidevote", arg)) => {
                     if arg.is_empty() {
                         // Rank with yourself
@@ -320,16 +318,13 @@ where
                         ).await;
                     }
                 },
-                Ok(command::Command(x, _)) => println!("Input - Parse - No Handler: {:?}", x),
 
-                // TODO: query + double check the user isn't a bot (if so ignore)
+                Ok(command::Command(x, _)) => println!("INFO [User Event]: No handler: {:?}", x),
+
                 Err(_) => {
-                    // Not a command parse, time to consider allkarma parser
-                    println!("Input - All Karma");
-
                     // Santize the incoming stream
                     match santizer::parse(&text).ok() {
-                        None      => println!("Input - All Karma - Failed to santize: {:?}", &text),
+                        None      => eprintln!("ERROR [User Event]: Failed to santize: {:?}", &text),
                         Some(san) => {
                             let mut safe_text = vec![];
 
@@ -363,7 +358,7 @@ where
 
                             match res {
                                 Ok(mut karma) if !karma.is_empty() => {
-                                    println!("Input - All Karma - {:?}", karma);
+                                    println!("INFO [User Event]: Parsed Karma: {:?}", karma);
                                     let user_display = cache.get_user_display(&user_id).await;
                                     let user_name = cache.get_user_name(&user_id).await;
 
@@ -378,12 +373,10 @@ where
                                     let after = karma.len();
 
                                     if before != after {
-                                        println!("Input - All Karma - user: {:?} self-voted", user_display);
+                                        println!("INFO [User Event]: User self-voted: {:?}", user_display);
                                     }
 
                                     if !karma.is_empty() {
-                                        println!("Input - All Karma - Actual: {:?}", karma);
-
                                         let _ = sql_tx.send((
                                             RunQuery::AddKarma {
                                                 timestamp: Utc::now(),
@@ -397,11 +390,13 @@ where
                                         )).await;
                                     }
                                 },
+
                                 Ok(_) => (),
+
                                 Err(e) => {
                                     // The parse should return empty if its valid, something
                                     // broke, should log it here
-                                    eprintln!("All Karma - Error - {:?}", e);
+                                    eprintln!("ERROR [User Event]: Failed to parse karma: {:?}", e);
                                 },
                             }
                         },
@@ -410,7 +405,7 @@ where
             }
         },
 
-        _ => println!("Inbound - \t\tNo action taken"),
+        _ => (),
     }
     Ok(())
 }
@@ -430,8 +425,6 @@ async fn top_n(
     ktyp: KarmaTyp,
     label: (&str, &str),
 ) {
-    println!("Input - Karma - Denormalized");
-
     let high = send_query(
         sql_tx,
         RunQuery::TopNDenormalized {
@@ -501,8 +494,6 @@ async fn partial(
     kcol: KarmaCol,
     arg: Vec<&str>,
 ) {
-    println!("Input - Karma - Partial");
-
     let res = send_query(
         sql_tx,
         RunQuery::Partial {
@@ -555,8 +546,6 @@ async fn ranking(
     target: &str,
     label: &str,
 ) {
-    println!("Input - Karma - Ranking");
-
     let target_recieved = send_query(
         sql_tx,
         RunQuery::RankingDenormalized {
