@@ -38,10 +38,10 @@ where
     match msg {
         UserEvent::Message {
             channel_id: Some(channel_id),
+            subtype: None,
             text,
             user_id,
             thread_ts,
-            subtype: _,
             hidden: _,
             ts: _,
         } => {
@@ -57,6 +57,12 @@ where
                         return Ok(());
                     }
                 }
+            }
+
+            // Check if text message field is empty, if so (ignore)
+            if text.is_empty() {
+                println!("Inbound - Empty text");
+                return Ok(());
             }
 
             // Parse string to see if its a command one

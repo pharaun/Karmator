@@ -143,6 +143,10 @@ pub async fn send_simple_message(
     thread_ts: Option<String>,
     text: String
 ) -> Result<(), &'static str> {
+    if text.is_empty() {
+        return Err("Empty string, not sending");
+    }
+
     // TODO: track if it got santized or not
     let text = santizer::santize_output(&text);
 
