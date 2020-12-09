@@ -506,7 +506,9 @@ where
                                     let before = karma.len();
                                     match user_display {
                                         None     => (),
-                                        Some(ref ud) => karma.retain(|&karma::KST(ref t, _)| t != ud),
+                                        Some(ref ud) => karma.retain(|&karma::KST(ref t, _)| {
+                                            KarmaName::new(t) != KarmaName::new(ud)
+                                        }),
                                     }
                                     let after = karma.len();
 
