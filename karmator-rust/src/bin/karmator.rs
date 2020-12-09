@@ -5,7 +5,6 @@ use futures_util::{SinkExt, StreamExt};
 use futures_timer::Delay;
 
 use tokio::sync::mpsc;
-use tokio::signal;
 
 use atomic_counter::RelaxedCounter;
 use std::sync::atomic::AtomicBool;
@@ -28,6 +27,8 @@ use karmator_rust::database;
 use karmator_rust::event;
 use karmator_rust::user_event;
 use karmator_rust::cache;
+use karmator_rust::signal;
+
 
 
 #[tokio::main]
@@ -46,21 +47,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reconnect = Arc::new(AtomicBool::new(false));
     let reconnect_count = Arc::new(RelaxedCounter::new(0));
 
-    // Atomic boolean for shutting down the server if the db thread dies
-    let shutdown = Arc::new(AtomicBool::new(false));
+    // Shutdown v2
+    let (sql_shutdown_tx, mut signal) = signal::Signal::new();
 
     // Monotonical clock for heartbeat/ping management
     let last_message_recieved = Arc::new(RwLock::new(Instant::now()));
     let last_ping_sent = Arc::new(RwLock::new(Instant::now()));
-
-    // Launch a listener for ctrl-c
-    let ctrl_c_shutdown = shutdown.clone();
-    tokio::spawn(async move {
-        println!("INFO [Ctrl-c listener]: installed");
-        let _ = signal::ctrl_c().await;
-        println!("INFO [Ctrl-c listener]: shutting down");
-        ctrl_c_shutdown.store(true, Ordering::Relaxed);
-    });
 
     // Uptime of program start
     let start_time: DateTime<Utc> = Utc::now();
@@ -76,7 +68,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (sql_tx, sql_rx) = mpsc::channel(32);
 
     // Launch the sqlite worker thread
-    let sql_shutdown = shutdown.clone();
     let sql_worker = thread::Builder::new().name("sqlite_worker".into()).spawn(move || {
         println!("INFO [Sql Worker]: Launching");
 
@@ -84,13 +75,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("ERROR [Sql Worker]: {:?}", res);
 
         // Worker died, signal the shutdown signal
-        sql_shutdown.store(true, Ordering::Relaxed);
+        let _ = sql_shutdown_tx.broadcast(true);
 
         println!("INFO [Sql Worker]: Exiting");
     })?;
 
     // Main server loop, exit if the database dies
-    while !shutdown.load(Ordering::Relaxed) {
+    while !signal.should_shutdown() {
         // Work to establish the WS connection
         let response = slack::rtm::connect(&client, &token).await.map_err(|e| format!("Control - {:?}", e))?;
         let ws_url = response.url.ok_or(format!("Control - \tNo Ws url"))?;
@@ -108,8 +99,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Set the reconnect to till the system control sets it to true
         reconnect.store(false, Ordering::Relaxed);
 
-        while !reconnect.load(Ordering::Relaxed) && !shutdown.load(Ordering::Relaxed) {
+
+        while !reconnect.load(Ordering::Relaxed) && !signal.should_shutdown() {
             tokio::select! {
+                // Listens for shutdown signals from the system or the database
+                _ = signal.shutdown() => (),
+
                 ws_msg = ws_read.next() => {
                     match ws_msg {
                         Some(Ok(ws_msg)) => {
@@ -185,8 +180,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 },
 
-                // This is woken up peroidically to force a check of the shutdown flag.
-                _ = Delay::new(Duration::from_millis(250)) => {
+                // This is woken up peroidically to force a heartbeat check
+                _ = Delay::new(Duration::from_secs(1)) => {
                     let now = Instant::now();
 
                     let last_message_delta = {
@@ -239,7 +234,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // We exited the inner loop, wait here and do an exp backoff before trying to reconnect
         // wait for 20s, then increment the reconnect_count by 1, and if it exceeds 10, set the
         // shutdown flag and exit
-        if !shutdown.load(Ordering::Relaxed) {
+        if !signal.should_shutdown() {
             let count = reconnect_count.clone().inc();
 
             if count <= 10 {
@@ -247,7 +242,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Delay::new(Duration::from_secs(20)).await;
             } else {
                 eprintln!("ERROR [Slack RTM]: Exceeded 10 retries, shutting down");
-                shutdown.clone().store(true, Ordering::Relaxed);
+                signal.shutdown_now();
                 break;
             }
         }
