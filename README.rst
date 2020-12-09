@@ -1,16 +1,20 @@
 Karmator
 --------
 
-This is a Haskell reimplementation of `karmator` the early protype karma bot.
+This is now the 4rd generation reimplementation of `karmator` which was:
 
-Basically its broken up in a couple parts:
+1. Originally plugins of 2 separate irc bots.
 
-1. karmator-core - implements all of the core bot + routing and provides some utility methods for other layers
+2. Python irc bot + Haskell karma parser.
 
-2. karmator-(irc|slack} - implements the 'server' loop portion for connecting to irc or slack and the utilities needed
+3. Pure Haskell irc bot.
 
-3. karmator-bin - the actual currently implemented bot bits n' pieces
+4. Hybrid Haskell irc/slack bot (mostly slack2irc bridge)
 
-4. karmator-karma - *TBD* may end up splitting out the karma + database logic out to its own chunk of work
+5. Now this rust pure slack bot implementation.
 
-5. karmator-batches - This is where all of the offline batches are stored such as the vote streak detectors for detecting people voting for one thing multiple times in a row.
+Its broken up in two parts at the moment:
+
+1. karmator-rust - This is the rust bot itself.
+
+2. karmator-batches - This is where all of the offline batches are stored such as the vote streak detectors for detecting people voting for one thing multiple times in a row.

@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "karmator-rust",
+    "karmator-batches",
+]

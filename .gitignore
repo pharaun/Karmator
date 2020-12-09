@@ -1,16 +1,4 @@
-*.hi
-*.o
-*.pyc
 *.log
-*.pem
 *.sqlite
-*.db
-.cabal-sandbox/
-cabal.sandbox.config
-TestData/
-dist/
-bot.cfg
-.stack-work/
-sqlite3.exe
 target
 Cargo.lock
