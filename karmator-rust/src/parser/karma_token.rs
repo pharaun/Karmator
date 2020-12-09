@@ -55,6 +55,9 @@ pub enum KarmaToken{
     KText(String),
 }
 
+// TODO: implement smart quotes
+// tag("“"), tag("”"),
+// support since it'll be like open/close braces
 impl <'a> fmt::Display for KarmaToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

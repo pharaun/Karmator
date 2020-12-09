@@ -23,7 +23,6 @@ use nom::{
 
 // TODO: add in specific support for parsing at-here and other special <!user_id> entities
 // so that in the message subsystem it can do the right thing
-// TODO: make command parser support [] and "" for querying the karma system
 #[derive(Debug, PartialEq)]
 pub struct Command<'a> (pub &'a str, pub Vec<&'a str>);
 
@@ -57,6 +56,16 @@ fn not_multispace1(input: &str) -> IResult<&str, &str> {
             tag("\""),
             take_while1(|c:char| c != '"'),
             tag("\""),
+        ),
+        delimited(
+            tag("“"),
+            take_while1(|c:char| c != '”'),
+            tag("”"),
+        ),
+        delimited(
+            tag("["),
+            take_while1(|c:char| c != ']'),
+            tag("]"),
         ),
         take_while1(|c:char| !c.is_whitespace()),
     ))(input)
@@ -135,21 +144,19 @@ mod test_command {
         );
     }
 
-    // TODO: decide how to deal with this case
-//    #[test]
-//    fn test_command_multi_quote_arg() {
-//        assert_eq!(
-//            command("!karma \"\"a\"\""),
-//            Ok(("", Command("karma", vec!["a"])))
-//        );
-//    }
+    #[test]
+    fn test_command_smart_quote() {
+        assert_eq!(
+            command("!karma “:yey: dod”"),
+            Ok(("", Command("karma", vec![":yey: dod"])))
+        );
+    }
 
-    // TODO: decide how to deal with this case
-//    #[test]
-//    fn test_command_escape_quote_arg() {
-//        assert_eq!(
-//            command("!karma \"\\\"a\\\"\""),
-//            Ok(("", Command("karma", vec!["\"a\""])))
-//        );
-//    }
+    #[test]
+    fn test_command_braces() {
+        assert_eq!(
+            command("!karma [:yey: dod]"),
+            Ok(("", Command("karma", vec![":yey: dod"])))
+        );
+    }
 }
