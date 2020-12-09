@@ -30,6 +30,10 @@ use karmator_rust::cache;
 use karmator_rust::signal;
 
 
+// TODO:
+// Fix voting for - @luisp++ case it should -> luisp++ for the database
+// Fix command parsing for <@user> -> user for commands
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
