@@ -9,6 +9,7 @@ use std::result::Result;
 use chrono::prelude::{Utc, DateTime};
 use std::time::Duration;
 use humantime::format_duration;
+use std::str::FromStr;
 
 
 use crate::database::{RunQuery, ResQuery, KarmaCol, KarmaTyp, OrdQuery, KarmaName};
@@ -21,7 +22,6 @@ use crate::event::MsgId;
 use crate::event::UserEvent;
 use crate::event::send_simple_message;
 use crate::event::send_query;
-
 
 pub async fn process_user_message<R>(
     msg_id: MsgId,
@@ -96,7 +96,7 @@ where
                 },
 
                 Ok(command::Command("help", _)) => {
-                    let help = "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote";
+                    let help = "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote !topkarma !topgivers !topsidevotes";
                     let _ = send_simple_message(
                         msg_id,
                         &mut tx,
@@ -137,6 +137,7 @@ where
                             OrdQuery::Asc,
                             KarmaTyp::Total,
                             ("highest karma", "lowest karma"),
+                            3u32,
                         ).await;
                     } else {
                         partial(
@@ -149,6 +150,51 @@ where
                             KarmaCol::Recieved,
                             arg,
                         ).await;
+                    }
+                },
+
+                Ok(command::Command("topkarma", arg)) => {
+                    let mut err_tx = tx.clone();
+                    let err_future = send_simple_message(
+                        msg_id.clone(),
+                        &mut err_tx,
+                        channel_id.clone(),
+                        thread_ts.clone(),
+                        format!("<@{}>: {}", user_id, "Please specify a positive integer between 1 and 25."),
+                    );
+
+                    if arg.is_empty() {
+                        let _ = err_future.await;
+                    } else if arg.len() != 1 {
+                        let _ = err_future.await;
+                    } else {
+                        // Parse the argument
+                        let limit = u32::from_str(arg.get(0).unwrap());
+
+                        match limit {
+                            Ok(1..=25) => {
+                                let limit = limit.unwrap();
+
+                                top_n(
+                                    msg_id,
+                                    &mut tx,
+                                    &mut sql_tx,
+                                    channel_id,
+                                    thread_ts,
+                                    user_id,
+                                    KarmaCol::Recieved,
+                                    OrdQuery::Desc,
+                                    KarmaCol::Recieved,
+                                    OrdQuery::Asc,
+                                    KarmaTyp::Total,
+                                    ("\nhighest karma", "\nlowest karma"),
+                                    limit,
+                                ).await;
+                            },
+                            _ => {
+                                let _ = err_future.await;
+                            },
+                        }
                     }
                 },
 
@@ -167,6 +213,7 @@ where
                             OrdQuery::Asc,
                             KarmaTyp::Total,
                             ("most positive", "most negative"),
+                            3u32,
                         ).await;
                     } else {
                         partial(
@@ -179,6 +226,51 @@ where
                             KarmaCol::Given,
                             arg,
                         ).await;
+                    }
+                },
+
+                Ok(command::Command("topgivers", arg)) => {
+                    let mut err_tx = tx.clone();
+                    let err_future = send_simple_message(
+                        msg_id.clone(),
+                        &mut err_tx,
+                        channel_id.clone(),
+                        thread_ts.clone(),
+                        format!("<@{}>: {}", user_id, "Please specify a positive integer between 1 and 25."),
+                    );
+
+                    if arg.is_empty() {
+                        let _ = err_future.await;
+                    } else if arg.len() != 1 {
+                        let _ = err_future.await;
+                    } else {
+                        // Parse the argument
+                        let limit = u32::from_str(arg.get(0).unwrap());
+
+                        match limit {
+                            Ok(1..=25) => {
+                                let limit = limit.unwrap();
+
+                                top_n(
+                                    msg_id,
+                                    &mut tx,
+                                    &mut sql_tx,
+                                    channel_id,
+                                    thread_ts,
+                                    user_id,
+                                    KarmaCol::Given,
+                                    OrdQuery::Desc,
+                                    KarmaCol::Given,
+                                    OrdQuery::Asc,
+                                    KarmaTyp::Total,
+                                    ("\nmost positive", "\nmost negative"),
+                                    limit,
+                                ).await;
+                            },
+                            _ => {
+                                let _ = err_future.await;
+                            },
+                        }
                     }
                 },
 
@@ -197,6 +289,7 @@ where
                             OrdQuery::Desc,
                             KarmaTyp::Side,
                             ("most sidevotes recieved", "most sidevotes given"),
+                            3u32,
                         ).await;
                     } else {
                         let _ = send_simple_message(
@@ -206,6 +299,51 @@ where
                             thread_ts,
                             format!("<@{}>: {}", user_id, "Not supported!"),
                         ).await;
+                    }
+                },
+
+                Ok(command::Command("topsidevotes", arg)) => {
+                    let mut err_tx = tx.clone();
+                    let err_future = send_simple_message(
+                        msg_id.clone(),
+                        &mut err_tx,
+                        channel_id.clone(),
+                        thread_ts.clone(),
+                        format!("<@{}>: {}", user_id, "Please specify a positive integer between 1 and 25."),
+                    );
+
+                    if arg.is_empty() {
+                        let _ = err_future.await;
+                    } else if arg.len() != 1 {
+                        let _ = err_future.await;
+                    } else {
+                        // Parse the argument
+                        let limit = u32::from_str(arg.get(0).unwrap());
+
+                        match limit {
+                            Ok(1..=25) => {
+                                let limit = limit.unwrap();
+
+                                top_n(
+                                    msg_id,
+                                    &mut tx,
+                                    &mut sql_tx,
+                                    channel_id,
+                                    thread_ts,
+                                    user_id,
+                                    KarmaCol::Recieved,
+                                    OrdQuery::Desc,
+                                    KarmaCol::Given,
+                                    OrdQuery::Desc,
+                                    KarmaTyp::Side,
+                                    ("\nmost sidevotes recieved", "\nmost sidevotes given"),
+                                    limit,
+                                ).await;
+                            },
+                            _ => {
+                                let _ = err_future.await;
+                            },
+                        }
                     }
                 },
 
@@ -424,13 +562,14 @@ async fn top_n(
     kord2: OrdQuery,
     ktyp: KarmaTyp,
     label: (&str, &str),
+    limit: u32,
 ) {
     let high = send_query(
         sql_tx,
         RunQuery::TopNDenormalized {
             karma_col: kcol1,
             karma_typ: ktyp,
-            limit: 3,
+            limit: limit,
             ord: kord1,
         }
     ).await.map(|h| {
@@ -450,7 +589,7 @@ async fn top_n(
         RunQuery::TopNDenormalized {
             karma_col: kcol2,
             karma_typ: ktyp,
-            limit: 3,
+            limit: limit,
             ord: kord2,
         }
     ).await.map(|l| {
