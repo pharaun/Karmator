@@ -50,7 +50,7 @@ CREATE TRIGGER delete_decrease_reacji_karma_count_add AFTER DELETE ON reacji_vot
   END;
 
 CREATE TRIGGER increase_sidevote_reacji_karma_count AFTER INSERT ON reacji_votes
-  WHEN NEW.amount = -1 BEGIN
+  WHEN NEW.amount = 0 BEGIN
     INSERT OR IGNORE INTO karma_given_count VALUES (NULL, NEW.by_whom_name, 0, 0, 0);
     UPDATE karma_given_count SET side = side + NEW.action WHERE name = NEW.by_whom_name;
     INSERT OR IGNORE INTO karma_received_count VALUES (NULL, (SELECT message FROM reacji_message WHERE ID = NEW.reacji_message_id), 0, 0, 0);
@@ -58,7 +58,7 @@ CREATE TRIGGER increase_sidevote_reacji_karma_count AFTER INSERT ON reacji_votes
   END;
 
 CREATE TRIGGER delete_increase_sidevote_reacji_karma_count_add AFTER DELETE ON reacji_votes
-  WHEN OLD.amount = -1 BEGIN
+  WHEN OLD.amount = 0 BEGIN
     UPDATE OR IGNORE karma_given_count SET side = side - OLD.action  WHERE name = OLD.by_whom_name;
     UPDATE OR IGNORE karma_received_count SET side = side - OLD.action WHERE name = (SELECT message FROM reacji_message where ID = OLD.reacji_message_id);
   END;
