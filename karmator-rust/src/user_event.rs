@@ -12,7 +12,7 @@ use humantime::format_duration;
 use std::str::FromStr;
 
 
-use crate::database::{RunQuery, ResQuery, KarmaCol, KarmaTyp, OrdQuery, KarmaName};
+use crate::database::{RunQuery, ResQuery, KarmaCol, KarmaTyp, OrdQuery, KarmaName, ReacjiAction};
 use crate::cache;
 use crate::build_info;
 use crate::parser::command;
@@ -462,87 +462,13 @@ where
                 Ok(command::Command(x, _)) => println!("INFO [User Event]: No handler: {:?}", x),
 
                 Err(_) => {
-                    // Santize the incoming stream
-                    match santizer::parse(&text).ok() {
-                        None      => eprintln!("ERROR [User Event]: Failed to santize: {:?}", &text),
-                        Some(san) => {
-                            let mut safe_text = vec![];
-
-                            for seg in san.iter() {
-                                // TODO: do other id reprocessing such as:
-                                // 1. channel...
-                                match seg {
-                                    santizer::Segment::User(uid, l) => {
-                                        // Do a user id lookup
-                                        let user_display = cache.get_user_display(&user_id).await;
-
-                                        match user_display {
-                                            Some(name) => safe_text.push(name),
-                                            None => {
-                                                // TODO: Log this, but for now fallback to
-                                                // just rendering it straight into the db
-                                                safe_text.push(
-                                                    santizer::Segment::User(uid, l).to_string()
-                                                );
-                                            },
-                                        }
-                                    },
-                                    // Everything else
-                                    s => safe_text.push(s.to_string()),
-                                }
-                            }
-
-                            // Parse karma now
-                            let safe_text = safe_text.join("");
-                            let res = karma::parse(&safe_text);
-
-                            match res {
-                                Ok(mut karma) if !karma.is_empty() => {
-                                    println!("INFO [User Event]: Parsed Karma: {:?}", karma);
-                                    let user_display = cache.get_user_display(&user_id).await;
-                                    let user_name = cache.get_user_name(&user_id).await;
-
-                                    // Filter karma of any entity that is same as
-                                    // user_display, and check if any got filtered, if
-                                    // so, log.
-                                    let before = karma.len();
-                                    match user_display {
-                                        None     => (),
-                                        Some(ref ud) => karma.retain(|&karma::KST(ref t, _)| {
-                                            KarmaName::new(t) != KarmaName::new(ud)
-                                        }),
-                                    }
-                                    let after = karma.len();
-
-                                    if before != after {
-                                        println!("INFO [User Event]: User self-voted: {:?}", user_display);
-                                    }
-
-                                    if !karma.is_empty() {
-                                        let _ = sql_tx.send((
-                                            RunQuery::AddKarma {
-                                                timestamp: Utc::now(),
-                                                user_id: user_id,
-                                                username: user_display.map(|ud| KarmaName::new(&ud)),
-                                                real_name: user_name.map(|rn| KarmaName::new(&rn)),
-                                                channel_id: Some(channel_id),
-                                                karma: karma,
-                                            },
-                                            None
-                                        )).await;
-                                    }
-                                },
-
-                                Ok(_) => (),
-
-                                Err(e) => {
-                                    // The parse should return empty if its valid, something
-                                    // broke, should log it here
-                                    eprintln!("ERROR [User Event]: Failed to parse karma: {:?}", e);
-                                },
-                            }
-                        },
-                    }
+                    add_karma(
+                        &mut sql_tx,
+                        &cache,
+                        &text,
+                        user_id,
+                        channel_id,
+                    ).await;
                 },
             }
         },
@@ -550,7 +476,7 @@ where
         UserEvent::ReactionAdded {
             user_id, /* who performed this */
             reaction,
-            item_user, /* owner of the original item */
+            item_user: _,
             item: ReactionItem::Message {
                 channel_id,
                 ts,
@@ -558,88 +484,244 @@ where
             event_ts: _,
             ts: _,
         } => {
-            match reacji_to_karma(&reaction) {
-                Some(karma) => {
-                    let message_id = send_query(
-                        &mut sql_tx,
-                        RunQuery::QueryReacjiMessage {
-                            channel_id: channel_id.clone(),
-                            message_ts: ts.clone(),
-                        }
-                    ).await.map(|t| {
-                        match t {
-                            ResQuery::MessageId(id) => id,
-                            _ => None,
-                        }
-                    }).ok().flatten();
-
-                    let message_id = match message_id {
-                        None => {
-                            match cache.get_message(&channel_id, &ts).await {
-                                Some(cache::ConversationHistoryMessage::Message { text, user_id }) => {
-                                    // We have the message content, insert it into the table and
-                                    // get its row id
-                                    let (user_display, user_name) = match &user_id {
-                                        None      => (None, None),
-                                        Some(uid) => (
-                                            cache.get_user_display(&uid).await,
-                                            cache.get_user_name(&uid).await,
-                                        ),
-                                    };
-
-                                    send_query(
-                                        &mut sql_tx,
-                                        RunQuery::AddReacjiMessage {
-                                            user_id: user_id,
-                                            username: user_display.map(|ud| KarmaName::new(&ud)),
-                                            real_name: user_name.map(|rn| KarmaName::new(&rn)),
-                                            channel_id: channel_id.clone(),
-                                            message_ts: ts.clone(),
-                                            message: text,
-                                        }
-                                    ).await.map(|t| {
-                                        match t {
-                                            ResQuery::MessageId(id) => id,
-                                            _ => None,
-                                        }
-                                    }).ok().flatten()
-                                },
-                                // This should already have been logged by the api call function
-                                None => None,
-                            }
-                        },
-                        Some(mid) => Some(mid),
-                    };
-
-                    match message_id {
-                        None => eprintln!(
-                            "ERROR: [User Event] Wasn't able to get/store an reactji message, vote isn't recorded"
-                        ),
-                        Some(mid) => {
-                            // Steps needed:
-                            // 5. insert the reacji_vote
-                            println!("{:?}", mid);
-
-                        },
-                    }
-                },
-                None => (),
-            }
+            add_reacji(
+                &mut sql_tx,
+                &cache,
+                &reaction,
+                user_id,
+                channel_id,
+                ts,
+                ReacjiAction::Add,
+            ).await;
         },
 
         UserEvent::ReactionRemoved {
-            user_id,
+            user_id, /* who performed this */
             reaction,
-            item_user,
-            item,
-            event_ts,
-            ts,
+            item_user: _,
+            item: ReactionItem::Message {
+                channel_id,
+                ts,
+            },
+            event_ts: _,
+            ts: _,
         } => {
+            add_reacji(
+                &mut sql_tx,
+                &cache,
+                &reaction,
+                user_id,
+                channel_id,
+                ts,
+                ReacjiAction::Del,
+            ).await;
         },
 
         _ => (),
     }
     Ok(())
+}
+
+
+async fn add_reacji<R>(
+    sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
+    cache: &cache::Cache<R>,
+    input: &str,
+    user_id: String,
+    channel_id: String,
+    ts: String,
+    action: ReacjiAction,
+)
+where
+    R: slack::requests::SlackWebRequestSender + std::clone::Clone
+{
+    match reacji_to_karma(input) {
+        Some(karma) => {
+            let message_id = send_query(
+                sql_tx,
+                RunQuery::QueryReacjiMessage {
+                    channel_id: channel_id.clone(),
+                    message_ts: ts.clone(),
+                }
+            ).await.map(|t| {
+                match t {
+                    ResQuery::MessageId(id) => id,
+                    _ => None,
+                }
+            }).ok().flatten();
+
+            let message_id = match message_id {
+                None => {
+                    match cache.get_message(&channel_id, &ts).await {
+                        Some(cache::ConversationHistoryMessage::Message { text, user_id }) => {
+                            // We have the message content, insert it into the table and
+                            // get its row id
+                            let (user_display, user_name) = match &user_id {
+                                None      => (None, None),
+                                Some(uid) => (
+                                    cache.get_user_display(&uid).await,
+                                    cache.get_user_name(&uid).await,
+                                ),
+                            };
+
+                            let santized_text = santizer(&text, &cache).await;
+
+                            send_query(
+                                sql_tx,
+                                RunQuery::AddReacjiMessage {
+                                    user_id: user_id,
+                                    username: user_display.map(|ud| KarmaName::new(&ud)),
+                                    real_name: user_name.map(|rn| KarmaName::new(&rn)),
+                                    channel_id: channel_id.clone(),
+                                    message_ts: ts.clone(),
+                                    message: santized_text,
+                                }
+                            ).await.map(|t| {
+                                match t {
+                                    ResQuery::MessageId(id) => id,
+                                    _ => None,
+                                }
+                            }).ok().flatten()
+                        },
+                        // This should already have been logged by the api call function
+                        None => None,
+                    }
+                },
+                Some(mid) => Some(mid),
+            };
+
+            match message_id {
+                None => eprintln!(
+                    "ERROR: [User Event] Wasn't able to get/store an reactji message, vote isn't recorded"
+                ),
+                Some(mid) => {
+                    let user_display = cache.get_user_display(&user_id).await;
+                    let user_name = cache.get_user_name(&user_id).await;
+
+                    let _ = send_query(
+                        sql_tx,
+                        RunQuery::AddReacji {
+                            timestamp: Utc::now(),
+                            user_id: user_id,
+                            username: user_display.map(|ud| KarmaName::new(&ud)),
+                            real_name: user_name.map(|rn| KarmaName::new(&rn)),
+                            action: action,
+                            message_id: mid,
+                            result: karma,
+                        }
+                    ).await;
+                },
+            }
+        },
+        None => (),
+    }
+}
+
+
+async fn add_karma<R>(
+    sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
+    cache: &cache::Cache<R>,
+    input: &str,
+    user_id: String,
+    channel_id: String,
+)
+where
+    R: slack::requests::SlackWebRequestSender + std::clone::Clone
+{
+    let santized_text = santizer(&input, &cache).await;
+    let res = karma::parse(&santized_text);
+
+    match res {
+        Ok(mut karma) if !karma.is_empty() => {
+            println!("INFO [User Event]: Parsed Karma: {:?}", karma);
+            let user_display = cache.get_user_display(&user_id).await;
+            let user_name = cache.get_user_name(&user_id).await;
+
+            // Filter karma of any entity that is same as
+            // user_display, and check if any got filtered, if
+            // so, log.
+            let before = karma.len();
+            match user_display {
+                None     => (),
+                Some(ref ud) => karma.retain(|&karma::KST(ref t, _)| {
+                    KarmaName::new(t) != KarmaName::new(ud)
+                }),
+            }
+            let after = karma.len();
+
+            if before != after {
+                println!("INFO [User Event]: User self-voted: {:?}", user_display);
+            }
+
+            if !karma.is_empty() {
+                let _ = sql_tx.send((
+                    RunQuery::AddKarma {
+                        timestamp: Utc::now(),
+                        user_id: user_id,
+                        username: user_display.map(|ud| KarmaName::new(&ud)),
+                        real_name: user_name.map(|rn| KarmaName::new(&rn)),
+                        channel_id: Some(channel_id),
+                        karma: karma,
+                    },
+                    None
+                )).await;
+            }
+        },
+
+        Ok(_) => (),
+
+        Err(e) => {
+            // The parse should return empty if its valid, something
+            // broke, should log it here
+            eprintln!("ERROR [User Event]: Failed to parse karma: {:?}", e);
+        },
+    }
+}
+
+
+async fn santizer<R>(
+    input: &str,
+    cache: &cache::Cache<R>,
+) -> String
+where
+    R: slack::requests::SlackWebRequestSender + std::clone::Clone
+{
+    match santizer::parse(input).ok() {
+        None      => {
+            eprintln!("ERROR [Santizer]: Failed to santize: {:?}", input);
+            input.to_string()
+        },
+
+        Some(san) => {
+            let mut safe_text = vec![];
+
+            for seg in san.iter() {
+                // TODO: do other id reprocessing such as:
+                // 1. channel...
+                match seg {
+                    santizer::Segment::User(uid, l) => {
+                        // Do a user id lookup
+                        let user_display = cache.get_user_display(&uid).await;
+
+                        match user_display {
+                            Some(name) => safe_text.push(name),
+                            None => {
+                                // TODO: Log this, but for now fallback to
+                                // just rendering it straight into the db
+                                safe_text.push(
+                                    santizer::Segment::User(uid, l).to_string()
+                                );
+                            },
+                        }
+                    },
+                    // Everything else
+                    s => safe_text.push(s.to_string()),
+                }
+            }
+
+            safe_text.join("")
+        },
+    }
 }
 
 
