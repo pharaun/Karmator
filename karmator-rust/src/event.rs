@@ -58,18 +58,39 @@ pub enum UserEvent {
         user_id: String,
         reaction: String,
         item_user: Option<String>,
-        // item: ListResponseItem
+        item: ReactionItem,
         event_ts: String,
+        ts: String,
     },
     ReactionRemoved {
         #[serde(rename = "user")]
         user_id: String,
         reaction: String,
         item_user: Option<String>,
-        // item: ListResponseItem
+        item: ReactionItem,
         event_ts: String,
+        ts: String,
     },
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum ReactionItem {
+    Message {
+        #[serde(rename = "channel")]
+        channel_id: Option<String>,
+        ts: String,
+    },
+    File {
+        file: String,
+    },
+    FileComment {
+        file: String,
+        file_comment: String,
+    },
+}
+
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]

@@ -20,6 +20,7 @@ use crate::parser::karma;
 use crate::parser::santizer;
 use crate::event::MsgId;
 use crate::event::UserEvent;
+use crate::event::ReactionItem;
 use crate::event::send_simple_message;
 use crate::event::send_query;
 
@@ -543,6 +544,41 @@ where
                     }
                 },
             }
+        },
+
+        UserEvent::ReactionAdded {
+            user_id, /* who performed this */
+            reaction,
+            item_user, /* owner of the original item */
+            item: ReactionItem::Message {
+                channel_id,
+                ts,
+            },
+            event_ts: _,
+            ts: _,
+        } => {
+            println!(
+                "REACTION: whom: {:?}, what: {:?}, owner_user: {:?}, channel: {:?}, message_ts: {:?}",
+                user_id, reaction, item_user, channel_id, ts
+            );
+
+            // Steps needed:
+            // 1. check if its an approved reaction
+            // 2. check if db has the channel+ts if not
+            // 3. query slack api to fetch the message itself
+            // 4. insert the reacji_message (if 3)
+            // 5. insert the reacji_vote
+
+        },
+
+        UserEvent::ReactionRemoved {
+            user_id,
+            reaction,
+            item_user,
+            item,
+            event_ts,
+            ts,
+        } => {
         },
 
         _ => (),

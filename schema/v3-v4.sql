@@ -15,7 +15,7 @@ CREATE TABLE reacji_message (
     id INTEGER PRIMARY KEY NOT NULL,
     ts VARCHAR NOT NULL,
     chan_id INTEGER NOT NULL,
-    nick_id INTEGER NOT NULL,
+    nick_id INTEGER DEFAULT NULL,
     message VARCHAR NOT NULL,
     UNIQUE (ts, chan_id)
 );

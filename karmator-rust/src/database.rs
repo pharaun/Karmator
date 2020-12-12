@@ -81,7 +81,7 @@ pub enum RunQuery {
         message_ts: String,
     },
     AddReacjiMessage {
-        user_id: String,
+        user_id: Option<String>,
         username: Option<KarmaName>,
         real_name: Option<KarmaName>,
         channel_id: String,
@@ -398,19 +398,21 @@ pub fn process_queries(
                 let un = username.map(|un| un.to_string()).unwrap_or("".to_string());
                 let urn = real_name.map(|rn| rn.to_string()).unwrap_or("".to_string());
 
-                let nick_id: i64 = {
+                let nick_id: Option<i64> = if let Some(uid) = user_id {
                     let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?").unwrap();
-                    let mut rows = stmt.query(rs::params![user_id]).unwrap();
+                    let mut rows = stmt.query(rs::params![uid]).unwrap();
 
                     if let Ok(Some(row)) = rows.next() {
-                        row.get(0).unwrap()
+                        row.get(0).ok()
                     } else {
                         let mut stmt = conn.prepare(
                             "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?)"
                         ).unwrap();
 
-                        stmt.insert(rs::params![un, urn, user_id, "SlackServer"]).unwrap()
+                        stmt.insert(rs::params![un, urn, uid, "SlackServer"]).ok()
                     }
+                } else {
+                    None
                 };
 
                 let channel_id: i64 = {
