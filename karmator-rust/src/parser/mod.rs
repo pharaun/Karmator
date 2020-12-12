@@ -15,3 +15,7 @@ pub mod test_all_token {
         crate::parser::karma_token::all_token(input)
     }
 }
+
+pub fn reacji_to_karma(input: &str) -> Option<karma::Karma> {
+    karma_def::reacji_to_karma(input)
+}

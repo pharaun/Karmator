@@ -18,6 +18,7 @@ use crate::build_info;
 use crate::parser::command;
 use crate::parser::karma;
 use crate::parser::santizer;
+use crate::parser::reacji_to_karma;
 use crate::event::MsgId;
 use crate::event::UserEvent;
 use crate::event::ReactionItem;
@@ -557,18 +558,73 @@ where
             event_ts: _,
             ts: _,
         } => {
-            println!(
-                "REACTION: whom: {:?}, what: {:?}, owner_user: {:?}, channel: {:?}, message_ts: {:?}",
-                user_id, reaction, item_user, channel_id, ts
-            );
+            match reacji_to_karma(&reaction) {
+                Some(karma) => {
+                    let message_id = send_query(
+                        &mut sql_tx,
+                        RunQuery::QueryReacjiMessage {
+                            channel_id: channel_id.clone(),
+                            message_ts: ts.clone(),
+                        }
+                    ).await.map(|t| {
+                        match t {
+                            ResQuery::MessageId(id) => id,
+                            _ => None,
+                        }
+                    }).ok().flatten();
 
-            // Steps needed:
-            // 1. check if its an approved reaction
-            // 2. check if db has the channel+ts if not
-            // 3. query slack api to fetch the message itself
-            // 4. insert the reacji_message (if 3)
-            // 5. insert the reacji_vote
+                    let message_id = match message_id {
+                        None => {
+                            match cache.get_message(&channel_id, &ts).await {
+                                Some(cache::ConversationHistoryMessage::Message { text, user_id }) => {
+                                    // We have the message content, insert it into the table and
+                                    // get its row id
+                                    let (user_display, user_name) = match &user_id {
+                                        None      => (None, None),
+                                        Some(uid) => (
+                                            cache.get_user_display(&uid).await,
+                                            cache.get_user_name(&uid).await,
+                                        ),
+                                    };
 
+                                    send_query(
+                                        &mut sql_tx,
+                                        RunQuery::AddReacjiMessage {
+                                            user_id: user_id,
+                                            username: user_display.map(|ud| KarmaName::new(&ud)),
+                                            real_name: user_name.map(|rn| KarmaName::new(&rn)),
+                                            channel_id: channel_id.clone(),
+                                            message_ts: ts.clone(),
+                                            message: text,
+                                        }
+                                    ).await.map(|t| {
+                                        match t {
+                                            ResQuery::MessageId(id) => id,
+                                            _ => None,
+                                        }
+                                    }).ok().flatten()
+                                },
+                                // This should already have been logged by the api call function
+                                None => None,
+                            }
+                        },
+                        Some(mid) => Some(mid),
+                    };
+
+                    match message_id {
+                        None => eprintln!(
+                            "ERROR: [User Event] Wasn't able to get/store an reactji message, vote isn't recorded"
+                        ),
+                        Some(mid) => {
+                            // Steps needed:
+                            // 5. insert the reacji_vote
+                            println!("{:?}", mid);
+
+                        },
+                    }
+                },
+                None => (),
+            }
         },
 
         UserEvent::ReactionRemoved {

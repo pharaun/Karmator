@@ -1,5 +1,7 @@
 use slack_api as slack;
 
+use serde::Deserialize;
+
 use std::sync::Arc;
 
 // TODO: look at some sort of lru or persist this to sqlite instead?
@@ -78,4 +80,76 @@ impl <R: SlackWebRequestSender + Clone> Cache<R> {
             },
         }
     }
+
+    // TODO: find a better location for this, this is an abuse of the cache
+    pub async fn get_message(&self, channel_id: &str, message_ts: &str) -> Option<ConversationHistoryMessage> {
+        let url = get_slack_url_for_method("conversations.history");
+
+        let params = vec![
+            Some(("token", self.slack_token.clone())),
+            Some(("channel", channel_id.to_string())),
+            Some(("latest", message_ts.to_string())),
+            Some(("inclusive", "true".to_string())),
+            Some(("limit", "1".to_string())),
+        ];
+        let params = params.into_iter().filter_map(|x| x).collect::<Vec<_>>();
+
+        let res = &self.slack_client.send(
+            &url,
+            &params[..]
+        ).await.map_err(
+            |x| format!("{:?}", x)
+        ).and_then(|result| {
+            serde_json::from_str::<ConversationHistoryResult>(
+                &result
+            ).or_else(
+                |x| Err(format!("{:?}", x))
+            )
+        });
+
+        let res = res.as_ref().map(|x| {
+            let messages = &x.messages;
+            if messages.len() != 1 {
+                Err(format!("Malformed messages: {:?}", messages))
+            } else {
+                messages.first().ok_or("Shouldn't happen".to_string())
+            }
+        });
+
+        match res {
+            Ok(Ok(msg)) => Some(msg.clone()),
+            Ok(Err(x))  => {
+                eprintln!("ERROR [Cache]: {}", x);
+                None
+            },
+            Err(x) => {
+                eprintln!("ERROR [Cache]: {}", x);
+                None
+            },
+        }
+    }
+}
+
+
+fn get_slack_url_for_method(method: &str) -> String {
+    format!("https://slack.com/api/{}", method)
+}
+
+// This is for the cache message fetcher
+// TODO: upstream/find a better location for this
+#[derive(Debug, Deserialize)]
+struct ConversationHistoryResult {
+    ok: bool,
+    messages: Vec<ConversationHistoryMessage>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum ConversationHistoryMessage {
+    Message {
+        text: String,
+        #[serde(rename = "user")]
+        user_id: Option<String>,
+    },
 }

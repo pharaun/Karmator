@@ -79,7 +79,8 @@ pub enum UserEvent {
 pub enum ReactionItem {
     Message {
         #[serde(rename = "channel")]
-        channel_id: Option<String>,
+        // I think this is mandatory?
+        channel_id: String,
         ts: String,
     },
     File {
