@@ -352,9 +352,9 @@ where
                 Ok(command::Command("rank", arg)) => {
                     if arg.is_empty() {
                         // Rank with yourself
-                        let user_display = cache.get_user_display(&user_id).await;
+                        let username = cache.get_username(&user_id).await;
 
-                        match user_display {
+                        match username {
                             Some(ud) => {
                                 ranking(
                                     msg_id,
@@ -407,9 +407,9 @@ where
                 Ok(command::Command("ranksidevote", arg)) => {
                     if arg.is_empty() {
                         // Rank with yourself
-                        let user_display = cache.get_user_display(&user_id).await;
+                        let username = cache.get_username(&user_id).await;
 
-                        match user_display {
+                        match username {
                             Some(ud) => {
                                 ranking(
                                     msg_id,
@@ -553,38 +553,41 @@ where
             let message_id = match message_id {
                 None => {
                     match cache.get_message(&channel_id, &ts).await {
-                        Some(cache::ConversationHistoryMessage::Message { text, user_id }) => {
+                        Some(cache::ConversationHistoryMessage::Message { text, user_id: Some(user_id) }) => {
                             // We have the message content, insert it into the table and
                             // get its row id
-                            let (user_display, user_name) = match &user_id {
-                                None      => (None, None),
-                                Some(uid) => (
-                                    cache.get_user_display(&uid).await,
-                                    cache.get_user_name(&uid).await,
-                                ),
-                            };
-
                             let santized_text = santizer(&text, &cache).await;
 
-                            send_query(
-                                sql_tx,
-                                RunQuery::AddReacjiMessage {
-                                    user_id: user_id,
-                                    username: user_display.map(|ud| KarmaName::new(&ud)),
-                                    real_name: user_name.map(|rn| KarmaName::new(&rn)),
-                                    channel_id: channel_id.clone(),
-                                    message_ts: ts.clone(),
-                                    message: santized_text,
-                                }
-                            ).await.map(|t| {
-                                match t {
-                                    ResQuery::MessageId(id) => id,
-                                    _ => None,
-                                }
-                            }).ok().flatten()
+                            match (
+                                cache.get_username(&user_id).await,
+                                cache.get_user_real_name(&user_id).await,
+                            ) {
+                                (Some(ud), Some(rn)) => {
+                                    send_query(
+                                        sql_tx,
+                                        RunQuery::AddReacjiMessage {
+                                            user_id: user_id,
+                                            username: KarmaName::new(&ud),
+                                            real_name: KarmaName::new(&rn),
+                                            channel_id: channel_id.clone(),
+                                            message_ts: ts.clone(),
+                                            message: santized_text,
+                                        }
+                                    ).await.map(|t| {
+                                        match t {
+                                            ResQuery::MessageId(id) => id,
+                                            _ => None,
+                                        }
+                                    }).ok().flatten()
+                                },
+                                _ => {
+                                    eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack");
+                                    None
+                                },
+                            }
                         },
                         // This should already have been logged by the api call function
-                        None => None,
+                        _ => None,
                     }
                 },
                 Some(mid) => Some(mid),
@@ -595,21 +598,26 @@ where
                     "ERROR: [User Event] Wasn't able to get/store an reactji message, vote isn't recorded"
                 ),
                 Some(mid) => {
-                    let user_display = cache.get_user_display(&user_id).await;
-                    let user_name = cache.get_user_name(&user_id).await;
-
-                    let _ = send_query(
-                        sql_tx,
-                        RunQuery::AddReacji {
-                            timestamp: Utc::now(),
-                            user_id: user_id,
-                            username: user_display.map(|ud| KarmaName::new(&ud)),
-                            real_name: user_name.map(|rn| KarmaName::new(&rn)),
-                            action: action,
-                            message_id: mid,
-                            result: karma,
-                        }
-                    ).await;
+                    match (
+                        cache.get_username(&user_id).await,
+                        cache.get_user_real_name(&user_id).await,
+                    ) {
+                        (Some(ud), Some(rn)) => {
+                            let _ = send_query(
+                                sql_tx,
+                                RunQuery::AddReacji {
+                                    timestamp: Utc::now(),
+                                    user_id: user_id,
+                                    username: KarmaName::new(&ud),
+                                    real_name: KarmaName::new(&rn),
+                                    action: action,
+                                    message_id: mid,
+                                    result: karma,
+                                }
+                            ).await;
+                        },
+                        _ => eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack"),
+                    }
                 },
             }
         },
@@ -634,14 +642,14 @@ where
     match res {
         Ok(mut karma) if !karma.is_empty() => {
             println!("INFO [User Event]: Parsed Karma: {:?}", karma);
-            let user_display = cache.get_user_display(&user_id).await;
-            let user_name = cache.get_user_name(&user_id).await;
+            let username = cache.get_username(&user_id).await;
+            let user_real_name = cache.get_user_real_name(&user_id).await;
 
             // Filter karma of any entity that is same as
-            // user_display, and check if any got filtered, if
+            // username, and check if any got filtered, if
             // so, log.
             let before = karma.len();
-            match user_display {
+            match username {
                 None     => (),
                 Some(ref ud) => karma.retain(|&karma::KST(ref t, _)| {
                     KarmaName::new(t) != KarmaName::new(ud)
@@ -650,21 +658,26 @@ where
             let after = karma.len();
 
             if before != after {
-                println!("INFO [User Event]: User self-voted: {:?}", user_display);
+                println!("INFO [User Event]: User self-voted: {:?}", username);
             }
 
             if !karma.is_empty() {
-                let _ = sql_tx.send((
-                    RunQuery::AddKarma {
-                        timestamp: Utc::now(),
-                        user_id: user_id,
-                        username: user_display.map(|ud| KarmaName::new(&ud)),
-                        real_name: user_name.map(|rn| KarmaName::new(&rn)),
-                        channel_id: Some(channel_id),
-                        karma: karma,
+                match (username, user_real_name) {
+                    (Some(ud), Some(rn)) => {
+                        let _ = sql_tx.send((
+                            RunQuery::AddKarma {
+                                timestamp: Utc::now(),
+                                user_id: user_id,
+                                username: KarmaName::new(&ud),
+                                real_name: KarmaName::new(&rn),
+                                channel_id: Some(channel_id),
+                                karma: karma,
+                            },
+                            None
+                        )).await;
                     },
-                    None
-                )).await;
+                    _ => eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack"),
+                }
             }
         },
 
@@ -701,9 +714,9 @@ where
                 match seg {
                     santizer::Segment::User(uid, l) => {
                         // Do a user id lookup
-                        let user_display = cache.get_user_display(&uid).await;
+                        let username = cache.get_username(&uid).await;
 
-                        match user_display {
+                        match username {
                             Some(name) => safe_text.push(name),
                             None => {
                                 // TODO: Log this, but for now fallback to

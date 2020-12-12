@@ -6,9 +6,12 @@ CREATE TABLE votes (
     for_what_name VARCHAR NOT NULL,
     amount INTEGER NOT NULL,
     /* Metadata */
+    /* TODO: convert to mandatory entity */
     nick_id INTEGER DEFAULT NULL,
     chan_id INTEGER DEFAULT NULL
 );
+
+/* TODO: register the user upvote in the vote table as well as the message itself */
 CREATE TABLE reacji_votes (
     id INTEGER PRIMARY KEY NOT NULL,
     voted_at DATETIME NOT NULL, /* UTC Timestamp */
@@ -25,7 +28,7 @@ CREATE TABLE reacji_message (
     id INTEGER PRIMARY KEY NOT NULL,
     ts VARCHAR NOT NULL,
     chan_id INTEGER NOT NULL,
-    nick_id INTEGER DEFAULT NULL,
+    nick_id INTEGER NOT NULL,
     message VARCHAR NOT NULL,
     UNIQUE (ts, chan_id)
 );

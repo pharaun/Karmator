@@ -40,12 +40,12 @@ impl <R: SlackWebRequestSender + Clone> Cache<R> {
         user.map(|u| u.is_bot)
     }
 
-    pub async fn get_user_name(&self, user_id: &str) -> Option<String> {
+    pub async fn get_user_real_name(&self, user_id: &str) -> Option<String> {
         let user = self.get_user(user_id).await;
         user.map(|u| u.real_name.clone())
     }
 
-    pub async fn get_user_display(&self, user_id: &str) -> Option<String> {
+    pub async fn get_username(&self, user_id: &str) -> Option<String> {
         let user = self.get_user(user_id).await;
         user.map(|u| u.display_name.clone())
     }

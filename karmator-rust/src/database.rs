@@ -46,6 +46,12 @@ impl ToString for KarmaName {
     }
 }
 
+impl rs::ToSql for KarmaName {
+    fn to_sql(&self) -> rs::Result<rs::types::ToSqlOutput<'_>> {
+        Ok(rs::types::ToSqlOutput::from(self.to_string()))
+    }
+}
+
 
 // TODO: should be able to replace all of these stuff maybe by some trait or some other tricks
 // so that we can have a extensible query where i define the query/process/result and then send it
@@ -71,8 +77,8 @@ pub enum RunQuery {
     AddKarma {
         timestamp: DateTime<Utc>,
         user_id: String,
-        username: Option<KarmaName>,
-        real_name: Option<KarmaName>,
+        username: KarmaName,
+        real_name: KarmaName,
         channel_id: Option<String>,
         karma: Vec<KST>,
     },
@@ -81,9 +87,9 @@ pub enum RunQuery {
         message_ts: String,
     },
     AddReacjiMessage {
-        user_id: Option<String>,
-        username: Option<KarmaName>,
-        real_name: Option<KarmaName>,
+        user_id: String,
+        username: KarmaName,
+        real_name: KarmaName,
         channel_id: String,
         message_ts: String,
         message: String,
@@ -91,8 +97,8 @@ pub enum RunQuery {
     AddReacji {
         timestamp: DateTime<Utc>,
         user_id: String,
-        username: Option<KarmaName>,
-        real_name: Option<KarmaName>,
+        username: KarmaName,
+        real_name: KarmaName,
         action: ReacjiAction,
         message_id: i64,
         result: Karma,
@@ -295,9 +301,6 @@ pub fn process_queries(
                 maybe_send(res_tx, ResQuery::Partial(ret))?;
             },
             RunQuery::AddKarma{timestamp, user_id, username, real_name, channel_id, karma} => {
-                let un = username.map(|un| un.to_string()).unwrap_or("".to_string());
-                let urn = real_name.map(|rn| rn.to_string()).unwrap_or("".to_string());
-
                 let nick_id: i64 = {
                     let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?").unwrap();
                     let mut rows = stmt.query(rs::params![user_id]).unwrap();
@@ -309,7 +312,7 @@ pub fn process_queries(
                             "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?)"
                         ).unwrap();
 
-                        stmt.insert(rs::params![un, urn, user_id, "SlackServer"]).unwrap()
+                        stmt.insert(rs::params![username, real_name, user_id, "SlackServer"]).unwrap()
                     }
                 };
 
@@ -352,10 +355,10 @@ pub fn process_queries(
                         // mandatory before inserting?
                         match channel_id {
                             Some(cid) => stmt.insert(
-                                rs::params![ts, un, karma_text, amount, nick_id, cid]
+                                rs::params![ts, username, karma_text, amount, nick_id, cid]
                             ).unwrap(),
                             None      => stmt.insert(
-                                rs::params![ts, un, karma_text, amount, nick_id, &rs::types::Null]
+                                rs::params![ts, username, karma_text, amount, nick_id, &rs::types::Null]
                             ).unwrap(),
                         };
                     }
@@ -395,24 +398,18 @@ pub fn process_queries(
             },
 
             RunQuery::AddReacjiMessage{user_id, username, real_name, channel_id, message_ts, message} => {
-                let un = username.map(|un| un.to_string()).unwrap_or("".to_string());
-                let urn = real_name.map(|rn| rn.to_string()).unwrap_or("".to_string());
-
-                let nick_id: Option<i64> = if let Some(uid) = user_id {
+                let nick_id: i64 = {
                     let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?").unwrap();
-                    let mut rows = stmt.query(rs::params![uid]).unwrap();
+                    let mut rows = stmt.query(rs::params![user_id]).unwrap();
 
                     if let Ok(Some(row)) = rows.next() {
-                        row.get(0).ok()
+                        row.get(0).unwrap()
                     } else {
                         let mut stmt = conn.prepare(
                             "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?)"
                         ).unwrap();
-
-                        stmt.insert(rs::params![un, urn, uid, "SlackServer"]).ok()
+                        stmt.insert(rs::params![username, real_name, user_id, "SlackServer"]).unwrap()
                     }
-                } else {
-                    None
                 };
 
                 let channel_id: i64 = {
@@ -441,9 +438,6 @@ pub fn process_queries(
             },
 
             RunQuery::AddReacji{timestamp, user_id, username, real_name, action, message_id, result} => {
-                let un = username.map(|un| un.to_string()).unwrap_or("".to_string());
-                let urn = real_name.map(|rn| rn.to_string()).unwrap_or("".to_string());
-
                 let nick_id: i64 = {
                     let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?").unwrap();
                     let mut rows = stmt.query(rs::params![user_id]).unwrap();
@@ -455,7 +449,7 @@ pub fn process_queries(
                             "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?)"
                         ).unwrap();
 
-                        stmt.insert(rs::params![un, urn, user_id, "SlackServer"]).unwrap()
+                        stmt.insert(rs::params![username, real_name, user_id, "SlackServer"]).unwrap()
                     }
                 };
 
@@ -482,7 +476,7 @@ pub fn process_queries(
                         (?, ?, ?, ?, ?, ?)"
                 ).unwrap();
 
-                stmt.insert(rs::params![ts, un, action, message_id, amount, nick_id]).unwrap();
+                stmt.insert(rs::params![ts, username, action, message_id, amount, nick_id]).unwrap();
             },
         }
     }
