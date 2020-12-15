@@ -33,7 +33,8 @@ use karmator_rust::signal;
 // TODO:
 // Fix voting for - @luisp++ case it should -> luisp++ for the database
 // Fix command parsing for <@user> -> user for commands
-
+// FIX self-voting on reacji since we now also upvote the owner of the message itself along with
+//      the message
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
