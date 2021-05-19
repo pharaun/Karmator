@@ -10,7 +10,7 @@ use tokio::signal::unix;
 pub struct Signal {
     shutdown: bool,
 
-    sql_shutdown: watch::Receiver<bool>,
+    external_shutdown: watch::Receiver<bool>,
 
     #[cfg(unix)]
     sig_int: unix::Signal,
@@ -26,7 +26,7 @@ impl Signal {
 
         (tx, Signal {
             shutdown: false,
-            sql_shutdown: rx,
+            external_shutdown: rx,
 
             #[cfg(unix)]
             sig_int: unix::signal(unix::SignalKind::interrupt()).unwrap(),
@@ -39,7 +39,7 @@ impl Signal {
     #[cfg(unix)]
     pub async fn shutdown(&mut self) {
         self.shutdown = tokio::select! {
-            val = self.sql_shutdown.recv() => {
+            val = self.external_shutdown.recv() => {
                 match val {
                     None => true,
                     Some(v) => v,
@@ -53,7 +53,7 @@ impl Signal {
     #[cfg(windows)]
     pub async fn shutdown(&mut self) {
         self.shutdown = tokio::select! {
-            val = self.sql_shutdown.recv() => {
+            val = self.external_shutdown.recv() => {
                 match val {
                     None => true,
                     Some(v) => v,
