@@ -1,4 +1,7 @@
 *.log
 *.sqlite
-target
 Cargo.lock
+fuzz/artifacts
+fuzz/corpus
+fuzz/target
+target

@@ -1,9 +1,0 @@
-[package]
-name = "karmator-batches"
-version = "0.1.0"
-authors = ["Anja Berens <pharaun666@gmail.com>"]
-edition = "2018"
-
-[dependencies]
-clap = "~2.33.0"
-rusqlite = { version = "0.24.1", features = ["bundled"] }
