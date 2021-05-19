@@ -15,10 +15,10 @@ use crate::bot::user_database::{RunQuery, ResQuery, KarmaCol, KarmaTyp, OrdQuery
 use crate::bot::user_database::send_query;
 use crate::bot::user_database::send_query_commit;
 use crate::bot::build_info;
-use crate::parser::command;
-use crate::parser::karma;
-use crate::parser::santizer;
-use crate::parser::reacji_to_karma;
+use crate::core::command;
+use crate::bot::parser::karma;
+use crate::core::santizer;
+use crate::bot::parser::reacji_to_karma;
 use crate::core::cache;
 use crate::core::event::MsgId;
 use crate::core::event::UserEvent;

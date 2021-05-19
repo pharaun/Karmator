@@ -3,7 +3,7 @@ use libfuzzer_sys::fuzz_target;
 use arbitrary::{Arbitrary, Unstructured};
 
 extern crate karmator_rust;
-use karmator_rust::parser::test_all_token as kt;
+use karmator_rust::bot::parser::test_all_token as kt;
 
 // Dummy struct to get a string
 #[derive(Arbitrary)]

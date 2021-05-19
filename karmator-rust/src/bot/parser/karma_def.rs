@@ -2,7 +2,7 @@ use nom::bytes::complete::tag;
 use nom::branch::alt;
 use nom::IResult;
 
-use crate::parser::karma::Karma;
+use crate::bot::parser::karma::Karma;
 
 // TODO: Refactor this entire crate to be better and ingest a list of karma items and generate the
 // definition here but for now this will do.

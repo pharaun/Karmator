@@ -11,7 +11,7 @@ use std::ops::RangeTo;
 use std::ops::Range;
 use std::slice::Iter;
 
-use crate::parser::karma_token::KarmaToken;
+use crate::bot::parser::karma_token::KarmaToken;
 
 // Engine for allowing us to parse on top of tokens
 #[derive(Debug, PartialEq, Clone, Copy)]

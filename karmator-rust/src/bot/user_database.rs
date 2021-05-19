@@ -11,8 +11,8 @@ use unicode_normalization::{
 
 use chrono::prelude::{Utc, DateTime};
 
-use crate::parser::karma::KST;
-use crate::parser::karma::Karma;
+use crate::bot::parser::karma::KST;
+use crate::bot::parser::karma::Karma;
 use crate::core::database::Query;
 use tokio::sync::mpsc;
 
