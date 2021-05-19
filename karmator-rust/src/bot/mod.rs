@@ -1,3 +1,3 @@
-pub mod build_info;
-pub mod user_database;
 pub mod user_event;
+mod user_database;
+mod build_info;

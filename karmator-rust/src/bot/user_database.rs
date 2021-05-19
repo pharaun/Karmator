@@ -14,7 +14,35 @@ use chrono::prelude::{Utc, DateTime};
 use crate::parser::karma::KST;
 use crate::parser::karma::Karma;
 use crate::core::database::Query;
+use tokio::sync::mpsc;
 
+
+pub async fn send_query(
+    sql_tx: &mut mpsc::Sender<Query>,
+    query: RunQuery,
+) -> Result<ResQuery, &'static str> {
+    let (tx, rx) = oneshot::channel();
+
+    let c_query = query_to_closure(
+        query,
+        Some(tx)
+    ).map_err(|_| "Error converting")?;
+
+    sql_tx.send(c_query).await.map_err(|_| "Error sending")?;
+    rx.await.map_err(|_| "Error recieving")
+}
+
+pub async fn send_query_commit(
+    sql_tx: &mut mpsc::Sender<Query>,
+    query: RunQuery,
+) -> Result<(), &'static str> {
+    let c_query = query_to_closure(
+        query,
+        None
+    ).map_err(|_| "Error converting")?;
+
+    sql_tx.send(c_query).await.map_err(|_| "Error sending")
+}
 
 // Normalize any incoming string to be stored in the database
 fn normalize(input: &str) -> String {

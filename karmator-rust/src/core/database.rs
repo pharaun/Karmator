@@ -6,6 +6,7 @@ use futures::executor::block_on_stream;
 use rusqlite as rs;
 use std::path::Path;
 
+
 pub type Query = Box<dyn FnOnce(&mut rs::Connection) -> Result<(), String> + Send + 'static>;
 
 
