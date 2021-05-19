@@ -258,11 +258,11 @@ pub async fn process_control_message(
                         reconnect.store(true, Ordering::Relaxed);
                         can_send.store(false, Ordering::Relaxed);
                     },
-                    SystemControl::Pong{reply_to: _, timestamp: ts} => {
-                        if let Some(old) = ts {
-                            let now = Utc::now().timestamp_millis();
-                            println!("SYSTEM [Inbound]: Ping delta: {:?}ms", now - old);
-                        }
+                    SystemControl::Pong{reply_to: _, timestamp: _ts} => {
+                    //    if let Some(old) = _ts {
+                    //        let now = Utc::now().timestamp_millis();
+                    //        println!("SYSTEM [Inbound]: Ping delta: {:?}ms", now - old);
+                    //    }
                     },
                 }
                 Ok(None)
