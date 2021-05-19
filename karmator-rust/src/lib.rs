@@ -1,8 +1,3 @@
-pub mod user_database;
-pub mod database;
-pub mod event;
-pub mod user_event;
-pub mod build_info;
-pub mod cache;
+pub mod core;
+pub mod bot;
 pub mod parser;
-pub mod signal;

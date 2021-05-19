@@ -17,9 +17,11 @@ use chrono::prelude::Utc;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
-use crate::user_database::{RunQuery, ResQuery, query_to_closure};
+use crate::core::database::Query;
 use crate::parser::santizer;
-use crate::database::Query;
+
+// TODO: extract this
+use crate::bot::user_database::{RunQuery, ResQuery, query_to_closure};
 
 
 // Type alias for msg_id
@@ -206,6 +208,7 @@ pub async fn send_slack_ping(
     tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await.map_err(|_| "Error sending")
 }
 
+// TODO: extract the query closure stuff or just move this into user_event
 pub async fn send_query(
     sql_tx: &mut mpsc::Sender<Query>,
     query: RunQuery,

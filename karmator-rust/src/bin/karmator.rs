@@ -23,11 +23,11 @@ use std::time::Duration;
 use std::time::Instant;
 
 
-use karmator_rust::database;
-use karmator_rust::event;
-use karmator_rust::user_event;
-use karmator_rust::cache;
-use karmator_rust::signal;
+use karmator_rust::core::database;
+use karmator_rust::core::event;
+use karmator_rust::core::cache;
+use karmator_rust::core::signal;
+use karmator_rust::bot::user_event;
 
 
 // TODO:

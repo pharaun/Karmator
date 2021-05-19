@@ -11,20 +11,20 @@ use humantime::format_duration;
 use std::str::FromStr;
 
 
-use crate::user_database::{RunQuery, ResQuery, KarmaCol, KarmaTyp, OrdQuery, KarmaName, ReacjiAction};
-use crate::cache;
-use crate::build_info;
+use crate::bot::user_database::{RunQuery, ResQuery, KarmaCol, KarmaTyp, OrdQuery, KarmaName, ReacjiAction};
+use crate::bot::build_info;
 use crate::parser::command;
 use crate::parser::karma;
 use crate::parser::santizer;
 use crate::parser::reacji_to_karma;
-use crate::event::MsgId;
-use crate::event::UserEvent;
-use crate::event::ReactionItem;
-use crate::event::send_simple_message;
-use crate::event::send_query;
-use crate::event::send_query_commit;
-use crate::database::Query;
+use crate::core::cache;
+use crate::core::event::MsgId;
+use crate::core::event::UserEvent;
+use crate::core::event::ReactionItem;
+use crate::core::event::send_simple_message;
+use crate::core::event::send_query;
+use crate::core::event::send_query_commit;
+use crate::core::database::Query;
 
 pub async fn process_user_message<R>(
     msg_id: MsgId,

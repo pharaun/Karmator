@@ -13,7 +13,7 @@ use chrono::prelude::{Utc, DateTime};
 
 use crate::parser::karma::KST;
 use crate::parser::karma::Karma;
-use crate::database::Query;
+use crate::core::database::Query;
 
 
 // Normalize any incoming string to be stored in the database
