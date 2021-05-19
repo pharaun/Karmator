@@ -214,10 +214,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             //  - [No] Do nothing
                             if lmd.as_secs() > 30 {
                                 if lpd.as_secs() > 30 {
-                                    println!("SYSTEM [Slack RTM]: Last message: {:?}s, Last ping: {:?}s",
-                                        lmd.as_secs(),
-                                        lpd.as_secs(),
-                                    );
+                                    //println!("SYSTEM [Slack RTM]: Last message: {:?}s, Last ping: {:?}s",
+                                    //    lmd.as_secs(),
+                                    //    lpd.as_secs(),
+                                    //);
                                     let _ = event::send_slack_ping(
                                         msg_id.clone(),
                                         &mut tx.clone(),

@@ -17,8 +17,9 @@ use chrono::prelude::Utc;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
-use crate::database::{RunQuery, ResQuery};
+use crate::user_database::{RunQuery, ResQuery, query_to_closure};
 use crate::parser::santizer;
+use crate::database::Query;
 
 
 // Type alias for msg_id
@@ -205,14 +206,31 @@ pub async fn send_slack_ping(
     tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await.map_err(|_| "Error sending")
 }
 
-
 pub async fn send_query(
-    sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
+    sql_tx: &mut mpsc::Sender<Query>,
     query: RunQuery,
 ) -> Result<ResQuery, &'static str> {
     let (tx, rx) = oneshot::channel();
-    sql_tx.send((query, Some(tx))).await.map_err(|_| "Error sending")?;
+
+    let c_query = query_to_closure(
+        query,
+        Some(tx)
+    ).map_err(|_| "Error converting")?;
+
+    sql_tx.send(c_query).await.map_err(|_| "Error sending")?;
     rx.await.map_err(|_| "Error recieving")
+}
+
+pub async fn send_query_commit(
+    sql_tx: &mut mpsc::Sender<Query>,
+    query: RunQuery,
+) -> Result<(), &'static str> {
+    let c_query = query_to_closure(
+        query,
+        None
+    ).map_err(|_| "Error converting")?;
+
+    sql_tx.send(c_query).await.map_err(|_| "Error sending")
 }
 
 

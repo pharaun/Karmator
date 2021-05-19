@@ -2,7 +2,6 @@ use slack_api as slack;
 use tokio_tungstenite as tungstenite;
 
 use tokio::sync::mpsc;
-use tokio::sync::oneshot;
 
 use std::result::Result;
 
@@ -12,7 +11,7 @@ use humantime::format_duration;
 use std::str::FromStr;
 
 
-use crate::database::{RunQuery, ResQuery, KarmaCol, KarmaTyp, OrdQuery, KarmaName, ReacjiAction};
+use crate::user_database::{RunQuery, ResQuery, KarmaCol, KarmaTyp, OrdQuery, KarmaName, ReacjiAction};
 use crate::cache;
 use crate::build_info;
 use crate::parser::command;
@@ -24,12 +23,14 @@ use crate::event::UserEvent;
 use crate::event::ReactionItem;
 use crate::event::send_simple_message;
 use crate::event::send_query;
+use crate::event::send_query_commit;
+use crate::database::Query;
 
 pub async fn process_user_message<R>(
     msg_id: MsgId,
     msg: UserEvent,
     mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
-    mut sql_tx: mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
+    mut sql_tx: mpsc::Sender<Query>,
     start_time: DateTime<Utc>,
     cache: cache::Cache<R>,
 ) -> Result<(), Box<dyn std::error::Error>>
@@ -524,7 +525,7 @@ where
 
 
 async fn add_reacji<R>(
-    sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
+    sql_tx: &mut mpsc::Sender<Query>,
     cache: &cache::Cache<R>,
     input: &str,
     user_id: String,
@@ -627,7 +628,7 @@ where
 
 
 async fn add_karma<R>(
-    sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
+    sql_tx: &mut mpsc::Sender<Query>,
     cache: &cache::Cache<R>,
     input: &str,
     user_id: String,
@@ -664,7 +665,8 @@ where
             if !karma.is_empty() {
                 match (username, user_real_name) {
                     (Some(ud), Some(rn)) => {
-                        let _ = sql_tx.send((
+                        let _ = send_query_commit(
+                            sql_tx,
                             RunQuery::AddKarma {
                                 timestamp: Utc::now(),
                                 user_id: user_id,
@@ -672,9 +674,8 @@ where
                                 real_name: KarmaName::new(&rn),
                                 channel_id: Some(channel_id),
                                 karma: karma,
-                            },
-                            None
-                        )).await;
+                            }
+                        ).await;
                     },
                     _ => eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack"),
                 }
@@ -741,7 +742,7 @@ where
 async fn top_n(
     msg_id: MsgId,
     tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
-    sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
+    sql_tx: &mut mpsc::Sender<Query>,
     channel: String,
     thread_ts: Option<String>,
     user: String,
@@ -815,7 +816,7 @@ async fn top_n(
 async fn partial(
     msg_id: MsgId,
     tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
-    sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
+    sql_tx: &mut mpsc::Sender<Query>,
     channel: String,
     thread_ts: Option<String>,
     user: String,
@@ -866,7 +867,7 @@ async fn partial(
 async fn ranking(
     msg_id: MsgId,
     tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
-    sql_tx: &mut mpsc::Sender<(RunQuery, Option<oneshot::Sender<ResQuery>>)>,
+    sql_tx: &mut mpsc::Sender<Query>,
     channel: String,
     thread_ts: Option<String>,
     user: String,

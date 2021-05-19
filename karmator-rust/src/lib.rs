@@ -1,3 +1,4 @@
+pub mod user_database;
 pub mod database;
 pub mod event;
 pub mod user_event;

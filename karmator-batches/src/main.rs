@@ -39,10 +39,11 @@ fn main() {
 
     let filename = matches.value_of("FILE").unwrap_or("db.sqlite");
     match matches.subcommand() {
-        ("runs", Some(m)) => run(m, filename),
+        ("runs", Some(m)) => {
+            let _ = run(m, filename);
+        },
         _ => {
             println!("{}", matches.usage());
-            Ok(())
         }
     };
 }
