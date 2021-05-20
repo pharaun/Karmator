@@ -1,4 +1,5 @@
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 
 // SQlite worker thread
 use futures::executor::block_on_stream;
@@ -6,8 +7,30 @@ use futures::executor::block_on_stream;
 use rusqlite as rs;
 use std::path::Path;
 
-
 pub type Query = Box<dyn FnOnce(&mut rs::Connection) -> Result<(), String> + Send + 'static>;
+type Query2<T> = Box<dyn FnOnce(&mut rs::Connection) -> Result<T, String> + Send + 'static>;
+
+pub async fn send_query<T>(
+    sql_tx: &mut mpsc::Sender<Query>,
+    query: Query2<T>,
+) -> Result<T, &'static str>
+where
+    T: Send + 'static
+{
+    let (tx, rx) = oneshot::channel();
+
+    let query2 = move |conn: &mut rs::Connection| {
+        let res = query(conn);
+
+        match res {
+            Ok(x)  => tx.send(x).map_err(|_| "Cant send ResQuery".to_string()),
+            Err(x) => Err(x),
+        }
+    };
+
+    sql_tx.send(Box::new(query2)).await.map_err(|_| "Error sending query")?;
+    rx.await.map_err(|_| "Error recieving")
+}
 
 
 // TODO: additional check for shutting down
