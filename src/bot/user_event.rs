@@ -11,9 +11,8 @@ use humantime::format_duration;
 use std::str::FromStr;
 
 
-use crate::bot::user_database::{RunQuery, ResQuery, KarmaCol, KarmaTyp, OrdQuery, KarmaName, ReacjiAction};
-use crate::bot::user_database::send_query;
-use crate::bot::user_database::send_query_commit;
+use crate::bot::user_database::{KarmaCol, KarmaTyp, OrdQuery, KarmaName, ReacjiAction};
+use crate::bot::user_database;
 use crate::bot::build_info;
 use crate::core::command;
 use crate::bot::parser::karma;
@@ -539,18 +538,11 @@ where
 {
     match reacji_to_karma(input) {
         Some(karma) => {
-            let message_id = send_query(
+            let message_id = user_database::query_reacji_message(
                 sql_tx,
-                RunQuery::QueryReacjiMessage {
-                    channel_id: channel_id.clone(),
-                    message_ts: ts.clone(),
-                }
-            ).await.map(|t| {
-                match t {
-                    ResQuery::MessageId(id) => id,
-                    _ => None,
-                }
-            }).ok().flatten();
+                channel_id.clone(),
+                ts.clone()
+            ).await.ok().flatten();
 
             let message_id = match message_id {
                 None => {
@@ -565,22 +557,15 @@ where
                                 cache.get_user_real_name(&user_id).await,
                             ) {
                                 (Some(ud), Some(rn)) => {
-                                    send_query(
+                                    user_database::add_reacji_message(
                                         sql_tx,
-                                        RunQuery::AddReacjiMessage {
-                                            user_id: user_id,
-                                            username: KarmaName::new(&ud),
-                                            real_name: KarmaName::new(&rn),
-                                            channel_id: channel_id.clone(),
-                                            message_ts: ts.clone(),
-                                            message: santized_text,
-                                        }
-                                    ).await.map(|t| {
-                                        match t {
-                                            ResQuery::MessageId(id) => id,
-                                            _ => None,
-                                        }
-                                    }).ok().flatten()
+                                        user_id,
+                                        KarmaName::new(&ud),
+                                        KarmaName::new(&rn),
+                                        channel_id.clone(),
+                                        ts.clone(),
+                                        santized_text
+                                    ).await.ok().flatten()
                                 },
                                 _ => {
                                     eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack");
@@ -605,17 +590,15 @@ where
                         cache.get_user_real_name(&user_id).await,
                     ) {
                         (Some(ud), Some(rn)) => {
-                            let _ = send_query(
+                            let _ = user_database::add_reacji(
                                 sql_tx,
-                                RunQuery::AddReacji {
-                                    timestamp: Utc::now(),
-                                    user_id: user_id,
-                                    username: KarmaName::new(&ud),
-                                    real_name: KarmaName::new(&rn),
-                                    action: action,
-                                    message_id: mid,
-                                    result: karma,
-                                }
+                                Utc::now(),
+                                user_id,
+                                KarmaName::new(&ud),
+                                KarmaName::new(&rn),
+                                action,
+                                mid,
+                                karma,
                             ).await;
                         },
                         _ => eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack"),
@@ -666,16 +649,14 @@ where
             if !karma.is_empty() {
                 match (username, user_real_name) {
                     (Some(ud), Some(rn)) => {
-                        let _ = send_query_commit(
+                        let _ = user_database::add_karma(
                             sql_tx,
-                            RunQuery::AddKarma {
-                                timestamp: Utc::now(),
-                                user_id: user_id,
-                                username: KarmaName::new(&ud),
-                                real_name: KarmaName::new(&rn),
-                                channel_id: Some(channel_id),
-                                karma: karma,
-                            }
+                            Utc::now(),
+                            user_id,
+                            KarmaName::new(&ud),
+                            KarmaName::new(&rn),
+                            Some(channel_id),
+                            karma
                         ).await;
                     },
                     _ => eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack"),
@@ -755,44 +736,28 @@ async fn top_n(
     label: (&str, &str),
     limit: u32,
 ) {
-    let high = send_query(
+    let high = user_database::top_n_denormalized(
         sql_tx,
-        RunQuery::TopNDenormalized {
-            karma_col: kcol1,
-            karma_typ: ktyp,
-            limit: limit,
-            ord: kord1,
-        }
-    ).await.map(|h| {
-        // Format it
-        match h {
-            ResQuery::TopN(e) => {
-                e.iter().map(
-                    |(e, c)| format!("{}, ({})", e, c)
-                ).collect::<Vec<String>>().join("; ")
-            },
-            _ => "Wrong Result".to_string(),
-        }
+        kcol1,
+        ktyp,
+        limit,
+        kord1,
+    ).await.map(|e| {
+        e.iter().map(
+            |(e, c)| format!("{}, ({})", e, c)
+        ).collect::<Vec<String>>().join("; ")
     });
 
-    let low = send_query(
+    let low = user_database::top_n_denormalized(
         sql_tx,
-        RunQuery::TopNDenormalized {
-            karma_col: kcol2,
-            karma_typ: ktyp,
-            limit: limit,
-            ord: kord2,
-        }
-    ).await.map(|l| {
-        // Format it
-        match l {
-            ResQuery::TopN(e) => {
-                e.iter().map(
-                    |(e, c)| format!("{}, ({})", e, c)
-                ).collect::<Vec<String>>().join("; ")
-            },
-            _ => "Wrong Result".to_string(),
-        }
+        kcol2,
+        ktyp,
+        limit,
+        kord2,
+    ).await.map(|e| {
+        e.iter().map(
+            |(e, c)| format!("{}, ({})", e, c)
+        ).collect::<Vec<String>>().join("; ")
     });
 
     // TODO: do something about this
@@ -824,25 +789,17 @@ async fn partial(
     kcol: KarmaCol,
     arg: Vec<&str>,
 ) {
-    let res = send_query(
+    let res = user_database::partial(
         sql_tx,
-        RunQuery::Partial {
-            karma_col: kcol,
-            users: arg.into_iter().map(|i| KarmaName::new(i)).collect(),
-        }
-    ).await.map(|p| {
-        // Format it
-        match p {
-            ResQuery::Partial(e) => {
-                e.iter().map(|(entity, up, down, side)| {
-                    format!(
-                        "{}, {} ({}++/{}--/{}+-)",
-                        entity, (up - down), up, down, side
-                    )
-                }).collect::<Vec<String>>().join("; ")
-            },
-            _ => "Wrong Result".to_string(),
-        }
+        kcol,
+        arg.into_iter().map(|i| KarmaName::new(i)).collect(),
+    ).await.map(|e| {
+        e.iter().map(|(entity, up, down, side)| {
+            format!(
+                "{}, {} ({}++/{}--/{}+-)",
+                entity, (up - down), up, down, side
+            )
+        }).collect::<Vec<String>>().join("; ")
     });
 
     // TODO: do something here
@@ -876,58 +833,29 @@ async fn ranking(
     target: &str,
     label: &str,
 ) {
-    let target_recieved = send_query(
+    let target_recieved = user_database::ranking_denormalized(
         sql_tx,
-        RunQuery::RankingDenormalized {
-            karma_col: KarmaCol::Recieved,
-            karma_typ: ktyp,
-            user: KarmaName::new(target),
-        }
-    ).await.map(|t| {
-        // Format it
-        match t {
-            ResQuery::OCount(e) => e.map(|c| format!("{}", c)),
-            _ => None,
-        }
-    });
+        KarmaCol::Recieved,
+        ktyp,
+        KarmaName::new(target),
+    ).await.map(|e| e.map(|c| format!("{}", c)));
 
-    let total_recieved = send_query(
+    let total_recieved = user_database::count(
         sql_tx,
-        RunQuery::Count(KarmaCol::Recieved),
-    ).await.map(|t| {
-        // Format it
-        match t {
-            ResQuery::Count(e) => format!("{}", e),
-            _ => "Wrong Result".to_string(),
-        }
-    });
+        KarmaCol::Recieved,
+    ).await.map(|e| format!("{}", e));
 
-    let target_given = send_query(
+    let target_given = user_database::ranking_denormalized(
         sql_tx,
-        RunQuery::RankingDenormalized {
-            karma_col: KarmaCol::Given,
-            karma_typ: ktyp,
-            user: KarmaName::new(target),
-        }
-    ).await.map(|t| {
-        // Format it
-        match t {
-            ResQuery::OCount(e) => e.map(|c| format!("{}", c)),
-            _ => None,
-        }
-    });
+        KarmaCol::Given,
+        ktyp,
+        KarmaName::new(target),
+    ).await.map(|e| e.map(|c| format!("{}", c)));
 
-    let total_given = send_query(
+    let total_given = user_database::count(
         sql_tx,
-        RunQuery::Count(KarmaCol::Given),
-    ).await.map(|t| {
-        // Format it
-        match t {
-            ResQuery::Count(e) => format!("{}", e),
-            _ => "Wrong Result".to_string(),
-        }
-    });
-
+        KarmaCol::Given,
+    ).await.map(|e| format!("{}", e));
 
     // Formatting the ranks
     let receiving = match (target_recieved, total_recieved) {
