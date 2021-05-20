@@ -22,11 +22,11 @@ use crate::core::event::ReactionItem;
 use crate::core::event::send_simple_message;
 use crate::core::database::Query;
 
-use crate::bot::user_ranking::ranking;
-use crate::bot::user_partial::partial;
-use crate::bot::user_top_n::top_n;
-use crate::bot::user_karma::add_karma;
-use crate::bot::user_reacji::add_reacji;
+use crate::bot::query::ranking::ranking;
+use crate::bot::query::partial::partial;
+use crate::bot::query::top_n::top_n;
+use crate::bot::query::karma::add_karma;
+use crate::bot::query::reacji::add_reacji;
 
 
 pub async fn process_user_message<R>(
