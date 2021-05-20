@@ -2,16 +2,17 @@ use tokio_tungstenite as tungstenite;
 
 use atomic_counter::AtomicCounter;
 use atomic_counter::RelaxedCounter;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use serde::Deserialize;
 use serde_json::json;
 
 use std::result::Result;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use std::sync::RwLock;
 use std::time::Instant;
+
 use chrono::prelude::Utc;
 
 use tokio::sync::mpsc;

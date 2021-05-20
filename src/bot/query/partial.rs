@@ -6,12 +6,13 @@ use tokio::sync::mpsc;
 use std::result::Result;
 use std::collections::HashSet;
 
+use crate::bot::query::{KarmaCol, KarmaName};
 
-use crate::bot::user_database::{KarmaCol, KarmaName};
-use crate::core::event::MsgId;
-use crate::core::database::send_query;
-use crate::core::event::send_simple_message;
 use crate::core::database::Query;
+use crate::core::database::send_query;
+
+use crate::core::event::MsgId;
+use crate::core::event::send_simple_message;
 
 
 pub async fn partial(

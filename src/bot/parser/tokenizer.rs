@@ -1,14 +1,14 @@
+use nom::InputIter;
 use nom::InputLength;
 use nom::InputTake;
-use nom::InputIter;
 use nom::Slice;
 use nom::UnspecializedInput;
 
 use std::iter::Enumerate;
-use std::ops::RangeFull;
-use std::ops::RangeFrom;
-use std::ops::RangeTo;
 use std::ops::Range;
+use std::ops::RangeFrom;
+use std::ops::RangeFull;
+use std::ops::RangeTo;
 use std::slice::Iter;
 
 use crate::bot::parser::karma_token::KarmaToken;

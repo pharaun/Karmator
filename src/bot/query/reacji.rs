@@ -7,14 +7,16 @@ use std::result::Result;
 
 use tokio::sync::mpsc;
 
+use crate::bot::parser::karma::Karma;
 use crate::bot::parser::reacji_to_karma;
-use crate::bot::user_database::{KarmaName, ReacjiAction};
+
+use crate::bot::query::santizer;
+use crate::bot::query::{KarmaName, ReacjiAction};
+
 use crate::core::cache;
+
 use crate::core::database::Query;
 use crate::core::database::send_query;
-use crate::bot::parser::karma::Karma;
-
-use crate::bot::user_event::santizer;
 
 
 pub async fn add_reacji<R>(

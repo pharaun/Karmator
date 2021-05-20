@@ -1,11 +1,11 @@
+use rusqlite as rs;
+use std::path::Path;
+
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
-// SQlite worker thread
 use futures::executor::block_on_stream;
 
-use rusqlite as rs;
-use std::path::Path;
 
 pub type Query = Box<dyn FnOnce(&mut rs::Connection) -> Result<(), String> + Send + 'static>;
 type Query2<T> = Box<dyn FnOnce(&mut rs::Connection) -> Result<T, String> + Send + 'static>;

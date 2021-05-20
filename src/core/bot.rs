@@ -7,15 +7,14 @@ use futures_timer::Delay;
 
 use tokio::sync::mpsc;
 
+use atomic_counter::AtomicCounter;
 use atomic_counter::RelaxedCounter;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use atomic_counter::AtomicCounter;
 
-use std::sync::Arc;
 use std::result::Result;
+use std::sync::Arc;
 use std::sync::RwLock;
-
 use std::time::Duration;
 use std::time::Instant;
 

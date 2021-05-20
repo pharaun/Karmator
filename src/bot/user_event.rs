@@ -3,30 +3,30 @@ use tokio_tungstenite as tungstenite;
 
 use tokio::sync::mpsc;
 
-use std::result::Result;
-
 use chrono::prelude::{Utc, DateTime};
-use std::time::Duration;
 use humantime::format_duration;
+
+use std::result::Result;
 use std::str::FromStr;
+use std::time::Duration;
 
-
-use crate::bot::user_database::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
 use crate::bot::build_info;
-use crate::core::command;
-use crate::core::santizer;
+
+use crate::bot::query::karma::add_karma;
+use crate::bot::query::partial::partial;
+use crate::bot::query::ranking::ranking;
+use crate::bot::query::reacji::add_reacji;
+use crate::bot::query::top_n::top_n;
+use crate::bot::query::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
+
 use crate::core::cache;
-use crate::core::event::MsgId;
-use crate::core::event::UserEvent;
-use crate::core::event::ReactionItem;
-use crate::core::event::send_simple_message;
+use crate::core::command;
 use crate::core::database::Query;
 
-use crate::bot::query::ranking::ranking;
-use crate::bot::query::partial::partial;
-use crate::bot::query::top_n::top_n;
-use crate::bot::query::karma::add_karma;
-use crate::bot::query::reacji::add_reacji;
+use crate::core::event::MsgId;
+use crate::core::event::ReactionItem;
+use crate::core::event::UserEvent;
+use crate::core::event::send_simple_message;
 
 
 pub async fn process_user_message<R>(
@@ -524,51 +524,4 @@ where
         _ => (),
     }
     Ok(())
-}
-
-
-
-pub async fn santizer<R>(
-    input: &str,
-    cache: &cache::Cache<R>,
-) -> String
-where
-    R: slack::requests::SlackWebRequestSender + std::clone::Clone
-{
-    match santizer::parse(input).ok() {
-        None      => {
-            eprintln!("ERROR [Santizer]: Failed to santize: {:?}", input);
-            input.to_string()
-        },
-
-        Some(san) => {
-            let mut safe_text = vec![];
-
-            for seg in san.iter() {
-                // TODO: do other id reprocessing such as:
-                // 1. channel...
-                match seg {
-                    santizer::Segment::User(uid, l) => {
-                        // Do a user id lookup
-                        let username = cache.get_username(&uid).await;
-
-                        match username {
-                            Some(name) => safe_text.push(name),
-                            None => {
-                                // TODO: Log this, but for now fallback to
-                                // just rendering it straight into the db
-                                safe_text.push(
-                                    santizer::Segment::User(uid, l).to_string()
-                                );
-                            },
-                        }
-                    },
-                    // Everything else
-                    s => safe_text.push(s.to_string()),
-                }
-            }
-
-            safe_text.join("")
-        },
-    }
 }

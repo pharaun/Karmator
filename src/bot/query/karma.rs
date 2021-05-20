@@ -7,15 +7,18 @@ use std::result::Result;
 
 use tokio::sync::mpsc;
 
+use crate::bot::parser::karma::KST;
 use crate::bot::parser::karma;
-use crate::bot::user_database::KarmaName;
+
+use crate::bot::query::KarmaName;
+use crate::bot::query::normalize;
+use crate::bot::query::santizer;
+
 use crate::core::cache;
+
 use crate::core::database::Query;
 use crate::core::database::send_query;
-use crate::bot::parser::karma::KST;
 
-use crate::bot::user_event::santizer;
-use crate::bot::user_database::normalize;
 
 pub async fn add_karma<R>(
     sql_tx: &mut mpsc::Sender<Query>,

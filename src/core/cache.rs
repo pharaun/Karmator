@@ -1,4 +1,5 @@
 use slack_api as slack;
+use slack_api::requests::SlackWebRequestSender;
 
 use serde::Deserialize;
 
@@ -6,8 +7,8 @@ use std::sync::Arc;
 
 // TODO: look at some sort of lru or persist this to sqlite instead?
 use dashmap::DashMap;
-use slack_api::requests::SlackWebRequestSender;
 use std::clone::Clone;
+
 
 // TODO: add settings, and have it or something peroidically query the database to load latest
 // settings into the cache, so that things can grab the settings they need from the settings cache
