@@ -11,19 +11,22 @@ use humantime::format_duration;
 use std::str::FromStr;
 
 
-use crate::bot::user_database::{KarmaCol, KarmaTyp, OrdQuery, KarmaName, ReacjiAction};
-use crate::bot::user_database;
+use crate::bot::user_database::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
 use crate::bot::build_info;
 use crate::core::command;
-use crate::bot::parser::karma;
 use crate::core::santizer;
-use crate::bot::parser::reacji_to_karma;
 use crate::core::cache;
 use crate::core::event::MsgId;
 use crate::core::event::UserEvent;
 use crate::core::event::ReactionItem;
 use crate::core::event::send_simple_message;
 use crate::core::database::Query;
+
+use crate::bot::user_ranking::ranking;
+use crate::bot::user_partial::partial;
+use crate::bot::user_top_n::top_n;
+use crate::bot::user_karma::add_karma;
+use crate::bot::user_reacji::add_reacji;
 
 
 pub async fn process_user_message<R>(
@@ -524,158 +527,8 @@ where
 }
 
 
-async fn add_reacji<R>(
-    sql_tx: &mut mpsc::Sender<Query>,
-    cache: &cache::Cache<R>,
-    input: &str,
-    user_id: String,
-    channel_id: String,
-    ts: String,
-    action: ReacjiAction,
-)
-where
-    R: slack::requests::SlackWebRequestSender + std::clone::Clone
-{
-    match reacji_to_karma(input) {
-        Some(karma) => {
-            let message_id = user_database::query_reacji_message(
-                sql_tx,
-                channel_id.clone(),
-                ts.clone()
-            ).await.ok().flatten();
 
-            let message_id = match message_id {
-                None => {
-                    match cache.get_message(&channel_id, &ts).await {
-                        Some(cache::ConversationHistoryMessage::Message { text, user_id: Some(user_id) }) => {
-                            // We have the message content, insert it into the table and
-                            // get its row id
-                            let santized_text = santizer(&text, &cache).await;
-
-                            match (
-                                cache.get_username(&user_id).await,
-                                cache.get_user_real_name(&user_id).await,
-                            ) {
-                                (Some(ud), Some(rn)) => {
-                                    user_database::add_reacji_message(
-                                        sql_tx,
-                                        user_id,
-                                        KarmaName::new(&ud),
-                                        KarmaName::new(&rn),
-                                        channel_id.clone(),
-                                        ts.clone(),
-                                        santized_text
-                                    ).await.ok().flatten()
-                                },
-                                _ => {
-                                    eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack");
-                                    None
-                                },
-                            }
-                        },
-                        // This should already have been logged by the api call function
-                        _ => None,
-                    }
-                },
-                Some(mid) => Some(mid),
-            };
-
-            match message_id {
-                None => eprintln!(
-                    "ERROR: [User Event] Wasn't able to get/store an reactji message, vote isn't recorded"
-                ),
-                Some(mid) => {
-                    match (
-                        cache.get_username(&user_id).await,
-                        cache.get_user_real_name(&user_id).await,
-                    ) {
-                        (Some(ud), Some(rn)) => {
-                            let _ = user_database::add_reacji(
-                                sql_tx,
-                                Utc::now(),
-                                user_id,
-                                KarmaName::new(&ud),
-                                KarmaName::new(&rn),
-                                action,
-                                mid,
-                                karma,
-                            ).await;
-                        },
-                        _ => eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack"),
-                    }
-                },
-            }
-        },
-        None => (),
-    }
-}
-
-
-async fn add_karma<R>(
-    sql_tx: &mut mpsc::Sender<Query>,
-    cache: &cache::Cache<R>,
-    input: &str,
-    user_id: String,
-    channel_id: String,
-)
-where
-    R: slack::requests::SlackWebRequestSender + std::clone::Clone
-{
-    let santized_text = santizer(&input, &cache).await;
-    let res = karma::parse(&santized_text);
-
-    match res {
-        Ok(mut karma) if !karma.is_empty() => {
-            println!("INFO [User Event]: Parsed Karma: {:?}", karma);
-            let username = cache.get_username(&user_id).await;
-            let user_real_name = cache.get_user_real_name(&user_id).await;
-
-            // Filter karma of any entity that is same as
-            // username, and check if any got filtered, if
-            // so, log.
-            let before = karma.len();
-            match username {
-                None     => (),
-                Some(ref ud) => karma.retain(|&karma::KST(ref t, _)| {
-                    KarmaName::new(t) != KarmaName::new(ud)
-                }),
-            }
-            let after = karma.len();
-
-            if before != after {
-                println!("INFO [User Event]: User self-voted: {:?}", username);
-            }
-
-            if !karma.is_empty() {
-                match (username, user_real_name) {
-                    (Some(ud), Some(rn)) => {
-                        let _ = user_database::add_karma(
-                            sql_tx,
-                            Utc::now(),
-                            user_id,
-                            KarmaName::new(&ud),
-                            KarmaName::new(&rn),
-                            Some(channel_id),
-                            karma
-                        ).await;
-                    },
-                    _ => eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack"),
-                }
-            }
-        },
-
-        Ok(_) => (),
-
-        Err(e) => {
-            // The parse should return empty if its valid, something
-            // broke, should log it here
-            eprintln!("ERROR [User Event]: Failed to parse karma: {:?}", e);
-        },
-    }
-}
-
-
-async fn santizer<R>(
+pub async fn santizer<R>(
     input: &str,
     cache: &cache::Cache<R>,
 ) -> String
@@ -718,168 +571,4 @@ where
             safe_text.join("")
         },
     }
-}
-
-
-async fn top_n(
-    msg_id: MsgId,
-    tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
-    sql_tx: &mut mpsc::Sender<Query>,
-    channel: String,
-    thread_ts: Option<String>,
-    user: String,
-    kcol1: KarmaCol,
-    kord1: OrdQuery,
-    kcol2: KarmaCol,
-    kord2: OrdQuery,
-    ktyp: KarmaTyp,
-    label: (&str, &str),
-    limit: u32,
-) {
-    let high = user_database::top_n_denormalized(
-        sql_tx,
-        kcol1,
-        ktyp,
-        limit,
-        kord1,
-    ).await.map(|e| {
-        e.iter().map(
-            |(e, c)| format!("{}, ({})", e, c)
-        ).collect::<Vec<String>>().join("; ")
-    });
-
-    let low = user_database::top_n_denormalized(
-        sql_tx,
-        kcol2,
-        ktyp,
-        limit,
-        kord2,
-    ).await.map(|e| {
-        e.iter().map(
-            |(e, c)| format!("{}, ({})", e, c)
-        ).collect::<Vec<String>>().join("; ")
-    });
-
-    // TODO: do something about this
-    let _ = match (high, low) {
-        (Ok(h), Ok(l)) => send_simple_message(
-            msg_id,
-            tx,
-            channel,
-            thread_ts,
-            format!("<@{}>: {}: {}. {}: {}.", user, label.0, h, label.1, l),
-        ).await,
-        _ => send_simple_message(
-            msg_id,
-            tx,
-            channel,
-            thread_ts,
-            format!("<@{}>: {}", user, "Something went wrong"),
-        ).await,
-    };
-}
-
-async fn partial(
-    msg_id: MsgId,
-    tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
-    sql_tx: &mut mpsc::Sender<Query>,
-    channel: String,
-    thread_ts: Option<String>,
-    user: String,
-    kcol: KarmaCol,
-    arg: Vec<&str>,
-) {
-    let res = user_database::partial(
-        sql_tx,
-        kcol,
-        arg.into_iter().map(|i| KarmaName::new(i)).collect(),
-    ).await.map(|e| {
-        e.iter().map(|(entity, up, down, side)| {
-            format!(
-                "{}, {} ({}++/{}--/{}+-)",
-                entity, (up - down), up, down, side
-            )
-        }).collect::<Vec<String>>().join("; ")
-    });
-
-    // TODO: do something here
-    let _ = match res {
-        Ok(x) => send_simple_message(
-            msg_id,
-            tx,
-            channel,
-            thread_ts,
-            format!("<@{}>: {}", user, x),
-        ).await,
-        _ => send_simple_message(
-            msg_id,
-            tx,
-            channel,
-            thread_ts,
-            format!("<@{}>: {}", user, "Something went wrong"),
-        ).await,
-    };
-}
-
-
-async fn ranking(
-    msg_id: MsgId,
-    tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
-    sql_tx: &mut mpsc::Sender<Query>,
-    channel: String,
-    thread_ts: Option<String>,
-    user: String,
-    ktyp: KarmaTyp,
-    target: &str,
-    label: &str,
-) {
-    let target_recieved = user_database::ranking_denormalized(
-        sql_tx,
-        KarmaCol::Recieved,
-        ktyp,
-        KarmaName::new(target),
-    ).await.map(|e| e.map(|c| format!("{}", c)));
-
-    let total_recieved = user_database::count(
-        sql_tx,
-        KarmaCol::Recieved,
-    ).await.map(|e| format!("{}", e));
-
-    let target_given = user_database::ranking_denormalized(
-        sql_tx,
-        KarmaCol::Given,
-        ktyp,
-        KarmaName::new(target),
-    ).await.map(|e| e.map(|c| format!("{}", c)));
-
-    let total_given = user_database::count(
-        sql_tx,
-        KarmaCol::Given,
-    ).await.map(|e| format!("{}", e));
-
-    // Formatting the ranks
-    let receiving = match (target_recieved, total_recieved) {
-        (Ok(Some(r)), Ok(tr)) => Some(format!("{} rank is {} of {} in receiving", label, r, tr)),
-        _ => None,
-    };
-
-    let giving = match (target_given, total_given) {
-        (Ok(Some(g)), Ok(tg)) => Some(format!("{} rank is {} of {} in giving", label, g, tg)),
-        _ => None,
-    };
-
-    let rank = match (receiving, giving) {
-        (Some(r), Some(g)) => format!("{} and {}.", r, g),
-        (Some(r), None)    => format!("{}.", r),
-        (None, Some(g))    => format!("{}.", g),
-        (None, None)       => format!("No ranking available"),
-    };
-
-    let _ = send_simple_message(
-        msg_id,
-        tx,
-        channel,
-        thread_ts,
-        format!("<@{}>: {}", user, rank),
-    ).await;
 }
