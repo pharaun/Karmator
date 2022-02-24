@@ -1,6 +1,7 @@
 use slack_api as slack;
 
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 
 use std::env;
 use std::path::Path;
@@ -50,11 +51,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sql_worker = thread::Builder::new().name("sqlite_worker".into()).spawn(move || {
         println!("INFO [Sql Worker]: Launching");
 
-        let res = database::process_queries(Path::new(&filename), sql_rx);
+        let res = database::process_queries(
+            Path::new(&filename),
+            ReceiverStream::new(sql_rx),
+        );
         eprintln!("ERROR [Sql Worker]: {:?}", res);
 
         // Worker died, signal the shutdown signal
-        let _ = sql_shutdown_tx.broadcast(true);
+        let _ = sql_shutdown_tx.send(true);
 
         println!("INFO [Sql Worker]: Exiting");
     })?;

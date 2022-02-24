@@ -5,6 +5,7 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
 use futures::executor::block_on_stream;
+use tokio_stream::wrappers::ReceiverStream;
 
 
 pub type Query = Box<dyn FnOnce(&mut rs::Connection) -> Result<(), String> + Send + 'static>;
@@ -37,7 +38,7 @@ where
 // if panic, trigger shutdown, if regular query error, log
 pub fn process_queries(
     filename: &Path,
-    sql_rx: mpsc::Receiver<Query>
+    sql_rx: ReceiverStream<Query>
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut block_sql_rx = block_on_stream(sql_rx);
 

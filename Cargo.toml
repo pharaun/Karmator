@@ -6,39 +6,46 @@ edition = "2018"
 build = "build.rs"
 
 [build-dependencies]
-built = { version = "0.4", features = ["chrono", "git2"] }
+built = { version = "0.5.1", features = ["chrono", "git2"] }
+
+[profile.release]
+lto = "thin"
 
 [dependencies]
-slack_api = "0.23.0"
-tokio-tungstenite = { version = "0.11.0", features = ["connect", "tls", "stream"] }
-tokio = { version = "0.2.22", features = ["full"] }
-futures-util = "0.3.8"
-futures = "0.3.7"
-futures-timer = "3.0.2"
+slack_api = "0.23.2"
+tokio-tungstenite = { version = "0.13", features = ["connect", "tls", "stream"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+futures-util = "0.3"
+futures = "0.3"
+futures-timer = "3"
 
 # Message Ids
-atomic-counter = "1.0.1"
+atomic-counter = "1"
 
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 chrono = "0.4"
 humantime = "2"
-dashmap = "3"
-nom = "6"
+dashmap = "5"
+nom = "7"
 
-rusqlite = { version = "0.24.1", features = ["bundled"] }
+rusqlite = { version = "0.24", features = ["bundled"] }
 
 # For karma parsing
-unicode-normalization = "0.1.16"
-unicase = "2.6.0"
+unicode-normalization = "0.1"
+unicase = "2.6"
 
 # For fuzzing
 arbitrary = { version = "0.4", optional = true, features = ["derive"] }
 
 # For batches
-clap = "~2.33.0"
+clap = "2"
 
 # governor = "0.3.1"
 # consider storing the configuration in sqlite itself
 # toml = "0.5.7"
+
+[patch.crates-io]
+slack_api = { git = "https://github.com/pharaun/slack-rs-api" }

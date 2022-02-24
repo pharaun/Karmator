@@ -39,12 +39,7 @@ impl Signal {
     #[cfg(unix)]
     pub async fn shutdown(&mut self) {
         self.shutdown = tokio::select! {
-            val = self.external_shutdown.recv() => {
-                match val {
-                    None => true,
-                    Some(v) => v,
-                }
-            },
+            _ = self.external_shutdown.changed() => *self.external_shutdown.borrow(),
             _ = self.sig_int.recv() => true,
             _ = self.sig_term.recv() => true,
         }
@@ -53,12 +48,7 @@ impl Signal {
     #[cfg(windows)]
     pub async fn shutdown(&mut self) {
         self.shutdown = tokio::select! {
-            val = self.external_shutdown.recv() => {
-                match val {
-                    None => true,
-                    Some(v) => v,
-                }
-            },
+            _ = self.external_shutdown.changed() => *self.external_shutdown.borrow(),
             _ = signal::ctrl_c() => true,
         }
     }
