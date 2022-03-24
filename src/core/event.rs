@@ -206,7 +206,7 @@ pub async fn send_slack_ping(
 
 
 pub async fn process_control_message(
-    mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
+    tx: mpsc::Sender<tungstenite::tungstenite::Message>,
     can_send: Arc<AtomicBool>,
     reconnect: Arc<AtomicBool>,
     reconnect_count: Arc<RelaxedCounter>,
