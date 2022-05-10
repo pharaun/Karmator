@@ -175,12 +175,10 @@ where
                         let _ = err_future.await;
                     } else {
                         // Parse the argument
-                        let limit = u32::from_str(arg.get(0).unwrap());
+                        let limit = u32::from_str(arg.get(0).unwrap_or(&"1"));
 
                         match limit {
-                            Ok(1..=25) => {
-                                let limit = limit.unwrap();
-
+                            Ok(lim@1..=25) => {
                                 top_n(
                                     msg_id,
                                     &mut tx,
@@ -194,7 +192,7 @@ where
                                     OrdQuery::Asc,
                                     KarmaTyp::Total,
                                     ("\nhighest karma", "\nlowest karma"),
-                                    limit,
+                                    lim,
                                 ).await;
                             },
                             _ => {
@@ -251,12 +249,10 @@ where
                         let _ = err_future.await;
                     } else {
                         // Parse the argument
-                        let limit = u32::from_str(arg.get(0).unwrap());
+                        let limit = u32::from_str(arg.get(0).unwrap_or(&"1"));
 
                         match limit {
-                            Ok(1..=25) => {
-                                let limit = limit.unwrap();
-
+                            Ok(lim@1..=25) => {
                                 top_n(
                                     msg_id,
                                     &mut tx,
@@ -270,7 +266,7 @@ where
                                     OrdQuery::Asc,
                                     KarmaTyp::Total,
                                     ("\nmost positive", "\nmost negative"),
-                                    limit,
+                                    lim,
                                 ).await;
                             },
                             _ => {
@@ -324,12 +320,10 @@ where
                         let _ = err_future.await;
                     } else {
                         // Parse the argument
-                        let limit = u32::from_str(arg.get(0).unwrap());
+                        let limit = u32::from_str(arg.get(0).unwrap_or(&"1"));
 
                         match limit {
-                            Ok(1..=25) => {
-                                let limit = limit.unwrap();
-
+                            Ok(lim@1..=25) => {
                                 top_n(
                                     msg_id,
                                     &mut tx,
@@ -343,7 +337,7 @@ where
                                     OrdQuery::Desc,
                                     KarmaTyp::Side,
                                     ("\nmost sidevotes recieved", "\nmost sidevotes given"),
-                                    limit,
+                                    lim,
                                 ).await;
                             },
                             _ => {
@@ -384,7 +378,7 @@ where
                         }
                     } else if arg.len() == 1 {
                         // Rank up with one target
-                        let target = arg.get(0).unwrap();
+                        let target = arg.get(0).unwrap_or(&"INVALID");
 
                         ranking(
                             msg_id,
@@ -439,7 +433,7 @@ where
                         }
                     } else if arg.len() == 1 {
                         // Rank up with one target
-                        let target = arg.get(0).unwrap();
+                        let target = arg.get(0).unwrap_or(&"INVALID");
 
                         ranking(
                             msg_id,
