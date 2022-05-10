@@ -1,0 +1,5 @@
+#!/bin/sh
+
+GIT_AUTHOR_EMAIL=pharaun666@gmail.com
+GIT_COMMITTER_EMAIL=pharaun666@gmail.com
+EMAIL=pharaun666@gmail.com
