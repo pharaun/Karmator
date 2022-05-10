@@ -18,6 +18,14 @@ use crate::core::database::Query;
 use crate::core::database::send_query;
 
 
+fn fix<T>(input: Result<Option<T>, String>) -> Result<T, String> {
+    input.map_or_else(
+        |e| Err(e),
+        |v| v.ok_or("NONE RESULT".to_string())
+    )
+}
+
+
 pub async fn add_reacji<R>(
     sql_tx: &mut mpsc::Sender<Query>,
     cache: &cache::Cache<R>,
@@ -32,15 +40,17 @@ where
 {
     match reacji_to_karma(input) {
         Some(karma) => {
-            let message_id = query_reacji_message(
+            let message_id = fix(query_reacji_message(
                 sql_tx,
                 channel_id.clone(),
                 ts.clone()
-            ).await.ok().flatten();
+            ).await);
 
             let message_id = match message_id {
-                None => {
-                    match cache.get_message(&channel_id, &ts).await {
+                Err(e) => {
+                    eprintln!("ERROR: [User Event] Querying for reacji failed: {:?}", e);
+
+                    fix(match cache.get_message(&channel_id, &ts).await {
                         Some(cache::ConversationHistoryMessage::Message { text, user_id: Some(user_id) }) => {
                             // We have the message content, insert it into the table and
                             // get its row id
@@ -59,32 +69,30 @@ where
                                         channel_id.clone(),
                                         ts.clone(),
                                         santized_text
-                                    ).await.ok().flatten()
+                                    ).await
                                 },
-                                _ => {
-                                    eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack");
-                                    None
-                                },
+                                e => Err(format!("ERROR: [User Event] Querying for user/name failed: {:?}", e)),
                             }
                         },
                         // This should already have been logged by the api call function
-                        _ => None,
-                    }
+                        e => Err(format!("ERROR: [User Event] IDK here: {:?}", e)),
+                    })
                 },
-                Some(mid) => Some(mid),
+                Ok(mid) => Ok(mid),
             };
 
             match message_id {
-                None => eprintln!(
-                    "ERROR: [User Event] Wasn't able to get/store an reactji message, vote isn't recorded"
-                ),
-                Some(mid) => {
+                Err(e) => {
+                    eprintln!("ERROR: [User Event] Wasn't able to get/store an reactji message, vote isn't recorded");
+                    eprintln!("ERROR: [User Event] Returned error: {:?}", e);
+                },
+                Ok(mid) => {
                     match (
                         cache.get_username(&user_id).await,
                         cache.get_user_real_name(&user_id).await,
                     ) {
                         (Some(ud), Some(rn)) => {
-                            let _ = add_reacji_query(
+                            let e = add_reacji_query(
                                 sql_tx,
                                 Utc::now(),
                                 user_id,
@@ -94,8 +102,12 @@ where
                                 mid,
                                 karma,
                             ).await;
+
+                            if e.is_err() {
+                                eprintln!("ERROR: [User Event] Query failed: {:?}", e);
+                            }
                         },
-                        _ => eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack"),
+                        e => eprintln!("ERROR: [User Event] Querying for user/name failed: {:?}", e),
                     }
                 },
             }
