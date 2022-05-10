@@ -3,8 +3,6 @@ use slack_api as slack;
 
 use chrono::prelude::{Utc, DateTime};
 
-use std::result::Result;
-
 use tokio::sync::mpsc;
 
 use crate::bot::parser::karma::Karma;
@@ -15,6 +13,7 @@ use crate::bot::query::{KarmaName, ReacjiAction};
 
 use crate::core::cache;
 
+use crate::core::database::DbResult;
 use crate::core::database::Query;
 use crate::core::database::send_query;
 
@@ -110,13 +109,13 @@ async fn query_reacji_message(
     sql_tx: &mut mpsc::Sender<Query>,
     channel_id: String,
     message_ts: String,
-) -> Result<Option<i64>, &'static str> {
+) -> DbResult<Option<i64>> {
     send_query(
         sql_tx,
         Box::new(move |conn: &mut rs::Connection| {
             let channel_id: Option<i64> = {
-                let mut stmt = conn.prepare("SELECT id FROM chan_metadata WHERE channel = ?").unwrap();
-                let mut rows = stmt.query(rs::params![channel_id]).unwrap();
+                let mut stmt = conn.prepare("SELECT id FROM chan_metadata WHERE channel = ?")?;
+                let mut rows = stmt.query(rs::params![channel_id])?;
 
                 if let Ok(Some(row)) = rows.next() {
                     row.get(0).ok()
@@ -128,8 +127,8 @@ async fn query_reacji_message(
             if let Some(channel_id) = channel_id {
                 // We good let's proceed, otherwise abort since if channel id isn't here its
                 // not going to be in reacji_message either
-                let mut stmt = conn.prepare("SELECT id FROM reacji_message WHERE ts = ? AND chan_id = ?").unwrap();
-                let mut rows = stmt.query(rs::params![message_ts, channel_id]).unwrap();
+                let mut stmt = conn.prepare("SELECT id FROM reacji_message WHERE ts = ? AND chan_id = ?")?;
+                let mut rows = stmt.query(rs::params![message_ts, channel_id])?;
 
                 if let Ok(Some(row)) = rows.next() {
                     let msg_id: Option<i64> = row.get(0).ok();
@@ -153,43 +152,43 @@ async fn add_reacji_message(
     channel_id: String,
     message_ts: String,
     message: String,
-) -> Result<Option<i64>, &'static str> {
+) -> DbResult<Option<i64>> {
     send_query(
         sql_tx,
         Box::new(move |conn: &mut rs::Connection| {
             let nick_id: i64 = {
-                let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?").unwrap();
-                let mut rows = stmt.query(rs::params![user_id]).unwrap();
+                let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?")?;
+                let mut rows = stmt.query(rs::params![user_id])?;
 
                 if let Ok(Some(row)) = rows.next() {
-                    row.get(0).unwrap()
+                    row.get(0)?
                 } else {
                     let mut stmt = conn.prepare(
                         "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?)"
-                    ).unwrap();
-                    stmt.insert(rs::params![username, real_name, user_id, "SlackServer"]).unwrap()
+                    )?;
+                    stmt.insert(rs::params![username, real_name, user_id, "SlackServer"])?
                 }
             };
 
             let channel_id: i64 = {
-                let mut stmt = conn.prepare("SELECT id FROM chan_metadata WHERE channel = ?").unwrap();
-                let mut rows = stmt.query(rs::params![channel_id]).unwrap();
+                let mut stmt = conn.prepare("SELECT id FROM chan_metadata WHERE channel = ?")?;
+                let mut rows = stmt.query(rs::params![channel_id])?;
 
                 if let Ok(Some(row)) = rows.next() {
-                    row.get(0).unwrap()
+                    row.get(0)?
                 } else {
-                    let mut stmt = conn.prepare("INSERT INTO chan_metadata (channel) VALUES (?)").unwrap();
-                    stmt.insert(rs::params![channel_id]).unwrap()
+                    let mut stmt = conn.prepare("INSERT INTO chan_metadata (channel) VALUES (?)")?;
+                    stmt.insert(rs::params![channel_id])?
                 }
             };
 
             // Insert the reacji_message content now
             let mut stmt = conn.prepare(
                 "INSERT INTO reacji_message (ts, chan_id, nick_id, message) VALUES (?, ?, ?, ?)"
-            ).unwrap();
+            )?;
 
             Ok(
-                Some(stmt.insert(rs::params![message_ts, channel_id, nick_id, message]).unwrap())
+                Some(stmt.insert(rs::params![message_ts, channel_id, nick_id, message])?)
             )
         })
     ).await
@@ -205,22 +204,22 @@ async fn add_reacji_query(
     action: ReacjiAction,
     message_id: i64,
     amount: Karma,
-) -> Result<Option<i64>, &'static str> {
+) -> DbResult<Option<i64>> {
     send_query(
         sql_tx,
         Box::new(move |conn: &mut rs::Connection| {
             let nick_id: i64 = {
-                let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?").unwrap();
-                let mut rows = stmt.query(rs::params![user_id]).unwrap();
+                let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?")?;
+                let mut rows = stmt.query(rs::params![user_id])?;
 
                 if let Ok(Some(row)) = rows.next() {
-                    row.get(0).unwrap()
+                    row.get(0)?
                 } else {
                     let mut stmt = conn.prepare(
                         "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?)"
-                    ).unwrap();
+                    )?;
 
-                    stmt.insert(rs::params![username, real_name, user_id, "SlackServer"]).unwrap()
+                    stmt.insert(rs::params![username, real_name, user_id, "SlackServer"])?
                 }
             };
 
@@ -233,9 +232,9 @@ async fn add_reacji_query(
                     (voted_at, by_whom_name, action, reacji_message_id, amount, nick_id)
                 VALUES
                     (?, ?, ?, ?, ?, ?)"
-            ).unwrap();
+            )?;
 
-            stmt.insert(rs::params![ts, username, action, message_id, amount, nick_id]).unwrap();
+            stmt.insert(rs::params![ts, username, action, message_id, amount, nick_id])?;
 
             Ok(None)
         })

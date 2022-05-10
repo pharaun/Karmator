@@ -3,10 +3,9 @@ use rusqlite as rs;
 
 use tokio::sync::mpsc;
 
-use std::result::Result;
-
 use crate::bot::query::{KarmaCol, KarmaTyp, OrdQuery};
 
+use crate::core::database::DbResult;
 use crate::core::database::Query;
 use crate::core::database::send_query;
 
@@ -79,7 +78,7 @@ async fn top_n_denormalized(
     karma_typ: KarmaTyp,
     limit: u32,
     ord: OrdQuery
-) -> Result<Vec<(String, i32)>, &'static str> {
+) -> DbResult<Vec<(String, i32)>> {
     send_query(
         sql_tx,
         Box::new(move |conn: &mut rs::Connection| {
@@ -89,14 +88,14 @@ async fn top_n_denormalized(
                 table=karma_col,
                 q_ord=ord,
                 limit=limit
-            )).unwrap();
-            let mut rows = stmt.query(rs::NO_PARAMS).unwrap();
+            ))?;
+            let mut rows = stmt.query(rs::NO_PARAMS)?;
 
             let mut ret: Vec<(String, i32)> = vec![];
 
             while let Ok(Some(row)) = rows.next() {
-                let name: String = row.get(0).unwrap();
-                let count: i32 = row.get(1).unwrap();
+                let name: String = row.get(0)?;
+                let count: i32 = row.get(1)?;
 
                 ret.push((name.clone(), count));
             }

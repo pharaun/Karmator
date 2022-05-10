@@ -8,13 +8,15 @@ use futures::executor::block_on_stream;
 use tokio_stream::wrappers::ReceiverStream;
 
 
-pub type Query = Box<dyn FnOnce(&mut rs::Connection) -> Result<(), String> + Send + 'static>;
-type Query2<T> = Box<dyn FnOnce(&mut rs::Connection) -> Result<T, String> + Send + 'static>;
+pub type DbResult<T> = Result<T, String>;
+pub type Query = Box<dyn FnOnce(&mut rs::Connection) -> DbResult<()> + Send + 'static>;
+type Query2<T> = Box<dyn FnOnce(&mut rs::Connection) -> Result<T, Box<dyn std::error::Error>> + Send + 'static>;
+
 
 pub async fn send_query<T>(
     sql_tx: &mut mpsc::Sender<Query>,
     query: Query2<T>,
-) -> Result<T, &'static str>
+) -> DbResult<T>
 where
     T: Send + 'static
 {
@@ -25,12 +27,12 @@ where
 
         match res {
             Ok(x)  => tx.send(x).map_err(|_| "Cant send ResQuery".to_string()),
-            Err(x) => Err(x),
+            Err(x) => Err(x.to_string()),
         }
     };
 
-    sql_tx.send(Box::new(query2)).await.map_err(|_| "Error sending query")?;
-    rx.await.map_err(|_| "Error recieving")
+    sql_tx.send(Box::new(query2)).await.map_err(|_| "Error sending query".to_string())?;
+    rx.await.map_err(|_| "Error recieving".to_string())
 }
 
 
@@ -39,7 +41,7 @@ where
 pub fn process_queries(
     filename: &Path,
     sql_rx: ReceiverStream<Query>
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> DbResult<()> {
     let mut block_sql_rx = block_on_stream(sql_rx);
 
     let mut conn = rs::Connection::open_with_flags(

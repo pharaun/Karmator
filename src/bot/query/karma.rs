@@ -3,8 +3,6 @@ use slack_api as slack;
 
 use chrono::prelude::{Utc, DateTime};
 
-use std::result::Result;
-
 use tokio::sync::mpsc;
 
 use crate::bot::parser::karma::KST;
@@ -16,6 +14,7 @@ use crate::bot::query::santizer;
 
 use crate::core::cache;
 
+use crate::core::database::DbResult;
 use crate::core::database::Query;
 use crate::core::database::send_query;
 
@@ -92,33 +91,33 @@ async fn add_karma_query(
     real_name: KarmaName,
     channel_id: Option<String>,
     karma: Vec<KST>,
-) -> Result<Option<i64>, &'static str> {
+) -> DbResult<Option<i64>> {
     send_query(
         sql_tx,
         Box::new(move |conn: &mut rs::Connection| {
             let nick_id: i64 = {
-                let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?").unwrap();
-                let mut rows = stmt.query(rs::params![user_id]).unwrap();
+                let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?")?;
+                let mut rows = stmt.query(rs::params![user_id])?;
 
                 if let Ok(Some(row)) = rows.next() {
-                    row.get(0).unwrap()
+                    row.get(0)?
                 } else {
                     let mut stmt = conn.prepare(
                         "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?)"
-                    ).unwrap();
+                    )?;
 
-                    stmt.insert(rs::params![username, real_name, user_id, "SlackServer"]).unwrap()
+                    stmt.insert(rs::params![username, real_name, user_id, "SlackServer"])?
                 }
             };
 
             let channel_id: Option<i64> = if let Some(cid) = channel_id {
-                let mut stmt = conn.prepare("SELECT id FROM chan_metadata WHERE channel = ?").unwrap();
-                let mut rows = stmt.query(rs::params![cid]).unwrap();
+                let mut stmt = conn.prepare("SELECT id FROM chan_metadata WHERE channel = ?")?;
+                let mut rows = stmt.query(rs::params![cid])?;
 
                 if let Ok(Some(row)) = rows.next() {
                     row.get(0).ok()
                 } else {
-                    let mut stmt = conn.prepare("INSERT INTO chan_metadata (channel) VALUES (?)").unwrap();
+                    let mut stmt = conn.prepare("INSERT INTO chan_metadata (channel) VALUES (?)")?;
                     stmt.insert(rs::params![cid]).ok()
                 }
             } else {
@@ -133,7 +132,7 @@ async fn add_karma_query(
                         (voted_at, by_whom_name, for_what_name, amount, nick_id, chan_id)
                     VALUES
                         (?, ?, ?, ?, ?, ?)"
-                ).unwrap();
+                )?;
 
                 for KST(karma_text, amount) in karma.iter() {
                     let ts = timestamp.to_rfc3339();
@@ -145,10 +144,10 @@ async fn add_karma_query(
                     match channel_id {
                         Some(cid) => stmt.insert(
                             rs::params![ts, username, karma_text, amount, nick_id, cid]
-                        ).unwrap(),
+                        )?,
                         None      => stmt.insert(
                             rs::params![ts, username, karma_text, amount, nick_id, &rs::types::Null]
-                        ).unwrap(),
+                        )?,
                     };
                 }
             }

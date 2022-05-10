@@ -3,11 +3,11 @@ use rusqlite as rs;
 
 use tokio::sync::mpsc;
 
-use std::result::Result;
 use std::collections::HashSet;
 
 use crate::bot::query::{KarmaCol, KarmaName};
 
+use crate::core::database::DbResult;
 use crate::core::database::Query;
 use crate::core::database::send_query;
 
@@ -62,7 +62,7 @@ async fn partial_query(
     sql_tx: &mut mpsc::Sender<Query>,
     karma_col: KarmaCol,
     users: HashSet<KarmaName>,
-) -> Result<Vec<(String, i32, i32, i32)>, &'static str> {
+) -> DbResult<Vec<(String, i32, i32, i32)>> {
     send_query(
         sql_tx,
         Box::new(move |conn: &mut rs::Connection| {
@@ -81,18 +81,18 @@ async fn partial_query(
             let mut stmt = conn.prepare(&format!(
                 "SELECT name, up, down, side FROM {table} WHERE name in ({p_user}) ORDER BY name DESC",
                 table=karma_col, p_user=p_user
-            )).unwrap();
-            let mut rows = stmt.query(&param).unwrap();
+            ))?;
+            let mut rows = stmt.query(&param)?;
 
             // A bit more additional work than usual
             let mut ret: Vec<(String, i32, i32, i32)> = vec![];
             let mut has: HashSet<KarmaName> = HashSet::new();
 
             while let Ok(Some(row)) = rows.next() {
-                let name: String = row.get(0).unwrap();
-                let up: i32 = row.get(1).unwrap();
-                let down: i32 = row.get(2).unwrap();
-                let side: i32 = row.get(3).unwrap();
+                let name: String = row.get(0)?;
+                let up: i32 = row.get(1)?;
+                let down: i32 = row.get(2)?;
+                let side: i32 = row.get(3)?;
 
                 has.insert(KarmaName::new(&name));
                 ret.push((name, up, down, side));

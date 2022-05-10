@@ -3,10 +3,9 @@ use rusqlite as rs;
 
 use tokio::sync::mpsc;
 
-use std::result::Result;
-
 use crate::bot::query::{KarmaCol, KarmaTyp, KarmaName};
 
+use crate::core::database::DbResult;
 use crate::core::database::Query;
 use crate::core::database::send_query;
 
@@ -81,7 +80,7 @@ async fn ranking_denormalized(
     karma_col: KarmaCol,
     karma_typ: KarmaTyp,
     user: KarmaName
-) -> Result<Option<u32>, &'static str> {
+) -> DbResult<Option<u32>> {
     send_query(
         sql_tx,
         Box::new(move |conn: &mut rs::Connection| {
@@ -102,9 +101,9 @@ async fn ranking_denormalized(
                     )
                 ) ELSE NULL END",
                 table=karma_col, t_col1=karma_typ, t_col2=t_col2
-            )).unwrap();
+            ))?;
             let user = user.to_string();
-            let mut rows = stmt.query(rs::params![user, user]).unwrap();
+            let mut rows = stmt.query(rs::params![user, user])?;
 
             if let Ok(Some(row)) = rows.next() {
                 let count: Option<u32> = row.get(0).ok();
@@ -114,7 +113,7 @@ async fn ranking_denormalized(
                 Err(format!(
                     "ERROR [Sql Worker]: RankingDenormalized - karma_col: {:?}, karma_typ: {:?}, user: {:?}",
                     karma_col, karma_typ, user
-                ))
+                ).into())
             }
         })
     ).await
@@ -123,22 +122,22 @@ async fn ranking_denormalized(
 async fn count(
     sql_tx: &mut mpsc::Sender<Query>,
     karma_col: KarmaCol,
-) -> Result<u32, &'static str> {
+) -> DbResult<u32> {
     send_query(
         sql_tx,
         Box::new(move |conn: &mut rs::Connection| {
             let mut stmt = conn.prepare(&format!(
                 "SELECT COUNT(name) FROM {table}",
                 table=karma_col
-            )).unwrap();
-            let mut rows = stmt.query(rs::NO_PARAMS).unwrap();
+            ))?;
+            let mut rows = stmt.query(rs::NO_PARAMS)?;
 
             if let Ok(Some(row)) = rows.next() {
-                let count: u32 = row.get(0).unwrap();
+                let count: u32 = row.get(0)?;
 
                 Ok(count)
             } else {
-                Err(format!("ERROR [Sql Worker]: Count - ERROR - karma_col: {:?}", karma_col))
+                Err(format!("ERROR [Sql Worker]: Count - ERROR - karma_col: {:?}", karma_col).into())
             }
         })
     ).await
