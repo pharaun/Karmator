@@ -95,6 +95,7 @@ pub enum ReactionItem {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 enum SystemControl {
     // First message upon successful connection establishment
     Hello,
@@ -109,6 +110,7 @@ enum SystemControl {
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
+#[allow(dead_code)]
 enum MessageControl {
     // Reply to message sent
     MessageSent {
@@ -127,6 +129,7 @@ enum MessageControl {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ErrorDetail {
     code: usize,
     msg: String,

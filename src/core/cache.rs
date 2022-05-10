@@ -139,6 +139,7 @@ fn get_slack_url_for_method(method: &str) -> String {
 // This is for the cache message fetcher
 // TODO: upstream/find a better location for this
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ConversationHistoryResult {
     ok: bool,
     messages: Vec<ConversationHistoryMessage>,
