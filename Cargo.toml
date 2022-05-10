@@ -1,6 +1,6 @@
 [package]
 name = "karmator-rust"
-version = "8.0.0"
+version = "8.1.0"
 authors = ["Anja Berens <pharaun666@gmail.com>"]
 edition = "2021"
 build = "build.rs"
