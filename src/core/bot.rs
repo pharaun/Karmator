@@ -25,18 +25,20 @@ use crate::core::signal;
 //********************
 // Core Bot event loop
 //********************
-pub async fn default_event_loop<R, F>(
+pub async fn default_event_loop<R, F1, F2>(
     token: &str,
     client: R,
     mut signal: signal::Signal,
-    user_event_listener: F
+    user_event_listener: F1,
+    recurring_job: F2
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: Fn(
+    F1: Fn(
         event::UserEvent,
         event::MsgId,
         mpsc::Sender<tungstenite::tungstenite::Message>
     ) -> (),
+    F2: Fn() -> (),
     R: SlackWebRequestSender + Clone
 {
     // Shared integer counter for message ids
@@ -193,6 +195,9 @@ where
                         _ => (),
                     }
                 },
+
+                // This is woken up peroidically to run recurring jobs
+                _ = Delay::new(Duration::from_secs(60 * 5)) => recurring_job(),
             }
         }
 

@@ -59,3 +59,11 @@ pub fn process_queries(
 
     Ok(())
 }
+
+pub async fn backup(
+    backup_path: String,
+    mut sql_tx: mpsc::Sender<Query>,
+) -> DbResult<()> {
+
+    Ok(())
+}

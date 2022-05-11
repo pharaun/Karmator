@@ -31,7 +31,8 @@ humantime = "2"
 dashmap = "5"
 nom = "7"
 
-rusqlite = { version = "0.24", features = ["bundled"] }
+rusqlite = { version = "0.24", features = ["bundled", "backup"] }
+tempfile = "3"
 
 # For karma parsing
 unicode-normalization = "0.1"
@@ -42,10 +43,6 @@ arbitrary = { version = "0.4", optional = true, features = ["derive"] }
 
 # For batches
 clap = "2"
-
-# governor = "0.3.1"
-# consider storing the configuration in sqlite itself
-# toml = "0.5.7"
 
 [patch.crates-io]
 slack_api = { git = "https://github.com/pharaun/slack-rs-api" }
