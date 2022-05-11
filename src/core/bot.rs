@@ -3,9 +3,10 @@ use slack_api::requests::SlackWebRequestSender;
 use tokio_tungstenite as tungstenite;
 
 use futures_util::{SinkExt, StreamExt};
-use futures_timer::Delay;
 
 use tokio::sync::mpsc;
+use tokio::time;
+use tokio::time::MissedTickBehavior;
 
 use atomic_counter::AtomicCounter;
 use atomic_counter::RelaxedCounter;
@@ -54,6 +55,12 @@ where
     // Monotonical clock for heartbeat/ping management
     let last_message_recieved = Arc::new(RwLock::new(Instant::now()));
     let last_ping_sent = Arc::new(RwLock::new(Instant::now()));
+
+    // Interval timers for heartbeat + recurring jobs
+    let mut heartbeat = time::interval(time::Duration::from_secs(1));
+    heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut recurring = time::interval(time::Duration::from_secs(60 * 5));
+    recurring.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     // Message Tx/Rx from the message loop to the downstream handlers
     let (tx, mut rx) = mpsc::channel(32);
@@ -147,8 +154,11 @@ where
                     }
                 },
 
+                // This is woken up peroidically to run recurring jobs
+                _ = recurring.tick() => recurring_job(),
+
                 // This is woken up peroidically to force a heartbeat check
-                _ = Delay::new(Duration::from_secs(1)) => {
+                _ = heartbeat.tick() => {
                     let now = Instant::now();
 
                     let last_message_delta = {
@@ -195,9 +205,6 @@ where
                         _ => (),
                     }
                 },
-
-                // This is woken up peroidically to run recurring jobs
-                _ = Delay::new(Duration::from_secs(60 * 5)) => recurring_job(),
             }
         }
 
@@ -209,7 +216,7 @@ where
 
             if count <= 10 {
                 println!("SYSTEM [Slack RTM]: Reconnecting, try: {:?}", count);
-                Delay::new(Duration::from_secs(20)).await;
+                time::sleep(Duration::from_secs(20)).await;
             } else {
                 eprintln!("ERROR [Slack RTM]: Exceeded 10 retries, shutting down");
                 signal.shutdown_now();

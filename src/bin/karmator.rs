@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let sql_tx3 = sql_tx.clone();
             let path = backup.clone();
             tokio::spawn(async move {
-                database::backup(
+                let _ = database::backup(
                     path,
                     sql_tx3
                 ).await;

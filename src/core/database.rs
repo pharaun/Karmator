@@ -1,8 +1,14 @@
 use rusqlite as rs;
 use std::path::Path;
+use std::path::PathBuf;
+use std::time::Duration;
+
+use chrono::DateTime;
+use chrono::Local;
 
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::time::Instant;
 
 use futures::executor::block_on_stream;
 use tokio_stream::wrappers::ReceiverStream;
@@ -36,8 +42,6 @@ where
 }
 
 
-// TODO: additional check for shutting down
-// if panic, trigger shutdown, if regular query error, log
 pub fn process_queries(
     filename: &Path,
     sql_rx: ReceiverStream<Query>
@@ -60,10 +64,40 @@ pub fn process_queries(
     Ok(())
 }
 
+
 pub async fn backup(
     backup_path: String,
     mut sql_tx: mpsc::Sender<Query>,
 ) -> DbResult<()> {
+    let local: DateTime<Local> = Local::now();
+    let mut path = PathBuf::from(backup_path);
+    path.push(
+        format!(
+            "db-backup-{}.sqlite",
+            local.format("%F")
+    ));
+
+    if !path.exists() {
+        // Run a backup now
+        send_query(
+            &mut sql_tx,
+            Box::new(move |conn: &mut rs::Connection| {
+                let mut dst = rs::Connection::open(
+                    path.clone(),
+                ).expect(&format!("Connection error: {:?}", path.to_str()));
+
+                let start = Instant::now();
+                println!("INFO [Sqlite Backup]: Starting backup");
+
+                let backup = rs::backup::Backup::new(conn, &mut dst)?;
+                backup.run_to_completion(100, Duration::ZERO, None)?;
+
+                let done = Instant::now();
+                println!("INFO [Sqlite Backup]: Done - {:?}", done.duration_since(start));
+                Ok(())
+            })
+        ).await?;
+    }
 
     Ok(())
 }
