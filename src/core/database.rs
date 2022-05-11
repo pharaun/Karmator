@@ -1,14 +1,16 @@
 use rusqlite as rs;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
+use std::fs::File;
+use std::io::{SeekFrom, Seek, copy};
 
-use chrono::DateTime;
-use chrono::Local;
+use zstd::stream::read::Encoder;
 
-use tokio::sync::mpsc;
-use tokio::sync::oneshot;
+use chrono::{Local, DateTime};
+
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
+use tokio::task;
 
 use futures::executor::block_on_stream;
 use tokio_stream::wrappers::ReceiverStream;
@@ -73,18 +75,20 @@ pub async fn backup(
     let mut path = PathBuf::from(backup_path);
     path.push(
         format!(
-            "db-backup-{}.sqlite",
+            "db-backup-{}.sqlite.zst",
             local.format("%F")
     ));
 
     if !path.exists() {
+        let (mut file, temp_path) = tempfile::NamedTempFile::new().unwrap().into_parts();
+
         // Run a backup now
         send_query(
             &mut sql_tx,
             Box::new(move |conn: &mut rs::Connection| {
                 let mut dst = rs::Connection::open(
-                    path.clone(),
-                ).expect(&format!("Connection error: {:?}", path.to_str()));
+                    &temp_path
+                ).expect(&format!("Connection error: {:?}", temp_path.to_str()));
 
                 let start = Instant::now();
                 println!("INFO [Sqlite Backup]: Starting backup");
@@ -93,10 +97,28 @@ pub async fn backup(
                 backup.run_to_completion(100, Duration::ZERO, None)?;
 
                 let done = Instant::now();
-                println!("INFO [Sqlite Backup]: Done - {:?}", done.duration_since(start));
+                println!("INFO [Sqlite Backup]: Backup Done - {:?}", done.duration_since(start));
                 Ok(())
             })
         ).await?;
+
+        // Compress the temporary file into ZST
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        task::spawn_blocking(move || {
+            let start = Instant::now();
+            println!("INFO [Sqlite Backup]: Starting compression");
+
+            let mut out_file = File::create(path).unwrap();
+            let mut comp = Encoder::new(
+                &mut file,
+                21
+            ).unwrap();
+            copy(&mut comp, &mut out_file).unwrap();
+
+            let done = Instant::now();
+            println!("INFO [Sqlite Backup]: Compression Done - {:?}", done.duration_since(start));
+        }).await.unwrap();
     }
 
     Ok(())

@@ -32,6 +32,7 @@ nom = "7"
 
 rusqlite = { version = "0.24", features = ["bundled", "backup"] }
 tempfile = "3"
+zstd = "0.9"
 
 # For karma parsing
 unicode-normalization = "0.1"
