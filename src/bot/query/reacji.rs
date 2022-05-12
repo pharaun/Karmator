@@ -191,13 +191,36 @@ async fn add_reacji_message(
             };
 
             // Insert the reacji_message content now
-            let mut stmt = conn.prepare(
-                "INSERT INTO reacji_message (ts, chan_id, nick_id, message) VALUES (?, ?, ?, ?)"
-            )?;
+            let reacji_message_id: i64 = {
+                let mut stmt = conn.prepare("SELECT id, nick_id, message FROM reacji_message WHERE ts = ? AND chan_id = ?")?;
+                let mut rows = stmt.query(rs::params![message_ts, channel_id])?;
 
-            Ok(
-                Some(stmt.insert(rs::params![message_ts, channel_id, nick_id, message])?)
-            )
+                if let Ok(Some(row)) = rows.next() {
+                    // Compare the 2 and if its not the same, warn in log, otherwise return
+                    let id = row.get(0)?;
+                    let sql_nick: i64 = row.get(1)?;
+                    let sql_message: String = row.get(2)?;
+
+                    // Compare
+                    if sql_nick != nick_id || sql_message != message {
+                        eprintln!("ERROR: [Reacji Message] duplicate channel + ts");
+                        eprintln!("ERROR: [Reacji Message] \tSlack Nick: {}", nick_id);
+                        eprintln!("ERROR: [Reacji Message] \tSql Nick:   {}", sql_nick);
+                        eprintln!("ERROR: [Reacji Message] \tSlack Msg:  {}", message);
+                        eprintln!("ERROR: [Reacji Message] \tSql Msg:    {}", sql_message);
+                    }
+
+                    // Return one anyway for now
+                    id
+                } else {
+                    let mut stmt = conn.prepare(
+                        "INSERT INTO reacji_message (ts, chan_id, nick_id, message) VALUES (?, ?, ?, ?)"
+                    )?;
+                    stmt.insert(rs::params![message_ts, channel_id, nick_id, message])?
+                }
+            };
+
+            Ok(Some(reacji_message_id))
         })
     ).await
 }
