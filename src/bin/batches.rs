@@ -23,6 +23,8 @@ use tar::Builder;
 use tar::Header;
 use std::io::{SeekFrom, Seek};
 use std::fs::File;
+use std::fs::OpenOptions;
+use std::ffi::OsStr;
 
 fn main() {
     let matches = App::new("Karmator maintance batch")
@@ -59,6 +61,11 @@ fn main() {
                         .help("Delete the old files"),
                 )
                 .arg(
+                    Arg::with_name("skip")
+                        .long("skip")
+                        .help("Skip compacting old files"),
+                )
+                .arg(
                     Arg::with_name("BACKUPS")
                         .help("Backup directory to prune")
                         .required(true),
@@ -77,8 +84,9 @@ fn main() {
         ("prune", Some(m)) => {
             let directory = m.value_of("BACKUPS").unwrap();
             let delete = m.is_present("delete");
+            let skip = m.is_present("skip");
 
-            prune(directory, delete)
+            prune(directory, delete, skip)
         }
         _ => {
             println!("{}", matches.usage());
@@ -225,7 +233,7 @@ fn run(filename: &str, min: u32, delete: bool) -> Result<(), Box<dyn Error>> {
 }
 
 
-fn prune(directory: &str, delete: bool) -> Result<(), Box<dyn Error>> {
+fn prune(directory: &str, delete: bool, skip: bool) -> Result<(), Box<dyn Error>> {
     let now: DateTime<Local> = Local::now();
     let year = now.year();
     let month = now.month();
@@ -243,58 +251,27 @@ fn prune(directory: &str, delete: bool) -> Result<(), Box<dyn Error>> {
     let current_first_month = collect_glob(directory, &format!("/db-backup-{}-??-01.sqlite.zst", year));
 
     // Calculate the initial set of files to prune
-    let delete = delete_set(&all_files, vec![&current_month_year, &previous_first_month, &current_first_month]);
-
-
-    println!("cmy: {:?}", current_month_year.len());
-    println!("pfm: {:?}", previous_first_month.len());
-    println!("cfm: {:?}", current_first_month.len());
-    println!("keeping: {:?}\n", current_month_year.len() + previous_first_month.len() + current_first_month.len());
-
-    println!("All: {:?}", all_files.len());
-    println!("DELETE: {:?}", delete.len());
-    println!("keeping: {:?}", all_files.len() - delete.len());
-    println!("Difference is cos of double counting the current_first_month + current_month_year's first day file");
-
+    let mut delete_files = delete_set(&all_files, vec![&current_month_year, &previous_first_month, &current_first_month]);
 
     // Compact pfm + cfm into their years
-    let mut count = CountWrite::from(std::io::sink());
-    {
-        let mut tar = Builder::new(Encoder::new(&mut count, 21)?.auto_finish());
-
-        for f in current_first_month.iter() {
-            let mut file = File::open(f)?;
-            let filename = Path::new(f).file_name().unwrap();
-            let filesize = {
-                let mut count = CountWrite::from(std::io::sink());
-                copy_decode(&file, &mut count)?;
-                count.count()
-            };
-
-            let mut header = Header::new_gnu();
-            header.set_path(filename)?;
-            header.set_size(filesize);
-            header.set_cksum();
-
-            file.seek(SeekFrom::Start(0))?;
-            tar.append(
-                &header,
-                Decoder::new(std::fs::File::open(f)?)?
-            )?;
+    if skip {
+        println!("Compacting: Skipped");
+    } else {
+        if previous_first_month.len() == 12 {
+            let tarfile = format!("{}/db-backup-{}.tar.zst", directory, year-1);
+            print_compact(&previous_first_month, &tarfile)?;
+            delete_files.extend(previous_first_month.iter().map(|e| e.clone()));
         }
 
-        tar.finish()?;
+        if current_first_month.len() == 12 {
+            let tarfile = format!("{}/db-backup-{}.tar.zst", directory, year);
+            print_compact(&current_first_month, &tarfile)?;
+            delete_files.extend(current_first_month.iter().map(|e| e.clone()));
+        }
     }
-    println!("tarball: {:?}", &count.count());
 
-
-    // Rules:
-    //  - Keep current month of daily snapshot
-    //  - Keep first of each month in a year
-    //  - When there is 12 first month snapshot of a year, compact it into a tarfile
-
-
-
+    // List the files we are going to delete
+    print_delete(&delete_files, delete)?;
     Ok(())
 }
 
@@ -314,4 +291,71 @@ fn delete_set(all: &HashSet<OsString>, keep: Vec<&HashSet<OsString>>) -> HashSet
     }
 
     delete
+}
+
+fn compact(compact: &HashSet<OsString>, filename: &str) -> Result<(), Box<dyn Error>> {
+    let tarfile = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(filename);
+
+    let mut tar = Builder::new(Encoder::new(tarfile?, 21)?.auto_finish());
+
+    for f in compact.iter() {
+        let mut file = File::open(f)?;
+        let filename = Path::new(f).file_name().unwrap();
+        let filesize = {
+            let mut count = CountWrite::from(std::io::sink());
+            copy_decode(&file, &mut count)?;
+            count.count()
+        };
+
+        let mut header = Header::new_gnu();
+        header.set_path(filename)?;
+        header.set_size(filesize);
+        header.set_cksum();
+
+        file.seek(SeekFrom::Start(0))?;
+        tar.append(
+            &header,
+            Decoder::new(std::fs::File::open(f)?)?
+        )?;
+    }
+
+    tar.finish()?;
+
+    Ok(())
+}
+
+fn print_compact(to_compact: &HashSet<OsString>, tarfile: &str) -> Result<(), Box<dyn Error>> {
+    println!("Compacting: {}", tarfile);
+
+    let mut print = to_compact.iter()
+        .map(|e| Path::new(e).file_name().unwrap())
+        .collect::<Vec<&OsStr>>();
+    print.sort();
+
+    for i in print.iter() {
+        println!("\t{:?}", i);
+    }
+
+    compact(&to_compact, &tarfile)?;
+    Ok(())
+}
+
+fn print_delete(to_delete: &HashSet<OsString>, delete: bool) -> Result<(), Box<dyn Error>> {
+    println!("Deleting:");
+
+    let mut print = to_delete.iter().collect::<Vec<&OsString>>();
+    print.sort();
+
+    for i in print.iter() {
+        let path = Path::new(i);
+        println!("\t{:?}", path.file_name().unwrap());
+
+        if delete {
+            std::fs::remove_file(path)?;
+        }
+    }
+    Ok(())
 }
