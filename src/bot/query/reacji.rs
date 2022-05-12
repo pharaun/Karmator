@@ -18,14 +18,6 @@ use crate::core::database::Query;
 use crate::core::database::send_query;
 
 
-fn fix<T>(input: Result<Option<T>, String>) -> Result<T, String> {
-    input.map_or_else(
-        |e| Err(e),
-        |v| v.ok_or("NONE RESULT".to_string())
-    )
-}
-
-
 pub async fn add_reacji<R>(
     sql_tx: &mut mpsc::Sender<Query>,
     cache: &cache::Cache<R>,
@@ -40,45 +32,48 @@ where
 {
     match reacji_to_karma(input) {
         Some(karma) => {
-            let message_id = fix(query_reacji_message(
+            let message_id = query_reacji_message(
                 sql_tx,
                 channel_id.clone(),
                 ts.clone()
-            ).await);
+            ).await.map_or_else(
+                |e| Err(e),
+                |v| v.ok_or("NONE".to_string())
+            );
 
             let message_id = match message_id {
-                Err(e) => {
-                    eprintln!("ERROR: [User Event] Querying for reacji failed: {:?}", e);
+                Err(_) => match cache.get_message(&channel_id, &ts).await {
+                    Some(cache::ConversationHistoryMessage::Message { text, user_id: Some(user_id) }) => {
+                        // We have the message content, insert it into the table and
+                        // get its row id
+                        let santized_text = santizer(&text, &cache).await;
 
-                    fix(match cache.get_message(&channel_id, &ts).await {
-                        Some(cache::ConversationHistoryMessage::Message { text, user_id: Some(user_id) }) => {
-                            // We have the message content, insert it into the table and
-                            // get its row id
-                            let santized_text = santizer(&text, &cache).await;
+                        match (
+                            cache.get_username(&user_id).await,
+                            cache.get_user_real_name(&user_id).await,
+                        ) {
+                            (Some(ud), Some(rn)) => {
+                                add_reacji_message(
+                                    sql_tx,
+                                    user_id,
+                                    KarmaName::new(&ud),
+                                    KarmaName::new(&rn),
+                                    channel_id.clone(),
+                                    ts.clone(),
+                                    santized_text
+                                ).await
+                            },
+                            e => Err(format!("ERROR: [User Event] Querying for user/name failed: {:?}", e)),
+                        }
+                    },
 
-                            match (
-                                cache.get_username(&user_id).await,
-                                cache.get_user_real_name(&user_id).await,
-                            ) {
-                                (Some(ud), Some(rn)) => {
-                                    add_reacji_message(
-                                        sql_tx,
-                                        user_id,
-                                        KarmaName::new(&ud),
-                                        KarmaName::new(&rn),
-                                        channel_id.clone(),
-                                        ts.clone(),
-                                        santized_text
-                                    ).await
-                                },
-                                e => Err(format!("ERROR: [User Event] Querying for user/name failed: {:?}", e)),
-                            }
-                        },
-                        // This should already have been logged by the api call function
-                        e => Err(format!("ERROR: [User Event] IDK here: {:?}", e)),
-                    })
+                    // This happens when there is no user_id (is none)
+                    // This shouldn't happen but .... slack....
+                    Some(cache::ConversationHistoryMessage::Message { user_id: None, .. }) => Ok(None),
+
+                    e => Err(format!("ERROR: [User Event] IDK here: {:?}", e)),
                 },
-                Ok(mid) => Ok(mid),
+                Ok(mid) => Ok(Some(mid)),
             };
 
             match message_id {
@@ -86,7 +81,8 @@ where
                     eprintln!("ERROR: [User Event] Wasn't able to get/store an reactji message, vote isn't recorded");
                     eprintln!("ERROR: [User Event] Returned error: {:?}", e);
                 },
-                Ok(mid) => {
+                Ok(None) => (), // These are expected error, drop
+                Ok(Some(mid)) => {
                     match (
                         cache.get_username(&user_id).await,
                         cache.get_user_real_name(&user_id).await,
