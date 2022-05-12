@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate clap;
 
-use clap::{App, Arg, ArgMatches, SubCommand, AppSettings};
+use clap::{App, Arg, SubCommand, AppSettings};
 use rusqlite as rs;
 use std::path::Path;
 
@@ -14,6 +14,15 @@ use chrono::Local;
 use chrono::DateTime;
 use chrono::Datelike;
 use glob::glob;
+
+use count_write::CountWrite;
+use zstd::stream::copy_decode;
+use zstd::stream::write::Encoder;
+use zstd::stream::read::Decoder;
+use tar::Builder;
+use tar::Header;
+use std::io::{SeekFrom, Seek};
+use std::fs::File;
 
 fn main() {
     let matches = App::new("Karmator maintance batch")
@@ -75,7 +84,7 @@ fn main() {
             println!("{}", matches.usage());
             Ok(())
         },
-    };
+    }.unwrap();
 }
 
 #[derive(Debug, Clone)]
@@ -221,29 +230,20 @@ fn prune(directory: &str, delete: bool) -> Result<(), Box<dyn Error>> {
     let year = now.year();
     let month = now.month();
 
+    // Fetch a set of all of the files
+    let all_files = collect_glob(directory, "/db-backup-????-??-??.sqlite.zst");
+
     // Fetch a set of all of the file in the current month+year
     let current_month_year = collect_glob(directory, &format!("/db-backup-{}-{:02}-??.sqlite.zst", year, month));
 
     // Fetch a set of all of the file that is in previous year + first of the month
-    // If == 12, pack it up
     let previous_first_month = collect_glob(directory, &format!("/db-backup-{}-??-01.sqlite.zst", year - 1));
 
     // Fetch a set of all of the file that is in current year + first of the month
-    // if == 12 pack it up
     let current_first_month = collect_glob(directory, &format!("/db-backup-{}-??-01.sqlite.zst", year));
 
-    // Fetch a set of all of the files
-    let all_files = collect_glob(directory, "/db-backup-????-??-??.sqlite.zst");
-
-    println!("cmy: {:?}\n", current_month_year);
-    println!("pfm: {:?}\n", previous_first_month);
-    println!("cfm: {:?}\n", current_first_month);
-    println!("All: {:?}\n", all_files);
-
-    // Calculate what to keep and what to delete
+    // Calculate the initial set of files to prune
     let delete = delete_set(&all_files, vec![&current_month_year, &previous_first_month, &current_first_month]);
-
-    println!("DELETE: {:?}\n", delete);
 
 
     println!("cmy: {:?}", current_month_year.len());
@@ -255,6 +255,38 @@ fn prune(directory: &str, delete: bool) -> Result<(), Box<dyn Error>> {
     println!("DELETE: {:?}", delete.len());
     println!("keeping: {:?}", all_files.len() - delete.len());
     println!("Difference is cos of double counting the current_first_month + current_month_year's first day file");
+
+
+    // Compact pfm + cfm into their years
+    let mut count = CountWrite::from(std::io::sink());
+    {
+        let mut tar = Builder::new(Encoder::new(&mut count, 21)?.auto_finish());
+
+        for f in current_first_month.iter() {
+            let mut file = File::open(f)?;
+            let filename = Path::new(f).file_name().unwrap();
+            let filesize = {
+                let mut count = CountWrite::from(std::io::sink());
+                copy_decode(&file, &mut count)?;
+                count.count()
+            };
+
+            let mut header = Header::new_gnu();
+            header.set_path(filename)?;
+            header.set_size(filesize);
+            header.set_cksum();
+
+            file.seek(SeekFrom::Start(0))?;
+            tar.append(
+                &header,
+                Decoder::new(std::fs::File::open(f)?)?
+            )?;
+        }
+
+        tar.finish()?;
+    }
+    println!("tarball: {:?}", &count.count());
+
 
     // Rules:
     //  - Keep current month of daily snapshot
@@ -269,7 +301,7 @@ fn prune(directory: &str, delete: bool) -> Result<(), Box<dyn Error>> {
 fn collect_glob(directory: &str, glob_str: &str) -> HashSet<OsString> {
     glob(&(directory.to_string() + glob_str)).unwrap()
         .flatten()
-        .flat_map(|e| e.file_name().map(|s| s.to_os_string()))
+        .map(|e| e.into_os_string())
         .collect::<HashSet<OsString>>()
 }
 
