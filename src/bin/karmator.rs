@@ -27,7 +27,7 @@ use karmator_rust::bot::user_event;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let filename = env::var("SQLITE_FILE").map_err(|_| "SQLITE_FILE env var must be set")?;
     let token = env::var("SLACK_API_TOKEN").map_err(|_| "SLACK_API_TOKEN env var must be set")?;
-    let backup = env::var("SQLITE_BACKUP_DIR").map_err(|_| "SQLITE_BACKUP_DIR env var must be set")?;
+    let backup = env::var("SQLITE_BACKUP_DIR");
     let client = slack::default_client().map_err(|e| format!("Could not get default_client, {:?}", e))?;
 
     // Uptime of program start
@@ -66,9 +66,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
     //*******************
+    // Setting up backup
+    //*******************
+    let backup_callback: Box<dyn Fn()> = match backup {
+        Ok(b) => {
+            // Install an backup job for backing up the database
+            let sql_tx3 = sql_tx.clone();
+            Box::new(move || {
+                let sql_tx4 = sql_tx3.clone();
+                let path = b.clone();
+                tokio::spawn(async move {
+                    let _ = database::backup(
+                        path.clone(),
+                        sql_tx4
+                    ).await;
+                });
+            })
+        },
+        Err(_) => {
+            println!("WARNING [Backup]: SQLITE_BACKUP_DIR env var must be set");
+            Box::new(|| {})
+        },
+    };
+
+
+    //*******************
     // Core bot eventloop
     //*******************
-
     bot::default_event_loop(
         &token,
         client.clone(),
@@ -89,17 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ).await;
             });
         },
-        || {
-            // Install an backup job for backing up the database
-            let sql_tx3 = sql_tx.clone();
-            let path = backup.clone();
-            tokio::spawn(async move {
-                let _ = database::backup(
-                    path,
-                    sql_tx3
-                ).await;
-            });
-        }
+        backup_callback,
     ).await?;
 
 
