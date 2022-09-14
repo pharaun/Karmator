@@ -7,6 +7,8 @@ use chrono::prelude::{Utc, DateTime, NaiveTime};
 use chrono_tz::Tz;
 use chrono_tz::OffsetComponents;
 use chrono::NaiveDateTime;
+use chrono::TimeZone;
+use chrono::Timelike;
 
 use crate::core::cache;
 
@@ -42,7 +44,7 @@ use nom::{
 };
 
 
-const TIME_FORMAT: &str = "%l:%M%P";
+const TIME_FORMAT: &str = "%-l:%M%P";
 
 
 pub async fn timezone<R>(
@@ -57,14 +59,9 @@ pub async fn timezone<R>(
 where
     R: slack::requests::SlackWebRequestSender + std::clone::Clone
 {
-    // TODO: should check if its within reasonable hours and if its borderline
-    // color it yellow, or bad, red, otherwise green.
     if input.is_empty() {
         // !tz --> utc current time + 3 tz (pacific, eastern, uk)
         let utc_time: DateTime<Utc> = Utc::now();
-        let pacific = utc_time.with_timezone(&chrono_tz::America::Los_Angeles);
-        let eastern = utc_time.with_timezone(&chrono_tz::America::Toronto);
-        let london  = utc_time.with_timezone(&chrono_tz::Europe::London);
 
         let _ = send_simple_message(
             msg_id,
@@ -72,14 +69,11 @@ where
             channel_id,
             thread_ts,
             format!(
-                "<@{}>: Pacific: {}, Eastern: {}, UK: {}",
+                "<@{}>: {}",
                 user_id,
-                pacific.format(TIME_FORMAT),
-                eastern.format(TIME_FORMAT),
-                london.format(TIME_FORMAT),
+                format_time(utc_time),
             ),
         ).await;
-
     } else {
         let input = input.join(" ");
         match parse(&input) {
@@ -90,7 +84,7 @@ where
                     "<@{}>: Usage: `!tz TIME [TZ]`
                     24hr: `!tz 05:00 [TZ]` or `!tz 0500 [TZ]`
                     12hr: `!tz 2:00pm [TZ]` or `!tz 5pm [TZ]`
-                    [TZ]: (optional) `PST/PDT`, `EST/EDT`, `BST/GMT`
+                    [TZ]: (optional) `PST/PDT`, `EST/EDT`, `BST/GMT`, `CEST/CET`
                     [TZ]: (note) if not specified, will use your slack Timezone",
                     user_id,
                 );
@@ -140,20 +134,15 @@ where
                                         ).await;
                                     },
                                     Some(given_datetime_tz) => {
-                                        // Supported locals
-                                        let out_tz = convert_to_locales(given_datetime_tz);
-
                                         let _ = send_simple_message(
                                             msg_id,
                                             tx,
                                             channel_id,
                                             thread_ts,
                                             format!(
-                                                "<@{}>: Pacific: {}, Eastern: {}, UK: {}",
+                                                "<@{}>: {}",
                                                 user_id,
-                                                out_tz.pacific.format(TIME_FORMAT),
-                                                out_tz.eastern.format(TIME_FORMAT),
-                                                out_tz.london.format(TIME_FORMAT),
+                                                format_time(given_datetime_tz),
                                             ),
                                         ).await;
                                     },
@@ -175,20 +164,15 @@ where
                         ).await;
                     },
                     Some(given_datetime_tz) => {
-                        // Supported locals
-                        let out_tz = convert_to_locales(given_datetime_tz);
-
                         let _ = send_simple_message(
                             msg_id,
                             tx,
                             channel_id,
                             thread_ts,
                             format!(
-                                "<@{}>: Pacific: {}, Eastern: {}, UK: {}",
+                                "<@{}>: {}",
                                 user_id,
-                                out_tz.pacific.format(TIME_FORMAT),
-                                out_tz.eastern.format(TIME_FORMAT),
-                                out_tz.london.format(TIME_FORMAT),
+                                format_time(given_datetime_tz),
                             ),
                         ).await;
                     },
@@ -196,6 +180,43 @@ where
             },
         }
     }
+}
+
+// Core hours:
+// Green  - 11-15
+// Yellow - 9-11, 15-17
+// Orange - 7-9, 17-19
+// Red    - 0-7, 19-24
+fn core_hours<T: TimeZone>(dt: DateTime<T>) -> &'static str {
+
+    match dt.hour() {
+        // 11am to 3pm
+        11 | 12 | 13 | 14  => ":green:",
+        // 9am to 5pm
+        9 | 10 | 15 | 16 => ":yellow:",
+        // 7am to 7pm
+        7 | 8 | 17 | 18 => ":orange:",
+        // Anything else
+        _ => ":red:",
+    }
+}
+
+
+fn format_time<T: TimeZone>(dt: DateTime<T>) -> String {
+    // Supported locals
+    let out_tz = convert_to_locales(dt);
+
+    format!(
+        "{}Pacific: {}, {}Eastern: {}, {}UK: {}, {}Germany: {}",
+        core_hours(out_tz.pacific),
+        out_tz.pacific.format(TIME_FORMAT),
+        core_hours(out_tz.eastern),
+        out_tz.eastern.format(TIME_FORMAT),
+        core_hours(out_tz.london),
+        out_tz.london.format(TIME_FORMAT),
+        core_hours(out_tz.berlin),
+        out_tz.berlin.format(TIME_FORMAT),
+    )
 }
 
 
@@ -230,13 +251,15 @@ struct OutTz {
     pacific: DateTime<Tz>,
     eastern: DateTime<Tz>,
     london: DateTime<Tz>,
+    berlin: DateTime<Tz>,
 }
 
-fn convert_to_locales(dt: DateTime<Tz>) -> OutTz {
+fn convert_to_locales<T: TimeZone>(dt: DateTime<T>) -> OutTz {
     OutTz {
         pacific: dt.with_timezone(&chrono_tz::America::Los_Angeles),
         eastern: dt.with_timezone(&chrono_tz::America::Toronto),
         london:  dt.with_timezone(&chrono_tz::Europe::London),
+        berlin:  dt.with_timezone(&chrono_tz::Europe::Berlin),
     }
 }
 
@@ -265,6 +288,7 @@ fn parse(input: &str) -> IResult<&str, TzReq> {
 // PST, PDT (standard/Daylight(summer)) - pacific
 // EST, EDT (standard/Daylight(summer)) - eastern
 // BST, GMT (summer time/gmt) - london (GMT != UTC)
+// CEST, CET (summer time) - Hamburg
 fn tz_abbv(input: &str) -> IResult<&str, Tz> {
     alt((
         map(tag_no_case("PST"), |_| chrono_tz::Etc::GMTMinus8),
@@ -273,6 +297,8 @@ fn tz_abbv(input: &str) -> IResult<&str, Tz> {
         map(tag_no_case("EDT"), |_| chrono_tz::Etc::GMTMinus4),
         map(tag_no_case("BST"), |_| chrono_tz::Etc::GMTPlus1),
         map(tag_no_case("GMT"), |_| chrono_tz::Etc::GMTPlus0),
+        map(tag_no_case("CEST"), |_| chrono_tz::Etc::GMTPlus1),
+        map(tag_no_case("CET"), |_| chrono_tz::Etc::GMTPlus2),
     ))(input)
 }
 
