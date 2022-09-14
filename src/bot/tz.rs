@@ -27,6 +27,7 @@ use nom::{
       opt,
       map,
       recognize,
+      eof,
   },
   branch::alt,
   sequence::{
@@ -102,34 +103,96 @@ where
                 ).await;
             },
             Ok((_, TzReq { time: nt, zone: None })) => {
-                let user_tz = cache.get_user_tz(&user_id).await.unwrap();
-                let tz: Tz = user_tz.tz.parse().unwrap();
+                match cache.get_user_tz(&user_id).await {
+                    None => {
+                        let _ = send_simple_message(
+                            msg_id,
+                            tx,
+                            channel_id,
+                            thread_ts,
+                            format!("<@{}>: Internal error, unable to get your slack timezone", user_id),
+                        ).await;
+                    },
+                    Some(user_tz) => {
+                        match user_tz.tz.parse() {
+                            Err(_) => {
+                                let _ = send_simple_message(
+                                    msg_id,
+                                    tx,
+                                    channel_id,
+                                    thread_ts,
+                                    format!("<@{}>: Internal error, unable to parse your slack timezone", user_id),
+                                ).await;
+                            },
+                            Ok(tz) => {
+                                // Validate the offset
+                                validate_offset(&tz, user_tz.offset);
 
-                // Validate the offset
-                validate_offset(&tz, user_tz.offset);
+                                // Convert time
+                                match convert_naive_time(nt, tz) {
+                                    None => {
+                                        let _ = send_simple_message(
+                                            msg_id,
+                                            tx,
+                                            channel_id,
+                                            thread_ts,
+                                            format!("<@{}>: Internal error, timezone happened!", user_id),
+                                        ).await;
+                                    },
+                                    Some(given_datetime_tz) => {
+                                        // Supported locals
+                                        let out_tz = convert_to_locales(given_datetime_tz);
 
-                // Convert time
-                let given_datetime_tz = convert_naivetime(nt, tz);
-
-                // Supported locals
-                let out_tz = convert_to_locales(given_datetime_tz);
-
-                let _ = send_simple_message(
-                    msg_id,
-                    tx,
-                    channel_id,
-                    thread_ts,
-                    format!(
-                        "<@{}>: Pacific: {}, Eastern: {}, UK: {}",
-                        user_id,
-                        out_tz.pacific.format(TIME_FORMAT),
-                        out_tz.eastern.format(TIME_FORMAT),
-                        out_tz.london.format(TIME_FORMAT),
-                    ),
-                ).await;
+                                        let _ = send_simple_message(
+                                            msg_id,
+                                            tx,
+                                            channel_id,
+                                            thread_ts,
+                                            format!(
+                                                "<@{}>: Pacific: {}, Eastern: {}, UK: {}",
+                                                user_id,
+                                                out_tz.pacific.format(TIME_FORMAT),
+                                                out_tz.eastern.format(TIME_FORMAT),
+                                                out_tz.london.format(TIME_FORMAT),
+                                            ),
+                                        ).await;
+                                    },
+                                }
+                            },
+                        }
+                    },
+                }
             },
             Ok((_, TzReq { time: nt, zone: Some(tz_abbv) })) => {
-                println!("lol");
+                match convert_naive_time(nt, tz_abbv) {
+                    None => {
+                        let _ = send_simple_message(
+                            msg_id,
+                            tx,
+                            channel_id,
+                            thread_ts,
+                            format!("<@{}>: Internal error, timezone happened!", user_id),
+                        ).await;
+                    },
+                    Some(given_datetime_tz) => {
+                        // Supported locals
+                        let out_tz = convert_to_locales(given_datetime_tz);
+
+                        let _ = send_simple_message(
+                            msg_id,
+                            tx,
+                            channel_id,
+                            thread_ts,
+                            format!(
+                                "<@{}>: Pacific: {}, Eastern: {}, UK: {}",
+                                user_id,
+                                out_tz.pacific.format(TIME_FORMAT),
+                                out_tz.eastern.format(TIME_FORMAT),
+                                out_tz.london.format(TIME_FORMAT),
+                            ),
+                        ).await;
+                    },
+                }
             },
         }
     }
@@ -152,16 +215,15 @@ fn validate_offset(tz: &Tz, offset: i64) {
 }
 
 
-fn convert_naivetime(nt: NaiveTime, tz: Tz) -> DateTime<Tz> {
+fn convert_naive_time(nt: NaiveTime, tz: Tz) -> Option<DateTime<Tz>> {
     // Convert the given naive time to the given Tz
     let utc_time: DateTime<Utc> = Utc::now();
     let tz_time = utc_time.with_timezone(&tz);
     let naive_datetime = tz_time.naive_local();
     let naive_date = naive_datetime.date();
     let given_datetime = NaiveDateTime::new(naive_date, nt);
-    let given_datetime_tz = given_datetime.and_local_timezone(tz).single().unwrap();
 
-    given_datetime_tz
+    given_datetime.and_local_timezone(tz).earliest()
 }
 
 struct OutTz {
@@ -191,6 +253,7 @@ fn parse(input: &str) -> IResult<&str, TzReq> {
         twenty_four,
     ))(input)?;
     let (input, tz) = preceded(multispace0, opt(tz_abbv))(input)?;
+    let (input, _) = eof(input)?;
 
     Ok((input, TzReq {
         time: time,
