@@ -18,6 +18,7 @@ use crate::bot::query::ranking::ranking;
 use crate::bot::query::reacji::add_reacji;
 use crate::bot::query::top_n::top_n;
 use crate::bot::query::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
+use crate::bot::tz::timezone;
 
 use crate::core::cache;
 use crate::core::command;
@@ -102,7 +103,7 @@ where
                 },
 
                 Ok(command::Command("help", _)) => {
-                    let help = "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote !topkarma !topgivers !topsidevotes";
+                    let help = "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote !topkarma !topgivers !topsidevotes !tz";
                     let _ = send_simple_message(
                         msg_id,
                         &mut tx,
@@ -121,6 +122,18 @@ where
                         channel_id,
                         thread_ts,
                         format!("<@{}>: {}", user_id, github),
+                    ).await;
+                },
+
+                Ok(command::Command("tz", arg)) => {
+                    timezone(
+                        msg_id,
+                        &mut tx,
+                        &cache,
+                        channel_id,
+                        thread_ts,
+                        user_id,
+                        arg
                     ).await;
                 },
 

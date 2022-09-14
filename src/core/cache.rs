@@ -24,6 +24,14 @@ struct User {
     display_name: String,
     real_name: String,
     is_bot: bool,
+    timezone: Timezone,
+}
+
+#[derive(Clone, Debug)]
+pub struct Timezone {
+    pub label: String,
+    pub tz: String,
+    pub offset: i64,
 }
 
 
@@ -51,6 +59,11 @@ impl <R: SlackWebRequestSender + Clone> Cache<R> {
         user.map(|u| u.display_name.clone())
     }
 
+    pub async fn get_user_tz(&self, user_id: &str) -> Option<Timezone> {
+        let user = self.get_user(user_id).await;
+        user.map(|u| u.timezone.clone())
+    }
+
     async fn get_user(&self, user_id: &str) -> Option<User> {
         let ud = self.user_cache.get(user_id);
         match ud {
@@ -65,8 +78,21 @@ impl <R: SlackWebRequestSender + Clone> Cache<R> {
                 let ud = resp.ok().map(
                     |ui| ui.user
                 ).flatten().map(
-                    |ui| match (ui.name, ui.real_name, ui.is_bot) {
-                        (Some(dn), Some(rn), Some(ib)) => Some(User {display_name: dn, real_name: rn, is_bot: ib}),
+                    |ui| match (ui.name, ui.real_name, ui.is_bot, ui.tz_label, ui.tz, ui.tz_offset) {
+                        (Some(dn), Some(rn), Some(ib), Some(tl), Some(tz), Some(to)) => {
+                            let timezone = Timezone {
+                                label: tl,
+                                tz: tz,
+                                offset: to as i64,
+                            };
+
+                            Some(User {
+                                display_name: dn,
+                                real_name: rn,
+                                is_bot: ib,
+                                timezone: timezone,
+                            })
+                        },
                         _ => None,
                     }
                 ).flatten();
