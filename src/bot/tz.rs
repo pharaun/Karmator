@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 use chrono::prelude::{Utc, DateTime, NaiveTime};
 use chrono_tz::Tz;
 use chrono_tz::OffsetComponents;
+use chrono::NaiveDateTime;
 
 use crate::core::cache;
 
@@ -17,28 +18,21 @@ use nom::{
   bytes::complete::{
       tag,
       tag_no_case,
-      take_while1,
-      is_a,
   },
   character::complete::{
       multispace0,
       digit1,
   },
   combinator::{
-      map_res,
       opt,
       map,
       recognize,
-      fail,
   },
   branch::alt,
   sequence::{
       preceded,
       delimited,
       separated_pair,
-  },
-  multi::{
-      many0,
   },
   error::{
       Error,
@@ -86,68 +80,104 @@ where
         ).await;
 
     } else {
-
-        let user_tz = cache.get_user_tz(&user_id).await.unwrap();
-
-        // Parse their TZ and compare it to the offset
-        let tz: Tz = user_tz.tz.parse().unwrap();
-
-
-        // Convert to this TZ from UTC then ask for offset.
-        let utc_time: DateTime<Utc> = Utc::now();
-        let tz_time = utc_time.with_timezone(&tz);
-        let tz_offset = tz_time.offset();
-        let tz_offset2 = tz_offset.base_utc_offset();
-        let tz_offset3 = tz_offset.dst_offset();
-        let tz_offset4 = tz_offset2 + tz_offset3;
-
-
-        let _ = send_simple_message(
-            msg_id.clone(),
-            tx,
-            channel_id.clone(),
-            thread_ts.clone(),
-            format!(
-                "<@{}>: Slack Tz: {:?}, Slack Offset: {:?}, utc: {:?}, tz_time: {:?}",
-                user_id, user_tz.tz, user_tz.offset, utc_time, tz_time),
-        ).await;
-
-        let _ = send_simple_message(
-            msg_id,
-            tx,
-            channel_id,
-            thread_ts,
-            format!(
-                "<@{}>: Slack Offset: {:?}, base offset: {:?}, dst offset: {:?} actual offset: {:?}",
-                user_id, user_tz.offset, tz_offset2, tz_offset3, tz_offset4),
-        ).await;
-
-
-        // Parser stuff here
-        // 24hr
-        //  !tz 0200
-        //  !tz 02:00
-        //
-        // 12hr
-        //  !tz 2pm
-        //  !tz 2 am
-        //  !tz 2:00PM
-        //  !tz 2:00AM
-        //  !tz [AaPp][Mm] for am/pm
-        //
-        // timezone (optional) (mandatory space) - if not specified TZ is the slack's
-        //  !tz [time]am/pm pdt
-        //  !tz [time]am/pm PST
-        //  !tz [time]est
-        //  !tz pdt/pst, est/edt, ???(uk)
-        // optional?: pacific, eastern, london
         let input = input.join(" ");
+        match parse(&input) {
+            Err(e) => {
+                eprintln!("ERROR [TZ]: {:?}", e);
 
+                let message = format!(
+                    "<@{}>: Usage: `!tz TIME [TZ]`
+                    24hr: `!tz 05:00 [TZ]` or `!tz 0500 [TZ]`
+                    12hr: `!tz 2:00pm [TZ]` or `!tz 5pm [TZ]`
+                    [TZ]: (optional) `PST/PDT`, `EST/EDT`, `BST/GMT`
+                    [TZ]: (note) if not specified, will use your slack Timezone",
+                    user_id,
+                );
+                let _ = send_simple_message(
+                    msg_id,
+                    tx,
+                    channel_id,
+                    thread_ts,
+                    message,
+                ).await;
+            },
+            Ok((_, TzReq { time: nt, zone: None })) => {
+                let user_tz = cache.get_user_tz(&user_id).await.unwrap();
+                let tz: Tz = user_tz.tz.parse().unwrap();
 
+                // Validate the offset
+                validate_offset(&tz, user_tz.offset);
 
-        println!("{:?}", input);
+                // Convert time
+                let given_datetime_tz = convert_naivetime(nt, tz);
+
+                // Supported locals
+                let out_tz = convert_to_locales(given_datetime_tz);
+
+                let _ = send_simple_message(
+                    msg_id,
+                    tx,
+                    channel_id,
+                    thread_ts,
+                    format!(
+                        "<@{}>: Pacific: {}, Eastern: {}, UK: {}",
+                        user_id,
+                        out_tz.pacific.format(TIME_FORMAT),
+                        out_tz.eastern.format(TIME_FORMAT),
+                        out_tz.london.format(TIME_FORMAT),
+                    ),
+                ).await;
+            },
+            Ok((_, TzReq { time: nt, zone: Some(tz_abbv) })) => {
+                println!("lol");
+            },
+        }
     }
 }
+
+
+fn validate_offset(tz: &Tz, offset: i64) {
+    // Validate and compare the offset
+    let utc_time: DateTime<Utc> = Utc::now();
+    let tz_time = utc_time.with_timezone(tz);
+    let tz_offset = tz_time.offset().base_utc_offset() + tz_time.offset().dst_offset();
+
+    if tz_offset.num_seconds() != offset {
+        eprintln!(
+            "ERROR [TZ]: Slack offset {}, parsed offset {} does not match!",
+            offset,
+            tz_offset.num_seconds(),
+        );
+    }
+}
+
+
+fn convert_naivetime(nt: NaiveTime, tz: Tz) -> DateTime<Tz> {
+    // Convert the given naive time to the given Tz
+    let utc_time: DateTime<Utc> = Utc::now();
+    let tz_time = utc_time.with_timezone(&tz);
+    let naive_datetime = tz_time.naive_local();
+    let naive_date = naive_datetime.date();
+    let given_datetime = NaiveDateTime::new(naive_date, nt);
+    let given_datetime_tz = given_datetime.and_local_timezone(tz).single().unwrap();
+
+    given_datetime_tz
+}
+
+struct OutTz {
+    pacific: DateTime<Tz>,
+    eastern: DateTime<Tz>,
+    london: DateTime<Tz>,
+}
+
+fn convert_to_locales(dt: DateTime<Tz>) -> OutTz {
+    OutTz {
+        pacific: dt.with_timezone(&chrono_tz::America::Los_Angeles),
+        eastern: dt.with_timezone(&chrono_tz::America::Toronto),
+        london:  dt.with_timezone(&chrono_tz::Europe::London),
+    }
+}
+
 
 #[derive(Debug, PartialEq)]
 struct TzReq {
@@ -167,7 +197,6 @@ fn parse(input: &str) -> IResult<&str, TzReq> {
         zone: tz,
     }))
 }
-
 
 // Note: Nonstandard timezones, for user convience only:
 // PST, PDT (standard/Daylight(summer)) - pacific
@@ -213,7 +242,7 @@ fn twelve(input: &str) -> IResult<&str, NaiveTime> {
 
     match NaiveTime::parse_from_str(&time_str, "%-I:%M%p") {
         Ok(nt) => Ok((input, nt)),
-        Err(e) => Err(nom::Err::Error(Error::new(input, ErrorKind::Fail))),
+        Err(_) => Err(nom::Err::Error(Error::new(input, ErrorKind::Fail))),
     }
 }
 
@@ -222,7 +251,7 @@ fn twenty_four(input: &str) -> IResult<&str, NaiveTime> {
 
     match NaiveTime::parse_from_str(&time, "%H%M") {
         Ok(nt) => Ok((input, nt)),
-        Err(e) => Err(nom::Err::Error(Error::new(input, ErrorKind::Fail))),
+        Err(_) => Err(nom::Err::Error(Error::new(input, ErrorKind::Fail))),
     }
 }
 
