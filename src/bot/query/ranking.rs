@@ -130,7 +130,7 @@ async fn count(
                 "SELECT COUNT(name) FROM {table}",
                 table=karma_col
             ))?;
-            let mut rows = stmt.query(rs::NO_PARAMS)?;
+            let mut rows = stmt.query([])?;
 
             if let Ok(Some(row)) = rows.next() {
                 let count: u32 = row.get(0)?;

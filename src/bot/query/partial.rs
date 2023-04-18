@@ -82,7 +82,7 @@ async fn partial_query(
                 "SELECT name, up, down, side FROM {table} WHERE name in ({p_user}) ORDER BY name DESC",
                 table=karma_col, p_user=p_user
             ))?;
-            let mut rows = stmt.query(&param)?;
+            let mut rows = stmt.query(rs::params_from_iter(param))?;
 
             // A bit more additional work than usual
             let mut ret: Vec<(String, i32, i32, i32)> = vec![];

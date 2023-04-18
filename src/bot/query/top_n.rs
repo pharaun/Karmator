@@ -89,7 +89,7 @@ async fn top_n_denormalized(
                 q_ord=ord,
                 limit=limit
             ))?;
-            let mut rows = stmt.query(rs::NO_PARAMS)?;
+            let mut rows = stmt.query([])?;
 
             let mut ret: Vec<(String, i32)> = vec![];
 

@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate clap;
 
-use clap::{App, Arg, SubCommand, AppSettings};
+use clap::{Command, Arg};
 use rusqlite as rs;
 use std::path::Path;
 
@@ -27,46 +27,45 @@ use std::fs::OpenOptions;
 use std::ffi::OsStr;
 
 fn main() {
-    let matches = App::new("Karmator maintance batch")
+    let matches = Command::new("Karmator maintance batch")
         .version(crate_version!())
         .author(crate_authors!("\n"))
         .about("Handles the maintance work for karmator")
-        .setting(AppSettings::ColoredHelp)
         .subcommand(
-            SubCommand::with_name("runs")
+            Command::new("runs")
                 .about("Detect runs of votes")
                 .arg(
-                    Arg::with_name("min")
-                        .short("m")
+                    Arg::new("min")
+                        .short('m')
                         .help("Min count of runs before outputting")
-                        .takes_value(true),
+                        .default_value("20"),
                 )
                 .arg(
-                    Arg::with_name("delete")
+                    Arg::new("delete")
                         .long("delete")
                         .help("Delete the runs detected"),
                 )
                 .arg(
-                    Arg::with_name("FILE")
+                    Arg::new("FILE")
                         .help("Database file to operate on")
                         .required(true),
                 ),
         )
         .subcommand(
-            SubCommand::with_name("prune")
+            Command::new("prune")
                 .about("Prune and pack up old backups")
                 .arg(
-                    Arg::with_name("delete")
+                    Arg::new("delete")
                         .long("delete")
                         .help("Delete the old files"),
                 )
                 .arg(
-                    Arg::with_name("skip")
+                    Arg::new("skip")
                         .long("skip")
                         .help("Skip compacting old files"),
                 )
                 .arg(
-                    Arg::with_name("BACKUPS")
+                    Arg::new("BACKUPS")
                         .help("Backup directory to prune")
                         .required(true),
                 ),
@@ -74,22 +73,22 @@ fn main() {
         .get_matches();
 
     match matches.subcommand() {
-        ("runs", Some(m))  => {
-            let filename = m.value_of("FILE").unwrap();
-            let min = value_t!(m, "min", u32).unwrap_or(20);
-            let delete = m.is_present("delete");
+        Some(("runs", m))  => {
+            let filename = m.get_one::<String>("FILE").unwrap();
+            let min = m.get_one::<u32>("min").unwrap();
+            let delete = m.contains_id("delete");
 
-            run(filename, min, delete)
+            run(filename, *min, delete)
         },
-        ("prune", Some(m)) => {
-            let directory = m.value_of("BACKUPS").unwrap();
-            let delete = m.is_present("delete");
-            let skip = m.is_present("skip");
+        Some(("prune", m)) => {
+            let directory = m.get_one::<String>("BACKUPS").unwrap();
+            let delete = m.contains_id("delete");
+            let skip = m.contains_id("skip");
 
             prune(directory, delete, skip)
         }
         _ => {
-            println!("{}", matches.usage());
+            println!("meh do --help yourself");
             Ok(())
         },
     }.unwrap();
