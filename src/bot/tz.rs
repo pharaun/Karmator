@@ -84,7 +84,7 @@ where
                     "<@{}>: Usage: `!tz TIME [TZ]`
                     24hr: `!tz 05:00 [TZ]` or `!tz 0500 [TZ]`
                     12hr: `!tz 2:00pm [TZ]` or `!tz 5pm [TZ]`
-                    [TZ]: (optional) `PST/PDT`, `EST/EDT`, `BST/GMT`, `CEST/CET`
+                    [TZ]: (optional) `SFO`, `TOR`, `LON`, `HAM`
                     [TZ]: (note) if not specified, will use your slack Timezone",
                     user_id,
                 );
@@ -153,7 +153,7 @@ where
                 }
             },
             Ok((_, TzReq { time: nt, zone: Some(tz_abbv) })) => {
-                match convert_naive_time(nt, tz_abbv) {
+                match convert_naive_time(nt, tz_abbv.0) {
                     None => {
                         let _ = send_simple_message(
                             msg_id,
@@ -164,17 +164,26 @@ where
                         ).await;
                     },
                     Some(given_datetime_tz) => {
+                        let note = match tz_abbv.1 {
+                            None => "".to_string(),
+                            Some(city) => format!(
+                                "This is deprecated, use `{}` instead.\n",
+                                city,
+                            ),
+                        };
                         let _ = send_simple_message(
                             msg_id,
                             tx,
                             channel_id,
                             thread_ts,
                             format!(
-                                "<@{}>: {}",
+                                "{}<@{}>: {}",
+                                note,
                                 user_id,
                                 format_time(given_datetime_tz),
                             ),
                         ).await;
+
                     },
                 }
             },
@@ -265,9 +274,9 @@ fn convert_to_locales<T: TimeZone>(dt: DateTime<T>) -> OutTz {
 
 
 #[derive(Debug, PartialEq)]
-struct TzReq {
+struct TzReq<'a> {
     time: NaiveTime,
-    zone: Option<Tz>
+    zone: Option<(Tz, Option<&'a str>)>
 }
 
 fn parse(input: &str) -> IResult<&str, TzReq> {
@@ -289,16 +298,21 @@ fn parse(input: &str) -> IResult<&str, TzReq> {
 // EST, EDT (standard/Daylight(summer)) - eastern
 // BST, GMT (summer time/gmt) - london (GMT != UTC)
 // CEST, CET (summer time) - Hamburg
-fn tz_abbv(input: &str) -> IResult<&str, Tz> {
+fn tz_abbv(input: &str) -> IResult<&str, (Tz, Option<&str>)> {
     alt((
-        map(tag_no_case("PST"), |_| chrono_tz::Etc::GMTMinus8),
-        map(tag_no_case("PDT"), |_| chrono_tz::Etc::GMTMinus7),
-        map(tag_no_case("EST"), |_| chrono_tz::Etc::GMTMinus5),
-        map(tag_no_case("EDT"), |_| chrono_tz::Etc::GMTMinus4),
-        map(tag_no_case("BST"), |_| chrono_tz::Etc::GMTPlus1),
-        map(tag_no_case("GMT"), |_| chrono_tz::Etc::GMTPlus0),
-        map(tag_no_case("CEST"), |_| chrono_tz::Etc::GMTPlus1),
-        map(tag_no_case("CET"), |_| chrono_tz::Etc::GMTPlus2),
+        map(tag_no_case("SFO"),  |_| (chrono_tz::America::Los_Angeles, None)),
+        map(tag_no_case("TOR"),  |_| (chrono_tz::America::Toronto, None)),
+        map(tag_no_case("LON"),  |_| (chrono_tz::Europe::London, None)),
+        map(tag_no_case("HAM"),  |_| (chrono_tz::Europe::Berlin, None)),
+
+        map(tag_no_case("PST"),  |_| (chrono_tz::America::Los_Angeles, Some("SFO"))),
+        map(tag_no_case("PDT"),  |_| (chrono_tz::America::Los_Angeles, Some("SFO"))),
+        map(tag_no_case("EST"),  |_| (chrono_tz::America::Toronto, Some("TOR"))),
+        map(tag_no_case("EDT"),  |_| (chrono_tz::America::Toronto, Some("TOR"))),
+        map(tag_no_case("BST"),  |_| (chrono_tz::Europe::London, Some("LON"))),
+        map(tag_no_case("GMT"),  |_| (chrono_tz::Europe::London, Some("LON"))),
+        map(tag_no_case("CEST"), |_| (chrono_tz::Europe::Berlin, Some("HAM"))),
+        map(tag_no_case("CET"),  |_| (chrono_tz::Europe::Berlin, Some("HAM"))),
     ))(input)
 }
 
@@ -393,19 +407,19 @@ mod test_parser {
     fn test_twelve() {
         assert_eq!(
             twelve("1pm"),
-            Ok(("", NaiveTime::from_hms(13, 0, 0)))
+            Ok(("", NaiveTime::from_hms_opt(13, 0, 0).unwrap()))
         );
         assert_eq!(
             twelve("5 AM"),
-            Ok(("", NaiveTime::from_hms(5, 0, 0)))
+            Ok(("", NaiveTime::from_hms_opt(5, 0, 0).unwrap()))
         );
         assert_eq!(
             twelve("5:10pm"),
-            Ok(("", NaiveTime::from_hms(17, 10, 0)))
+            Ok(("", NaiveTime::from_hms_opt(17, 10, 0).unwrap()))
         );
         assert_eq!(
             twelve("11:20 am"),
-            Ok(("", NaiveTime::from_hms(11, 20, 0)))
+            Ok(("", NaiveTime::from_hms_opt(11, 20, 0).unwrap()))
         );
     }
 
@@ -413,11 +427,11 @@ mod test_parser {
     fn test_twenty_four() {
         assert_eq!(
             twenty_four("0220"),
-            Ok(("", NaiveTime::from_hms(2, 20, 0)))
+            Ok(("", NaiveTime::from_hms_opt(2, 20, 0).unwrap()))
         );
         assert_eq!(
             twenty_four("17:10"),
-            Ok(("", NaiveTime::from_hms(17, 10, 0)))
+            Ok(("", NaiveTime::from_hms_opt(17, 10, 0).unwrap()))
         );
     }
 
@@ -426,23 +440,61 @@ mod test_parser {
         assert_eq!(
             parse("2pm"),
             Ok(("", TzReq {
-                time: NaiveTime::from_hms(14, 00, 0),
+                time: NaiveTime::from_hms_opt(14, 00, 0).unwrap(),
                 zone: None,
             }))
         );
         assert_eq!(
             parse("5:30 pm pst"),
             Ok(("", TzReq {
-                time: NaiveTime::from_hms(17, 30, 0),
-                zone: Some(chrono_tz::Etc::GMTMinus8),
+                time: NaiveTime::from_hms_opt(17, 30, 0).unwrap(),
+                zone: Some((chrono_tz::America::Los_Angeles, Some("SFO"))),
             }))
         );
         assert_eq!(
             parse("0801 GMT"),
             Ok(("", TzReq {
-                time: NaiveTime::from_hms(8, 1, 0),
-                zone: Some(chrono_tz::Etc::GMTPlus0),
+                time: NaiveTime::from_hms_opt(8, 1, 0).unwrap(),
+                zone: Some((chrono_tz::Europe::London, Some("LON"))),
             }))
+        );
+        assert_eq!(
+            parse("5:30 pm sfo"),
+            Ok(("", TzReq {
+                time: NaiveTime::from_hms_opt(17, 30, 0).unwrap(),
+                zone: Some((chrono_tz::America::Los_Angeles, None)),
+            }))
+        );
+    }
+
+    #[test]
+    fn test_convert_naive_time() {
+        let tz_req = parse("5pm PST").unwrap();
+        let conv_req = convert_naive_time(tz_req.1.time, tz_req.1.zone.unwrap().0).unwrap();
+
+        assert_eq!(
+            conv_req.time(),
+            NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
+        );
+        assert_eq!(
+            conv_req.timezone(),
+            chrono_tz::America::Los_Angeles,
+        );
+    }
+
+    #[test]
+    fn test_convert_to_locales() {
+        let tz_req = parse("5pm PST").unwrap();
+        let conv_req = convert_naive_time(tz_req.1.time, tz_req.1.zone.unwrap().0).unwrap();
+        let out_req = convert_to_locales(conv_req);
+
+        assert_eq!(
+            out_req.pacific.time(),
+            NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
+        );
+        assert_eq!(
+            out_req.pacific.timezone(),
+            chrono_tz::America::Los_Angeles,
         );
     }
 }
