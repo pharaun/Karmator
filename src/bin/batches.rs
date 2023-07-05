@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate clap;
 
-use clap::{Command, Arg};
+use clap::{Command, Arg, ArgAction};
 use rusqlite as rs;
 use std::path::Path;
 
@@ -38,12 +38,14 @@ fn main() {
                     Arg::new("min")
                         .short('m')
                         .help("Min count of runs before outputting")
-                        .default_value("20"),
+                        .default_value("20")
+                        .value_parser(value_parser!(u32).range(1..)),
                 )
                 .arg(
                     Arg::new("delete")
                         .long("delete")
-                        .help("Delete the runs detected"),
+                        .help("Delete the runs detected")
+                        .action(ArgAction::SetTrue),
                 )
                 .arg(
                     Arg::new("FILE")
@@ -57,12 +59,14 @@ fn main() {
                 .arg(
                     Arg::new("delete")
                         .long("delete")
-                        .help("Delete the old files"),
+                        .help("Delete the old files")
+                        .action(ArgAction::SetTrue),
                 )
                 .arg(
                     Arg::new("skip")
                         .long("skip")
-                        .help("Skip compacting old files"),
+                        .help("Skip compacting old files")
+                        .action(ArgAction::SetTrue),
                 )
                 .arg(
                     Arg::new("BACKUPS")
