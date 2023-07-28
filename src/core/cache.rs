@@ -13,10 +13,10 @@ use std::clone::Clone;
 // TODO: add settings, and have it or something peroidically query the database to load latest
 // settings into the cache, so that things can grab the settings they need from the settings cache
 #[derive(Clone)]
-pub struct Cache<R: SlackWebRequestSender + Clone> {
+pub struct Cache {
     user_cache: Arc<DashMap<String, User>>,
     slack_token: String,
-    slack_client: R,
+    slack_client: reqwest::Client,
 }
 
 #[derive(Clone)]
@@ -35,13 +35,23 @@ pub struct Timezone {
 }
 
 
-impl <R: SlackWebRequestSender + Clone> Cache<R> {
-    pub fn new(token: &str, client: R) -> Cache<R> {
+impl Cache {
+    pub fn new(token: &str) -> Cache {
+        // TODO: fix unwrap
+        let client = slack::default_client().unwrap();
+
         Cache {
             user_cache: Arc::new(DashMap::new()),
             slack_token: token.to_string(),
             slack_client: client,
         }
+    }
+
+    pub async fn rtm_connect(&self) -> Result<String, String> {
+        let response = slack::rtm::connect(&self.slack_client, &self.slack_token).await.map_err(
+            |e| format!("control - {:?}", e)
+        )?;
+        response.url.ok_or(format!("Control - \tNo Ws url"))
     }
 
     pub async fn is_user_bot(&self, user_id: &str) -> Option<bool> {

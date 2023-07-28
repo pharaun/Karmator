@@ -4,7 +4,6 @@ pub mod ranking;
 pub mod reacji;
 pub mod top_n;
 
-use slack_api as slack;
 use rusqlite as rs;
 
 use unicase::UniCase;
@@ -110,13 +109,10 @@ impl fmt::Display for KarmaTyp {
     }
 }
 
-pub async fn santizer<R>(
+pub async fn santizer(
     input: &str,
-    cache: &cache::Cache<R>,
-) -> String
-where
-    R: slack::requests::SlackWebRequestSender + std::clone::Clone
-{
+    cache: &cache::Cache,
+) -> String {
     match santizer::parse(input).ok() {
         None      => {
             eprintln!("ERROR [Santizer]: Failed to santize: {:?}", input);

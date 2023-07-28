@@ -1,5 +1,4 @@
 use rusqlite as rs;
-use slack_api as slack;
 
 use chrono::prelude::{Utc, DateTime};
 
@@ -18,18 +17,15 @@ use crate::core::database::Query;
 use crate::core::database::send_query;
 
 
-pub async fn add_reacji<R>(
+pub async fn add_reacji(
     sql_tx: &mut mpsc::Sender<Query>,
-    cache: &cache::Cache<R>,
+    cache: &cache::Cache,
     input: &str,
     user_id: String,
     channel_id: String,
     ts: String,
     action: ReacjiAction,
-)
-where
-    R: slack::requests::SlackWebRequestSender + std::clone::Clone
-{
+) {
     match reacji_to_karma(input) {
         Some(karma) => {
             let message_id = query_reacji_message(

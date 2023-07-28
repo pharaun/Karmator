@@ -1,4 +1,3 @@
-use slack_api as slack;
 use tokio_tungstenite as tungstenite;
 
 use tokio::sync::mpsc;
@@ -30,17 +29,14 @@ use crate::core::event::UserEvent;
 use crate::core::event::send_simple_message;
 
 
-pub async fn process_user_message<R>(
+pub async fn process_user_message(
     msg_id: MsgId,
     msg: UserEvent,
     mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
     mut sql_tx: mpsc::Sender<Query>,
     start_time: DateTime<Utc>,
-    cache: cache::Cache<R>,
-) -> Result<(), Box<dyn std::error::Error>>
-where
-    R: slack::requests::SlackWebRequestSender + std::clone::Clone
-{
+    cache: cache::Cache,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Check if its a message/certain string, if so, reply
     match msg {
         UserEvent::Message {

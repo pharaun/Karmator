@@ -1,5 +1,3 @@
-use slack_api as slack;
-
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -28,13 +26,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let filename = env::var("SQLITE_FILE").map_err(|_| "SQLITE_FILE env var must be set")?;
     let token = env::var("SLACK_API_TOKEN").map_err(|_| "SLACK_API_TOKEN env var must be set")?;
     let backup = env::var("SQLITE_BACKUP_DIR");
-    let client = slack::default_client().map_err(|e| format!("Could not get default_client, {:?}", e))?;
 
     // Uptime of program start
     let start_time: DateTime<Utc> = Utc::now();
 
     // System Cache manager
-    let cache = cache::Cache::new(&token, client.clone());
+    let cache = cache::Cache::new(&token);
 
     // Shutdown Signal
     let (sql_shutdown_tx, signal) = signal::Signal::new();
@@ -94,8 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Core bot eventloop
     //*******************
     bot::default_event_loop(
-        &token,
-        client.clone(),
+        cache.clone(),
         signal,
         |event, msg_id, tx| {
             let sql_tx2 = sql_tx.clone();

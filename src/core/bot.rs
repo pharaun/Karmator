@@ -1,5 +1,3 @@
-use slack_api as slack;
-use slack_api::requests::SlackWebRequestSender;
 use tokio_tungstenite as tungstenite;
 
 use futures_util::{SinkExt, StreamExt};
@@ -19,6 +17,7 @@ use std::sync::RwLock;
 use std::time::Duration;
 use std::time::Instant;
 
+use crate::core::cache;
 use crate::core::event;
 use crate::core::signal;
 
@@ -26,9 +25,8 @@ use crate::core::signal;
 //********************
 // Core Bot event loop
 //********************
-pub async fn default_event_loop<R, F1, F2>(
-    token: &str,
-    client: R,
+pub async fn default_event_loop<F1, F2>(
+    cache: cache::Cache,
     mut signal: signal::Signal,
     user_event_listener: F1,
     recurring_job: F2
@@ -40,7 +38,6 @@ where
         mpsc::Sender<tungstenite::tungstenite::Message>
     ) -> (),
     F2: Fn() -> (),
-    R: SlackWebRequestSender + Clone
 {
     // Shared integer counter for message ids
     let msg_id = Arc::new(RelaxedCounter::new(0));
@@ -68,9 +65,7 @@ where
     // Main server loop, exit if the database dies
     while !signal.should_shutdown() {
         // Work to establish the WS connection
-        let response = slack::rtm::connect(&client, &token).await.map_err(|e| format!("control - {:?}", e))?;
-        let ws_url = response.url.ok_or(format!("Control - \tNo Ws url"))?;
-        println!("SYSTEM [Slack RTM]: Websocket Url: {:?}", ws_url);
+        let ws_url = cache.rtm_connect().await?;
 
         let (ws_stream, _) = tungstenite::connect_async(ws_url).await.map_err(|e| format!("Control - \t\t{:?}", e))?;
         println!("SYSTEM [Slack RTM]: Websocket connection established");

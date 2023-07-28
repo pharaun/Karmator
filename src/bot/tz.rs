@@ -1,4 +1,3 @@
-use slack_api as slack;
 use tokio_tungstenite as tungstenite;
 
 use tokio::sync::mpsc;
@@ -47,18 +46,15 @@ use nom::{
 const TIME_FORMAT: &str = "%-l:%M%P";
 
 
-pub async fn timezone<R>(
+pub async fn timezone(
     msg_id: MsgId,
     tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
-    cache: &cache::Cache<R>,
+    cache: &cache::Cache,
     channel_id: String,
     thread_ts: Option<String>,
     user_id: String,
     input: Vec<&str>,
-)
-where
-    R: slack::requests::SlackWebRequestSender + std::clone::Clone
-{
+) {
     if input.is_empty() {
         // !tz --> utc current time + 3 tz (pacific, eastern, uk)
         let utc_time: DateTime<Utc> = Utc::now();

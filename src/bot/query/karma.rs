@@ -1,5 +1,4 @@
 use rusqlite as rs;
-use slack_api as slack;
 
 use chrono::prelude::{Utc, DateTime};
 
@@ -19,16 +18,13 @@ use crate::core::database::Query;
 use crate::core::database::send_query;
 
 
-pub async fn add_karma<R>(
+pub async fn add_karma(
     sql_tx: &mut mpsc::Sender<Query>,
-    cache: &cache::Cache<R>,
+    cache: &cache::Cache,
     input: &str,
     user_id: String,
     channel_id: String,
-)
-where
-    R: slack::requests::SlackWebRequestSender + std::clone::Clone
-{
+) {
     let santized_text = santizer(&input, &cache).await;
     let res = karma::parse(&santized_text);
 
