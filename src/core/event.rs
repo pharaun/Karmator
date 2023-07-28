@@ -1,4 +1,4 @@
-use tokio_tungstenite as tungstenite;
+use tokio_tungstenite::tungstenite;
 
 use atomic_counter::AtomicCounter;
 use atomic_counter::RelaxedCounter;
@@ -220,12 +220,12 @@ pub async fn process_control_message(
     reconnect: Arc<AtomicBool>,
     reconnect_count: Arc<RelaxedCounter>,
     last_message_recieved: Arc<RwLock<Instant>>,
-    msg: tungstenite::tungstenite::Message,
+    msg: tungstenite::Message,
 ) -> Result<Option<UserEvent>, Box<dyn std::error::Error>>
 {
     // Parse incoming message
     let raw_msg = match msg {
-        tungstenite::tungstenite::Message::Text(x) => {
+        tungstenite::Message::Text(x) => {
             {
                 let mut timer = last_message_recieved.write().unwrap();
                 *timer = Instant::now();
@@ -233,12 +233,12 @@ pub async fn process_control_message(
             Some(x)
         },
 
-        tungstenite::tungstenite::Message::Ping(x) => {
+        tungstenite::Message::Ping(x) => {
             let _ = tx.send(Reply::Pong(x)).await;
             None
         },
 
-        tungstenite::tungstenite::Message::Close(reason) => {
+        tungstenite::Message::Close(reason) => {
             println!("SYSTEM [Inbound]: Close: {:?}", reason);
 
             reconnect.store(true, Ordering::Relaxed);

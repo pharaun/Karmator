@@ -1,4 +1,5 @@
-use tokio_tungstenite as tungstenite;
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite;
 
 use futures_util::{SinkExt, StreamExt};
 
@@ -67,7 +68,7 @@ where
         // Work to establish the WS connection
         let ws_url = cache.rtm_connect().await?;
 
-        let (ws_stream, _) = tungstenite::connect_async(ws_url).await.map_err(|e| format!("Control - \t\t{:?}", e))?;
+        let (ws_stream, _) = connect_async(ws_url).await.map_err(|e| format!("Control - \t\t{:?}", e))?;
         println!("SYSTEM [Slack RTM]: Websocket connection established");
 
         // Split the stream
@@ -135,11 +136,11 @@ where
                 Some(message) = rx.recv(), if can_send.load(Ordering::Relaxed) => {
                     // Convert this to a string json message to feed into the stream
                     let ws_message = match message {
-                        event::Reply::Pong(x) => tungstenite::tungstenite::Message::Pong(x),
+                        event::Reply::Pong(x) => tungstenite::Message::Pong(x),
                         msg => {
                             // TODO: remove unwrap here
                             let ws_msg = serde_json::to_string(&msg).unwrap();
-                            tungstenite::tungstenite::Message::from(ws_msg)
+                            tungstenite::Message::from(ws_msg)
                         }
                     };
                     // TODO: present some way to do plain vs fancy message, and if
