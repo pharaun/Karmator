@@ -1,4 +1,3 @@
-use tokio_tungstenite as tungstenite;
 use rusqlite as rs;
 
 use tokio::sync::mpsc;
@@ -10,12 +9,13 @@ use crate::core::database::Query;
 use crate::core::database::send_query;
 
 use crate::core::event::MsgId;
+use crate::core::event::Reply;
 use crate::core::event::send_simple_message;
 
 
 pub async fn ranking(
     msg_id: MsgId,
-    tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
+    tx: &mut mpsc::Sender<Reply>,
     sql_tx: &mut mpsc::Sender<Query>,
     channel: String,
     thread_ts: Option<String>,

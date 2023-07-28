@@ -1,5 +1,3 @@
-use tokio_tungstenite as tungstenite;
-
 use tokio::sync::mpsc;
 
 use chrono::prelude::{Utc, DateTime};
@@ -26,13 +24,14 @@ use crate::core::database::Query;
 use crate::core::event::MsgId;
 use crate::core::event::ReactionItem;
 use crate::core::event::UserEvent;
+use crate::core::event::Reply;
 use crate::core::event::send_simple_message;
 
 
 pub async fn process_user_message(
     msg_id: MsgId,
     msg: UserEvent,
-    mut tx: mpsc::Sender<tungstenite::tungstenite::Message>,
+    mut tx: mpsc::Sender<Reply>,
     mut sql_tx: mpsc::Sender<Query>,
     start_time: DateTime<Utc>,
     cache: cache::Cache,

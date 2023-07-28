@@ -1,5 +1,3 @@
-use tokio_tungstenite as tungstenite;
-
 use tokio::sync::mpsc;
 
 use chrono::prelude::{Utc, DateTime, NaiveTime};
@@ -12,6 +10,7 @@ use chrono::Timelike;
 use crate::core::cache;
 
 use crate::core::event::MsgId;
+use crate::core::event::Reply;
 use crate::core::event::send_simple_message;
 
 use nom::{
@@ -48,7 +47,7 @@ const TIME_FORMAT: &str = "%-l:%M%P";
 
 pub async fn timezone(
     msg_id: MsgId,
-    tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
+    tx: &mut mpsc::Sender<Reply>,
     cache: &cache::Cache,
     channel_id: String,
     thread_ts: Option<String>,

@@ -35,7 +35,7 @@ where
     F1: Fn(
         event::UserEvent,
         event::MsgId,
-        mpsc::Sender<tungstenite::tungstenite::Message>
+        mpsc::Sender<event::Reply>
     ) -> (),
     F2: Fn() -> (),
 {
@@ -133,13 +133,22 @@ where
                 // TODO: this would be better if instead of exiting the select loop we
                 // gracefully drain the rx queue before exiting
                 Some(message) = rx.recv(), if can_send.load(Ordering::Relaxed) => {
+                    // Convert this to a string json message to feed into the stream
+                    let ws_message = match message {
+                        event::Reply::Pong(x) => tungstenite::tungstenite::Message::Pong(x),
+                        msg => {
+                            // TODO: remove unwrap here
+                            let ws_msg = serde_json::to_string(&msg).unwrap();
+                            tungstenite::tungstenite::Message::from(ws_msg)
+                        }
+                    };
                     // TODO: present some way to do plain vs fancy message, and if
                     // fancy do a webapi post, otherwise dump into the WS
                     //
                     // TODO: look into tracking the sent message with a confirmation
                     // that it was sent (via msg id) and if it fails, resend with
                     // backoff
-                    match ws_write.send(message).await {
+                    match ws_write.send(ws_message).await {
                         Ok(_) => (),
                         Err(e) => {
                             eprintln!("SYSTEM [Slack RTM]: Connection error: {:?}", e);

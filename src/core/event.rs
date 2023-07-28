@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use serde::Deserialize;
-use serde_json::json;
+use serde::Serialize;
 
 use std::result::Result;
 use std::sync::Arc;
@@ -136,6 +136,25 @@ struct ErrorDetail {
 }
 
 
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum Reply {
+    Message {
+        id: usize,
+        channel: String,
+        text: String,
+        thread_ts: Option<String>,
+    },
+    Ping {
+        id: usize,
+        timestamp: i64,
+    },
+    #[serde(skip)]
+    Pong(Vec<u8>),
+}
+
+
 fn parse_event(s: String) -> Option<Event> {
     // Return User Events first, then the other two
     serde_json::from_str(&s).and_then(|ue| {
@@ -158,7 +177,7 @@ fn parse_event(s: String) -> Option<Event> {
 
 pub async fn send_simple_message(
     msg_id: MsgId,
-    tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
+    tx: &mut mpsc::Sender<Reply>,
     channel: String,
     thread_ts: Option<String>,
     text: String
@@ -170,46 +189,33 @@ pub async fn send_simple_message(
     // TODO: track if it got santized or not
     let text = santizer::santize_output(&text);
 
-    // TODO: register this message send to be tracked later
-    let ws_msg = match thread_ts {
-        Some(ts) => json!({
-            "id": msg_id.inc(),
-            "type": "message",
-            "channel": channel,
-            "text": text,
-            "thread_ts": ts,
-        }).to_string(),
-        None => json!({
-            "id": msg_id.inc(),
-            "type": "message",
-            "channel": channel,
-            "text": text,
-        }).to_string(),
-    };
-    tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await.map_err(|_| "Error sending")
+    tx.send(Reply::Message {
+        id: msg_id.inc(),
+        channel: channel,
+        text: text,
+        thread_ts: thread_ts
+    }).await.map_err(|_| "Error sending")
 }
 
 
 pub async fn send_slack_ping(
     msg_id: MsgId,
-    tx: &mut mpsc::Sender<tungstenite::tungstenite::Message>,
+    tx: &mut mpsc::Sender<Reply>,
     last_ping_sent: Arc<RwLock<Instant>>,
 ) -> Result<(), &'static str> {
     {
         let mut timer = last_ping_sent.write().unwrap();
         *timer = Instant::now();
     }
-    let ws_msg = json!({
-	"id": msg_id.inc(),
-	"type": "ping",
-        "timestamp": Utc::now().timestamp_millis(),
-    }).to_string();
-    tx.send(tungstenite::tungstenite::Message::from(ws_msg)).await.map_err(|_| "Error sending")
+    tx.send(Reply::Ping {
+        id: msg_id.inc(),
+        timestamp: Utc::now().timestamp_millis(),
+    }).await.map_err(|_| "Error sending")
 }
 
 
 pub async fn process_control_message(
-    tx: mpsc::Sender<tungstenite::tungstenite::Message>,
+    tx: mpsc::Sender<Reply>,
     can_send: Arc<AtomicBool>,
     reconnect: Arc<AtomicBool>,
     reconnect_count: Arc<RelaxedCounter>,
@@ -228,7 +234,7 @@ pub async fn process_control_message(
         },
 
         tungstenite::tungstenite::Message::Ping(x) => {
-            let _ = tx.send(tungstenite::tungstenite::Message::Pong(x)).await;
+            let _ = tx.send(Reply::Pong(x)).await;
             None
         },
 
