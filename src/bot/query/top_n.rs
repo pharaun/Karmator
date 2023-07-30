@@ -3,21 +3,16 @@ use rusqlite as rs;
 use tokio::sync::mpsc;
 
 use crate::bot::query::{KarmaCol, KarmaTyp, OrdQuery};
+use crate::bot::user_event::Event;
 
 use crate::core::database::DbResult;
 use crate::core::database::Query;
 use crate::core::database::send_query;
 
-use crate::core::event::Reply;
-use crate::core::event::send_simple_message;
-
 
 pub async fn top_n(
-    tx: &mut mpsc::Sender<Reply>,
+    event: &mut Event,
     sql_tx: &mut mpsc::Sender<Query>,
-    channel: String,
-    thread_ts: Option<String>,
-    user: String,
     kcol1: KarmaCol,
     kord1: OrdQuery,
     kcol2: KarmaCol,
@@ -52,18 +47,8 @@ pub async fn top_n(
 
     // TODO: do something about this
     let _ = match (high, low) {
-        (Ok(h), Ok(l)) => send_simple_message(
-            tx,
-            channel,
-            thread_ts,
-            format!("<@{}>: {}: {}. {}: {}.", user, label.0, h, label.1, l),
-        ).await,
-        _ => send_simple_message(
-            tx,
-            channel,
-            thread_ts,
-            format!("<@{}>: {}", user, "Something went wrong"),
-        ).await,
+        (Ok(h), Ok(l)) => event.send_reply(&format!("{}: {}. {}: {}.", label.0, h, label.1, l)).await,
+        _ => event.send_reply("Something went wrong").await,
     };
 }
 

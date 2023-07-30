@@ -1,5 +1,3 @@
-use tokio::sync::mpsc;
-
 use chrono::prelude::{Utc, DateTime, NaiveTime};
 use chrono_tz::Tz;
 use chrono_tz::OffsetComponents;
@@ -7,10 +5,7 @@ use chrono::NaiveDateTime;
 use chrono::TimeZone;
 use chrono::Timelike;
 
-use crate::core::cache;
-
-use crate::core::event::Reply;
-use crate::core::event::send_simple_message;
+use crate::bot::user_event::Event;
 
 use nom::{
   IResult,
@@ -45,67 +40,37 @@ const TIME_FORMAT: &str = "%-l:%M%P";
 
 
 pub async fn timezone(
-    tx: &mut mpsc::Sender<Reply>,
-    cache: &cache::Cache,
-    channel_id: String,
-    thread_ts: Option<String>,
-    user_id: String,
+    event: &mut Event,
     input: Vec<&str>,
 ) {
     if input.is_empty() {
         // !tz --> utc current time + 3 tz (pacific, eastern, uk)
         let utc_time: DateTime<Utc> = Utc::now();
 
-        let _ = send_simple_message(
-            tx,
-            channel_id,
-            thread_ts,
-            format!(
-                "<@{}>: {}",
-                user_id,
-                format_time(utc_time),
-            ),
-        ).await;
+        event.send_reply(&format_time(utc_time)).await;
     } else {
         let input = input.join(" ");
         match parse(&input) {
             Err(e) => {
                 eprintln!("ERROR [TZ]: {:?}", e);
 
-                let message = format!(
-                    "<@{}>: Usage: `!tz TIME [TZ]`
+                let message =
+                    "Usage: `!tz TIME [TZ]`
                     24hr: `!tz 05:00 [TZ]` or `!tz 0500 [TZ]`
                     12hr: `!tz 2:00pm [TZ]` or `!tz 5pm [TZ]`
                     [TZ]: (optional) `SFO`, `TOR`, `LON`, `HAM`
-                    [TZ]: (note) if not specified, will use your slack Timezone",
-                    user_id,
-                );
-                let _ = send_simple_message(
-                    tx,
-                    channel_id,
-                    thread_ts,
-                    message,
-                ).await;
+                    [TZ]: (note) if not specified, will use your slack Timezone";
+                event.send_reply(message).await;
             },
             Ok((_, TzReq { time: nt, zone: None })) => {
-                match cache.get_user_tz(&user_id).await {
+                match event.get_user_tz().await {
                     None => {
-                        let _ = send_simple_message(
-                            tx,
-                            channel_id,
-                            thread_ts,
-                            format!("<@{}>: Internal error, unable to get your slack timezone", user_id),
-                        ).await;
+                        event.send_reply("Internal error, unable to get your slack timezone").await;
                     },
                     Some(user_tz) => {
                         match user_tz.tz.parse() {
                             Err(_) => {
-                                let _ = send_simple_message(
-                                    tx,
-                                    channel_id,
-                                    thread_ts,
-                                    format!("<@{}>: Internal error, unable to parse your slack timezone", user_id),
-                                ).await;
+                                event.send_reply("Internal error, unable to parse your slack timezone").await;
                             },
                             Ok(tz) => {
                                 // Validate the offset
@@ -114,24 +79,10 @@ pub async fn timezone(
                                 // Convert time
                                 match convert_naive_time(nt, tz) {
                                     None => {
-                                        let _ = send_simple_message(
-                                            tx,
-                                            channel_id,
-                                            thread_ts,
-                                            format!("<@{}>: Internal error, timezone happened!", user_id),
-                                        ).await;
+                                        event.send_reply("Internal error, timezone happened!").await;
                                     },
                                     Some(given_datetime_tz) => {
-                                        let _ = send_simple_message(
-                                            tx,
-                                            channel_id,
-                                            thread_ts,
-                                            format!(
-                                                "<@{}>: {}",
-                                                user_id,
-                                                format_time(given_datetime_tz),
-                                            ),
-                                        ).await;
+                                        event.send_reply(&format_time(given_datetime_tz)).await;
                                     },
                                 }
                             },
@@ -142,12 +93,7 @@ pub async fn timezone(
             Ok((_, TzReq { time: nt, zone: Some(tz_abbv) })) => {
                 match convert_naive_time(nt, tz_abbv.0) {
                     None => {
-                        let _ = send_simple_message(
-                            tx,
-                            channel_id,
-                            thread_ts,
-                            format!("<@{}>: Internal error, timezone happened!", user_id),
-                        ).await;
+                        event.send_reply("Internal error, timezone happened!").await;
                     },
                     Some(given_datetime_tz) => {
                         let note = match tz_abbv.1 {
@@ -157,18 +103,7 @@ pub async fn timezone(
                                 city,
                             ),
                         };
-                        let _ = send_simple_message(
-                            tx,
-                            channel_id,
-                            thread_ts,
-                            format!(
-                                "{}<@{}>: {}",
-                                note,
-                                user_id,
-                                format_time(given_datetime_tz),
-                            ),
-                        ).await;
-
+                        event.send_reply(&format!("{} - {}", note, &format_time(given_datetime_tz))).await;
                     },
                 }
             },

@@ -7,10 +7,8 @@ use tokio::sync::mpsc;
 use crate::bot::parser::karma::Karma;
 use crate::bot::parser::reacji_to_karma;
 
-use crate::bot::query::santizer;
 use crate::bot::query::{KarmaName, ReacjiAction};
-
-use crate::core::cache;
+use crate::bot::user_event::Event;
 
 use crate::core::database::DbResult;
 use crate::core::database::Query;
@@ -19,43 +17,41 @@ use crate::core::database::send_query;
 
 pub async fn add_reacji(
     sql_tx: &mut mpsc::Sender<Query>,
-    cache: &cache::Cache,
+    event: &mut Event,
     input: &str,
-    user_id: String,
-    channel_id: String,
-    ts: String,
     action: ReacjiAction,
 ) {
     match reacji_to_karma(input) {
         Some(karma) => {
             let message_id = query_reacji_message(
                 sql_tx,
-                channel_id.clone(),
-                ts.clone()
+                event.channel_id.clone(),
+                event.thread_ts.clone().unwrap()
             ).await.map_or_else(
                 |e| Err(e),
                 |v| v.ok_or("NONE".to_string())
             );
 
             let message_id = match message_id {
-                Err(_) => match cache.get_message(&channel_id, &ts).await {
-                    Some(cache::ConversationHistoryMessage::Message { text, user_id: Some(user_id) }) => {
+                Err(_) => match event.get_message().await {
+                    Ok(message_user_id) => {
                         // We have the message content, insert it into the table and
                         // get its row id
-                        let santized_text = santizer(&text, &cache).await;
+                        let santized_text = event.santize().await;
 
                         match (
-                            cache.get_username(&user_id).await,
-                            cache.get_user_real_name(&user_id).await,
+                            event.get_other_username(&message_user_id).await,
+                            event.get_other_user_real_name(&message_user_id).await,
                         ) {
                             (Some(ud), Some(rn)) => {
                                 add_reacji_message(
                                     sql_tx,
-                                    user_id,
+                                    message_user_id,
                                     KarmaName::new(&ud),
                                     KarmaName::new(&rn),
-                                    channel_id.clone(),
-                                    ts.clone(),
+                                    event.channel_id.clone(),
+                                    // TODO: should add error check here
+                                    event.thread_ts.clone().unwrap(),
                                     santized_text
                                 ).await
                             },
@@ -65,11 +61,9 @@ pub async fn add_reacji(
 
                     // This happens when there is no user_id (is none)
                     // This shouldn't happen but .... slack....
-                    Some(cache::ConversationHistoryMessage::Message { user_id: None, .. }) => Ok(None),
-
-                    e => Err(format!("ERROR: [User Event] IDK here: {:?}", e)),
+                    Err(_) => Ok(None),
                 },
-                Ok(mid) => Ok(Some(mid)),
+                e => Err(format!("ERROR: [User Event] IDK here: {:?}", e)),
             };
 
             match message_id {
@@ -80,14 +74,14 @@ pub async fn add_reacji(
                 Ok(None) => (), // These are expected error, drop
                 Ok(Some(mid)) => {
                     match (
-                        cache.get_username(&user_id).await,
-                        cache.get_user_real_name(&user_id).await,
+                        event.get_username().await,
+                        event.get_user_real_name().await,
                     ) {
                         (Some(ud), Some(rn)) => {
                             let e = add_reacji_query(
                                 sql_tx,
                                 Utc::now(),
-                                user_id,
+                                event.user_id.clone(),
                                 KarmaName::new(&ud),
                                 KarmaName::new(&rn),
                                 action,

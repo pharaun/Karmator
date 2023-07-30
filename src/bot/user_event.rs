@@ -8,6 +8,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use crate::bot::build_info;
+use crate::bot::query::santizer;
 
 use crate::bot::query::karma::add_karma;
 use crate::bot::query::partial::partial;
@@ -27,9 +28,105 @@ use crate::core::event::Reply;
 use crate::core::event::send_simple_message;
 
 
+#[derive(Clone)]
+pub struct Event {
+    // Bot Data
+    cache: cache::Cache,
+    tx: mpsc::Sender<Reply>,
+
+    // User Data
+    pub channel_id: String,
+    pub user_id: String,
+    pub thread_ts: Option<String>,
+    text: Option<String>,
+}
+
+impl Event {
+    async fn is_user_bot(&self) -> bool {
+        match self.cache.is_user_bot(&self.user_id).await {
+            None => {
+                eprintln!("ERROR [User Event]: No info on user: {:?}", &self.user_id);
+
+                // Bail out
+                true
+            },
+            Some(is_bot) => is_bot,
+        }
+    }
+
+    fn parse_command(&self) -> Result<command::Command, String> {
+        match &self.text {
+            None => Err("Empty input".to_string()),
+            Some(text) => command::parse(text),
+        }
+    }
+
+    pub async fn get_user_tz(&self) -> Option<cache::Timezone> {
+        self.cache.get_user_tz(&self.user_id).await
+    }
+
+    pub async fn get_username(&self) -> Option<String> {
+        self.get_other_username(&self.user_id).await
+    }
+
+    pub async fn get_other_username(&self, user_id: &str) -> Option<String> {
+        self.cache.get_username(user_id).await
+    }
+
+    pub async fn get_user_real_name(&self) -> Option<String> {
+        self.get_other_user_real_name(&self.user_id).await
+    }
+
+    pub async fn get_other_user_real_name(&self, user_id: &str) -> Option<String> {
+        self.cache.get_user_real_name(user_id).await
+    }
+
+    // TODO: to support an existing bug, this will return the message's owner user_id
+    pub async fn get_message(&mut self) -> Result<String, String> {
+        match &self.thread_ts {
+            None => Err("No timestamp set for reacji event!".to_string()),
+            Some(ts) => {
+                match self.cache.get_message(&self.channel_id, &ts).await {
+                    Some(cache::ConversationHistoryMessage::Message { text, user_id: Some(user_id) }) => {
+                        self.text = Some(text);
+                        Ok(user_id)
+                    },
+                    Some(cache::ConversationHistoryMessage::Message { text: _, user_id: None }) => {
+                        Err("Slack failed to give a owner for this message".to_string())
+                    },
+                    e => Err(format!("ERROR: [User Event] IDK here: {:?}", e)),
+                }
+            },
+        }
+    }
+
+    // TODO: maybe better to consume the event?
+    pub async fn send_reply(&mut self, text: &str) {
+        // TODO: log the error
+        let _ = send_simple_message(
+            &mut self.tx,
+            self.channel_id.clone(),
+            self.thread_ts.clone(),
+            format!("<@{}>: {}", &self.user_id, &text)
+        ).await;
+    }
+
+    pub async fn santize(&self) -> String {
+        match &self.text {
+            None => "".to_string(),
+            Some(text) => santizer(text, &self.cache).await,
+        }
+    }
+
+    pub fn text(&self) -> String {
+        self.text.clone().unwrap_or("".to_string())
+    }
+}
+
+
 pub async fn process_user_message(
     msg: UserEvent,
-    mut tx: mpsc::Sender<Reply>,
+    tx: mpsc::Sender<Reply>,
     mut sql_tx: mpsc::Sender<Query>,
     start_time: DateTime<Utc>,
     cache: cache::Cache,
@@ -45,38 +142,32 @@ pub async fn process_user_message(
             hidden: _,
             ts: _,
         } => {
+            let mut event = Event {
+                // Bot data
+                cache, tx,
+                // User data
+                channel_id, user_id, thread_ts, text: Some(text)
+            };
+
             // Check if user is a bot, if so ignore (this applies to myself as well)
-            match cache.is_user_bot(&user_id).await {
-                None => {
-                    eprintln!("ERROR [User Event]: No info on user: {:?}", user_id);
-                    return Ok(());
-                },
-                Some(is_bot) => {
-                    if is_bot {
-                        return Ok(());
-                    }
-                },
+            if event.is_user_bot().await {
+                return Ok(());
             }
 
             // Check if text message field is empty, if so (ignore)
-            if text.is_empty() {
+            if event.text().is_empty() {
                 return Ok(());
             }
 
             // Parse string to see if its a command one
-            let res = command::parse(&text);
-
-            match res {
+            match event.parse_command() {
                 Ok(command::Command("version", _)) => {
                     let ver = build_info::PKG_VERSION;
                     let dat = build_info::BUILT_TIME_UTC;
                     let sha = build_info::GIT_COMMIT_HASH.unwrap_or("Unknown");
 
-                    let _ = send_simple_message(
-                        &mut tx,
-                        channel_id,
-                        thread_ts,
-                        format!("<@{}>: Cargo Version: {} - Build Date: {}, - Build SHA: {}", user_id, ver, dat, sha),
+                    event.send_reply(
+                        &format!("Cargo Version: {} - Build Date: {}, - Build SHA: {}", ver, dat, sha)
                     ).await;
                 },
 
@@ -85,44 +176,21 @@ pub async fn process_user_message(
                     let durt = end_time.signed_duration_since(start_time).to_std().unwrap_or(
                         Duration::from_secs(3122064000));
 
-                    let _ = send_simple_message(
-                        &mut tx,
-                        channel_id,
-                        thread_ts,
-                        format!("<@{}>: {}", user_id, format_duration(durt).to_string()),
-                    ).await;
+                    event.send_reply(&format_duration(durt).to_string()).await;
                 },
 
                 Ok(command::Command("help", _)) => {
                     let help = "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote !topkarma !topgivers !topsidevotes !tz";
-                    let _ = send_simple_message(
-                        &mut tx,
-                        channel_id,
-                        thread_ts,
-                        format!("<@{}>: {}", user_id, help),
-                    ).await;
+                    event.send_reply(help).await;
                 },
 
                 Ok(command::Command("github", _)) => {
                     let github = "Github repo: https://github.com/pharaun/Karmator";
-
-                    let _ = send_simple_message(
-                        &mut tx,
-                        channel_id,
-                        thread_ts,
-                        format!("<@{}>: {}", user_id, github),
-                    ).await;
+                    event.send_reply(github).await;
                 },
 
                 Ok(command::Command("tz", arg)) => {
-                    timezone(
-                        &mut tx,
-                        &cache,
-                        channel_id,
-                        thread_ts,
-                        user_id,
-                        arg
-                    ).await;
+                    timezone(&mut event.clone(), arg).await;
                 },
 
                 Ok(command::Command("karma", arg)) => {
@@ -132,11 +200,8 @@ pub async fn process_user_message(
                     //      be cached
                     if arg.is_empty() {
                         top_n(
-                            &mut tx,
+                            &mut event.clone(),
                             &mut sql_tx,
-                            channel_id,
-                            thread_ts,
-                            user_id,
                             KarmaCol::Recieved,
                             OrdQuery::Desc,
                             KarmaCol::Recieved,
@@ -147,11 +212,8 @@ pub async fn process_user_message(
                         ).await;
                     } else {
                         partial(
-                            &mut tx,
+                            &mut event.clone(),
                             &mut sql_tx,
-                            channel_id,
-                            thread_ts,
-                            user_id,
                             KarmaCol::Recieved,
                             arg,
                         ).await;
@@ -159,18 +221,10 @@ pub async fn process_user_message(
                 },
 
                 Ok(command::Command("topkarma", arg)) => {
-                    let mut err_tx = tx.clone();
-                    let err_future = send_simple_message(
-                        &mut err_tx,
-                        channel_id.clone(),
-                        thread_ts.clone(),
-                        format!("<@{}>: {}", user_id, "Please specify a positive integer between 1 and 25."),
-                    );
-
                     if arg.is_empty() {
-                        let _ = err_future.await;
+                        event.send_reply("Please specify a positive integer between 1 and 25.").await;
                     } else if arg.len() != 1 {
-                        let _ = err_future.await;
+                        event.send_reply("Please specify a positive integer between 1 and 25.").await;
                     } else {
                         // Parse the argument
                         let limit = u32::from_str(arg.get(0).unwrap_or(&"1"));
@@ -178,11 +232,8 @@ pub async fn process_user_message(
                         match limit {
                             Ok(lim@1..=25) => {
                                 top_n(
-                                    &mut tx,
+                                    &mut event.clone(),
                                     &mut sql_tx,
-                                    channel_id,
-                                    thread_ts,
-                                    user_id,
                                     KarmaCol::Recieved,
                                     OrdQuery::Desc,
                                     KarmaCol::Recieved,
@@ -193,7 +244,7 @@ pub async fn process_user_message(
                                 ).await;
                             },
                             _ => {
-                                let _ = err_future.await;
+                                event.send_reply("Please specify a positive integer between 1 and 25.").await;
                             },
                         }
                     }
@@ -202,11 +253,8 @@ pub async fn process_user_message(
                 Ok(command::Command("givers", arg)) => {
                     if arg.is_empty() {
                         top_n(
-                            &mut tx,
+                            &mut event.clone(),
                             &mut sql_tx,
-                            channel_id,
-                            thread_ts,
-                            user_id,
                             KarmaCol::Given,
                             OrdQuery::Desc,
                             KarmaCol::Given,
@@ -217,11 +265,8 @@ pub async fn process_user_message(
                         ).await;
                     } else {
                         partial(
-                            &mut tx,
+                            &mut event.clone(),
                             &mut sql_tx,
-                            channel_id,
-                            thread_ts,
-                            user_id,
                             KarmaCol::Given,
                             arg,
                         ).await;
@@ -229,18 +274,10 @@ pub async fn process_user_message(
                 },
 
                 Ok(command::Command("topgivers", arg)) => {
-                    let mut err_tx = tx.clone();
-                    let err_future = send_simple_message(
-                        &mut err_tx,
-                        channel_id.clone(),
-                        thread_ts.clone(),
-                        format!("<@{}>: {}", user_id, "Please specify a positive integer between 1 and 25."),
-                    );
-
                     if arg.is_empty() {
-                        let _ = err_future.await;
+                        event.send_reply("Please specify a positive integer between 1 and 25.").await;
                     } else if arg.len() != 1 {
-                        let _ = err_future.await;
+                        event.send_reply("Please specify a positive integer between 1 and 25.").await;
                     } else {
                         // Parse the argument
                         let limit = u32::from_str(arg.get(0).unwrap_or(&"1"));
@@ -248,11 +285,8 @@ pub async fn process_user_message(
                         match limit {
                             Ok(lim@1..=25) => {
                                 top_n(
-                                    &mut tx,
+                                    &mut event.clone(),
                                     &mut sql_tx,
-                                    channel_id,
-                                    thread_ts,
-                                    user_id,
                                     KarmaCol::Given,
                                     OrdQuery::Desc,
                                     KarmaCol::Given,
@@ -263,7 +297,7 @@ pub async fn process_user_message(
                                 ).await;
                             },
                             _ => {
-                                let _ = err_future.await;
+                                event.send_reply("Please specify a positive integer between 1 and 25.").await;
                             },
                         }
                     }
@@ -272,11 +306,8 @@ pub async fn process_user_message(
                 Ok(command::Command("sidevotes", arg)) => {
                     if arg.is_empty() {
                         top_n(
-                            &mut tx,
+                            &mut event.clone(),
                             &mut sql_tx,
-                            channel_id,
-                            thread_ts,
-                            user_id,
                             KarmaCol::Recieved,
                             OrdQuery::Desc,
                             KarmaCol::Given,
@@ -286,28 +317,15 @@ pub async fn process_user_message(
                             3u32,
                         ).await;
                     } else {
-                        let _ = send_simple_message(
-                            &mut tx,
-                            channel_id,
-                            thread_ts,
-                            format!("<@{}>: {}", user_id, "Not supported!"),
-                        ).await;
+                        event.send_reply("Not supported!").await;
                     }
                 },
 
                 Ok(command::Command("topsidevotes", arg)) => {
-                    let mut err_tx = tx.clone();
-                    let err_future = send_simple_message(
-                        &mut err_tx,
-                        channel_id.clone(),
-                        thread_ts.clone(),
-                        format!("<@{}>: {}", user_id, "Please specify a positive integer between 1 and 25."),
-                    );
-
                     if arg.is_empty() {
-                        let _ = err_future.await;
+                        event.send_reply("Please specify a positive integer between 1 and 25.").await;
                     } else if arg.len() != 1 {
-                        let _ = err_future.await;
+                        event.send_reply("Please specify a positive integer between 1 and 25.").await;
                     } else {
                         // Parse the argument
                         let limit = u32::from_str(arg.get(0).unwrap_or(&"1"));
@@ -315,11 +333,8 @@ pub async fn process_user_message(
                         match limit {
                             Ok(lim@1..=25) => {
                                 top_n(
-                                    &mut tx,
+                                    &mut event.clone(),
                                     &mut sql_tx,
-                                    channel_id,
-                                    thread_ts,
-                                    user_id,
                                     KarmaCol::Recieved,
                                     OrdQuery::Desc,
                                     KarmaCol::Given,
@@ -330,7 +345,7 @@ pub async fn process_user_message(
                                 ).await;
                             },
                             _ => {
-                                let _ = err_future.await;
+                                event.send_reply("Please specify a positive integer between 1 and 25.").await;
                             },
                         }
                     }
@@ -339,28 +354,18 @@ pub async fn process_user_message(
                 Ok(command::Command("rank", arg)) => {
                     if arg.is_empty() {
                         // Rank with yourself
-                        let username = cache.get_username(&user_id).await;
-
-                        match username {
+                        match event.get_username().await {
                             Some(ud) => {
                                 ranking(
-                                    &mut tx,
+                                    &mut event.clone(),
                                     &mut sql_tx,
-                                    channel_id,
-                                    thread_ts,
-                                    user_id,
                                     KarmaTyp::Total,
                                     &ud,
                                     "Your",
                                 ).await;
                             },
                             _ => {
-                                let _ = send_simple_message(
-                                    &mut tx,
-                                    channel_id,
-                                    thread_ts,
-                                    format!("<@{}>: {}", user_id, "Cant find your display name, thanks slack"),
-                                ).await;
+                                event.send_reply("Cant find your display name, thanks slack").await;
                             },
                         }
                     } else if arg.len() == 1 {
@@ -368,50 +373,32 @@ pub async fn process_user_message(
                         let target = arg.get(0).unwrap_or(&"INVALID");
 
                         ranking(
-                            &mut tx,
+                            &mut event.clone(),
                             &mut sql_tx,
-                            channel_id,
-                            thread_ts,
-                            user_id,
                             KarmaTyp::Total,
                             target,
                             &format!("{}", target),
                         ).await;
                     } else {
-                        let _ = send_simple_message(
-                            &mut tx,
-                            channel_id,
-                            thread_ts,
-                            format!("<@{}>: {}", user_id, "Can only rank one karma entry at a time!"),
-                        ).await;
+                        event.send_reply("Can only rank one karma entry at a time!").await;
                     }
                 },
 
                 Ok(command::Command("ranksidevote", arg)) => {
                     if arg.is_empty() {
                         // Rank with yourself
-                        let username = cache.get_username(&user_id).await;
-
-                        match username {
+                        match event.get_username().await {
                             Some(ud) => {
                                 ranking(
-                                    &mut tx,
+                                    &mut event.clone(),
                                     &mut sql_tx,
-                                    channel_id,
-                                    thread_ts,
-                                    user_id,
                                     KarmaTyp::Side,
                                     &ud,
                                     "Your",
                                 ).await;
                             },
                             _ => {
-                                let _ = send_simple_message(
-                                    &mut tx,
-                                    channel_id,
-                                    thread_ts,
-                                    format!("<@{}>: {}", user_id, "Cant find your display name, thanks slack"),
-                                ).await;
+                                event.send_reply("Cant find your display name, thanks slack").await;
                             },
                         }
                     } else if arg.len() == 1 {
@@ -419,36 +406,20 @@ pub async fn process_user_message(
                         let target = arg.get(0).unwrap_or(&"INVALID");
 
                         ranking(
-                            &mut tx,
+                            &mut event.clone(),
                             &mut sql_tx,
-                            channel_id,
-                            thread_ts,
-                            user_id,
                             KarmaTyp::Side,
                             target,
                             &format!("{}", target),
                         ).await;
                     } else {
-                        let _ = send_simple_message(
-                            &mut tx,
-                            channel_id,
-                            thread_ts,
-                            format!("<@{}>: {}", user_id, "Can only rank one karma entry at a time!"),
-                        ).await;
+                        event.send_reply("Can only rank one karma entry at a time!").await;
                     }
                 },
 
                 Ok(command::Command(x, _)) => println!("INFO [User Event]: No handler: {:?}", x),
 
-                Err(_) => {
-                    add_karma(
-                        &mut sql_tx,
-                        &cache,
-                        &text,
-                        user_id,
-                        channel_id,
-                    ).await;
-                },
+                Err(_) => add_karma(&mut sql_tx, &event).await,
             }
         },
 
@@ -463,13 +434,17 @@ pub async fn process_user_message(
             event_ts: _,
             ts: _,
         } => {
+            let mut event = Event {
+                // Bot data
+                cache, tx,
+                // User data
+                channel_id, user_id, thread_ts: Some(ts), text: None
+            };
+
             add_reacji(
                 &mut sql_tx,
-                &cache,
+                &mut event,
                 &reaction,
-                user_id,
-                channel_id,
-                ts,
                 ReacjiAction::Add,
             ).await;
         },
@@ -485,13 +460,17 @@ pub async fn process_user_message(
             event_ts: _,
             ts: _,
         } => {
+            let mut event = Event {
+                // Bot data
+                cache, tx,
+                // User data
+                channel_id, user_id, thread_ts: Some(ts), text: None
+            };
+
             add_reacji(
                 &mut sql_tx,
-                &cache,
+                &mut event,
                 &reaction,
-                user_id,
-                channel_id,
-                ts,
                 ReacjiAction::Del,
             ).await;
         },

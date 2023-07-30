@@ -9,9 +9,7 @@ use crate::bot::parser::karma;
 
 use crate::bot::query::KarmaName;
 use crate::bot::query::normalize;
-use crate::bot::query::santizer;
-
-use crate::core::cache;
+use crate::bot::user_event::Event;
 
 use crate::core::database::DbResult;
 use crate::core::database::Query;
@@ -20,19 +18,13 @@ use crate::core::database::send_query;
 
 pub async fn add_karma(
     sql_tx: &mut mpsc::Sender<Query>,
-    cache: &cache::Cache,
-    input: &str,
-    user_id: String,
-    channel_id: String,
+    event: &Event,
 ) {
-    let santized_text = santizer(&input, &cache).await;
-    let res = karma::parse(&santized_text);
-
-    match res {
+    match karma::parse(&event.santize().await) {
         Ok(mut karma) if !karma.is_empty() => {
             println!("INFO [User Event]: Parsed Karma: {:?}", karma);
-            let username = cache.get_username(&user_id).await;
-            let user_real_name = cache.get_user_real_name(&user_id).await;
+            let username = event.get_username().await;
+            let user_real_name = event.get_user_real_name().await;
 
             // Filter karma of any entity that is same as
             // username, and check if any got filtered, if
@@ -56,10 +48,10 @@ pub async fn add_karma(
                         let _ = add_karma_query(
                             sql_tx,
                             Utc::now(),
-                            user_id,
+                            event.user_id.clone(),
                             KarmaName::new(&ud),
                             KarmaName::new(&rn),
-                            Some(channel_id),
+                            Some(event.channel_id.clone()),
                             karma
                         ).await;
                     },

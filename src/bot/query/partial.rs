@@ -5,21 +5,16 @@ use tokio::sync::mpsc;
 use std::collections::HashSet;
 
 use crate::bot::query::{KarmaCol, KarmaName};
+use crate::bot::user_event::Event;
 
 use crate::core::database::DbResult;
 use crate::core::database::Query;
 use crate::core::database::send_query;
 
-use crate::core::event::Reply;
-use crate::core::event::send_simple_message;
-
 
 pub async fn partial(
-    tx: &mut mpsc::Sender<Reply>,
+    event: &mut Event,
     sql_tx: &mut mpsc::Sender<Query>,
-    channel: String,
-    thread_ts: Option<String>,
-    user: String,
     kcol: KarmaCol,
     arg: Vec<&str>,
 ) {
@@ -38,18 +33,8 @@ pub async fn partial(
 
     // TODO: do something here
     let _ = match res {
-        Ok(x) => send_simple_message(
-            tx,
-            channel,
-            thread_ts,
-            format!("<@{}>: {}", user, x),
-        ).await,
-        _ => send_simple_message(
-            tx,
-            channel,
-            thread_ts,
-            format!("<@{}>: {}", user, "Something went wrong"),
-        ).await,
+        Ok(x) => event.send_reply(&x).await,
+        _ => event.send_reply("Something went wrong").await,
     };
 }
 

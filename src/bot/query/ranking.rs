@@ -3,21 +3,16 @@ use rusqlite as rs;
 use tokio::sync::mpsc;
 
 use crate::bot::query::{KarmaCol, KarmaTyp, KarmaName};
+use crate::bot::user_event::Event;
 
 use crate::core::database::DbResult;
 use crate::core::database::Query;
 use crate::core::database::send_query;
 
-use crate::core::event::Reply;
-use crate::core::event::send_simple_message;
-
 
 pub async fn ranking(
-    tx: &mut mpsc::Sender<Reply>,
+    event: &mut Event,
     sql_tx: &mut mpsc::Sender<Query>,
-    channel: String,
-    thread_ts: Option<String>,
-    user: String,
     ktyp: KarmaTyp,
     target: &str,
     label: &str,
@@ -64,12 +59,7 @@ pub async fn ranking(
         (None, None)       => format!("No ranking available"),
     };
 
-    let _ = send_simple_message(
-        tx,
-        channel,
-        thread_ts,
-        format!("<@{}>: {}", user, rank),
-    ).await;
+    event.send_reply(&rank).await;
 }
 
 async fn ranking_denormalized(
