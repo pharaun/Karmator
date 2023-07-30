@@ -18,11 +18,36 @@ use tokio::sync::mpsc;
 use crate::core::santizer;
 
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 enum Event {
-    UserEvent(UserEvent),
-    SystemControl(SystemControl),
-    MessageControl(MessageControl),
+    // First message upon successful connection establishment
+    Hello {
+        num_connections: u32
+    },
+
+    // Client should reconnect after this
+    Disconnect {
+        reason: String,
+    },
+
+    // For now messages too
+    EventsApi {
+        envelope_id: String,
+        accepts_response_payload: bool,
+        payload: Payload,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+enum Payload {
+    EventCallback {
+        event: UserEvent,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,51 +109,6 @@ pub enum ReactionItem {
     },
 }
 
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
-enum SystemControl {
-    // First message upon successful connection establishment
-    Hello,
-
-    // Client should reconnect after getting such message
-    Goodbye,
-
-    // Reply to Ping = { type: ping, id: num }
-    Pong { reply_to: usize, timestamp: Option<i64> },
-}
-
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-#[allow(dead_code)]
-enum MessageControl {
-    // Reply to message sent
-    MessageSent {
-        ok: bool,
-        reply_to: usize,
-        text: String,
-        ts: String
-    },
-
-    // Reply to failed message sent
-    MessageError {
-        ok: bool,
-        reply_to: usize,
-        error: ErrorDetail,
-    },
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct ErrorDetail {
-    code: usize,
-    msg: String,
-}
-
-
 #[derive(Debug)]
 pub enum Reply {
     Message(Message),
@@ -151,22 +131,16 @@ pub struct Message {
 
 
 fn parse_event(s: String) -> Option<Event> {
-    // Return User Events first, then the other two
-    serde_json::from_str(&s).and_then(|ue| {
-        Ok(Event::UserEvent(ue))
-    }).or_else(|_| {
-        serde_json::from_str(&s).and_then(|sc| {
-            Ok(Event::SystemControl(sc))
-        }).or_else(|_| {
-            serde_json::from_str(&s).and_then(|mc| {
-                Ok(Event::MessageControl(mc))
-            }).or_else(|x| {
-                // TODO: for now print to stderr what didn't get deserialized
-                // later can have config option to log to file the error or not
-                Err(x)
-            })
-        })
-    }).ok()
+    let res = serde_json::from_str::<Event>(
+        &s
+    ).map_err(
+        |x| format!("{:?}", x)
+    );
+
+    if res.is_err() {
+        println!("Error: {:?}", res);
+    }
+    res.ok()
 }
 
 
@@ -245,28 +219,26 @@ pub async fn process_control_message(
 
     if let Some(e) = raw_msg.and_then(parse_event) {
         match e {
-            Event::UserEvent(event)    => Ok(Some(event)),
-            Event::MessageControl(_mc) => Ok(None),
-            Event::SystemControl(sc)   => {
-                match sc {
-                    SystemControl::Hello => {
-                        // Hold on sending messages till this is recieved.
-                        can_send.store(true, Ordering::Relaxed);
-                        reconnect_count.reset();
-                    },
-                    SystemControl::Goodbye => {
-                        // When this is recieved, reconnect
-                        reconnect.store(true, Ordering::Relaxed);
-                        can_send.store(false, Ordering::Relaxed);
-                    },
-                    SystemControl::Pong{reply_to: _, timestamp: _ts} => {
-                    //    if let Some(old) = _ts {
-                    //        let now = Utc::now().timestamp_millis();
-                    //        println!("SYSTEM [Inbound]: Ping delta: {:?}ms", now - old);
-                    //    }
-                    },
-                }
+            Event::Hello {num_connections: _} => {
+                // Hold on sending messages till this is recieved.
+                can_send.store(true, Ordering::Relaxed);
+                reconnect_count.reset();
+
                 Ok(None)
+            },
+            Event::Disconnect {reason: _} => {
+                // When this is recieved, reconnect
+                reconnect.store(true, Ordering::Relaxed);
+                can_send.store(false, Ordering::Relaxed);
+
+                Ok(None)
+            },
+            Event::EventsApi {envelope_id: ei, accepts_response_payload: _, payload: pay} => {
+                let _ = tx.send(Reply::Acknowledge(ei)).await;
+
+                match pay {
+                    Payload::EventCallback {event: e} => Ok(Some(e)),
+                }
             },
         }
     } else {

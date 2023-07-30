@@ -112,14 +112,14 @@ where
                             }
                         },
                         Some(Err(e)) => {
-                            eprintln!("SYSTEM [Slack RTM]: Connection error: {:?}", e);
+                            eprintln!("SYSTEM [Slack Socket]: Connection error: {:?}", e);
                             reconnect.store(true, Ordering::Relaxed);
                             can_send.store(false, Ordering::Relaxed);
                         },
 
                         // Stream is done/closed
                         None => {
-                            println!("SYSTEM [Slack RTM]: Stream closed, reconnecting");
+                            println!("SYSTEM [Slack Socket]: Stream closed, reconnecting");
                             reconnect.store(true, Ordering::Relaxed);
                             can_send.store(false, Ordering::Relaxed);
                         },
@@ -156,7 +156,7 @@ where
                             match ws_write.send(ws_msg).await {
                                 Ok(_) => (),
                                 Err(e) => {
-                                    eprintln!("SYSTEM [Slack RTM]: Connection error: {:?}", e);
+                                    eprintln!("SYSTEM [Slack Socket]: Connection error: {:?}", e);
                                     reconnect.store(true, Ordering::Relaxed);
                                     can_send.store(false, Ordering::Relaxed);
                                 },
@@ -197,7 +197,7 @@ where
                             //  - [No] Do nothing
                             if lmd.as_secs() > 30 {
                                 if lpd.as_secs() > 30 {
-                                    //println!("SYSTEM [Slack RTM]: Last message: {:?}s, Last ping: {:?}s",
+                                    //println!("SYSTEM [Slack Socket]: Last message: {:?}s, Last ping: {:?}s",
                                     //    lmd.as_secs(),
                                     //    lpd.as_secs(),
                                     //);
@@ -207,7 +207,7 @@ where
                                     ).await;
                                 }
                             } else if lmd.as_secs() > 120 {
-                                eprintln!("SYSTEM [Slack RTM]: Last message: {:?}s, reconnecting", lmd.as_secs());
+                                eprintln!("SYSTEM [Slack Socket]: Last message: {:?}s, reconnecting", lmd.as_secs());
                                 reconnect.store(true, Ordering::Relaxed);
                                 can_send.store(false, Ordering::Relaxed);
                             }
@@ -225,10 +225,10 @@ where
             let count = reconnect_count.clone().inc();
 
             if count <= 10 {
-                println!("SYSTEM [Slack RTM]: Reconnecting, try: {:?}", count);
+                println!("SYSTEM [Slack Socket]: Reconnecting, try: {:?}", count);
                 time::sleep(Duration::from_secs(20)).await;
             } else {
-                eprintln!("ERROR [Slack RTM]: Exceeded 10 retries, shutting down");
+                eprintln!("ERROR [Slack Socket]: Exceeded 10 retries, shutting down");
                 signal.shutdown_now();
                 break;
             }
