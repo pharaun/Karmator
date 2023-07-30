@@ -7,6 +7,8 @@ use tokio::sync::mpsc;
 use tokio::time;
 use tokio::time::MissedTickBehavior;
 
+use serde_json::json;
+
 use atomic_counter::AtomicCounter;
 use atomic_counter::RelaxedCounter;
 use std::sync::atomic::AtomicBool;
@@ -35,14 +37,10 @@ pub async fn default_event_loop<F1, F2>(
 where
     F1: Fn(
         event::UserEvent,
-        event::MsgId,
         mpsc::Sender<event::Reply>
     ) -> (),
     F2: Fn() -> (),
 {
-    // Shared integer counter for message ids
-    let msg_id = Arc::new(RelaxedCounter::new(0));
-
     // Atomic boolean for ensuring send can't happen till the hello is recieved from slack
     let can_send = Arc::new(AtomicBool::new(false));
 
@@ -66,10 +64,10 @@ where
     // Main server loop, exit if the database dies
     while !signal.should_shutdown() {
         // Work to establish the WS connection
-        let ws_url = cache.rtm_connect().await?;
+        let ws_url = cache.socket_connect(true).await?;
 
         let (ws_stream, _) = connect_async(ws_url).await.map_err(|e| format!("Control - \t\t{:?}", e))?;
-        println!("SYSTEM [Slack RTM]: Websocket connection established");
+        println!("SYSTEM [Slack Socket]: Websocket connection established");
 
         // Split the stream
         let (mut ws_write, mut ws_read) = ws_stream.split();
@@ -109,7 +107,6 @@ where
                                 // TODO: should handle error here and listen
                                 user_event_listener(
                                     event,
-                                    msg_id.clone(),
                                     tx.clone()
                                 );
                             }
@@ -136,25 +133,34 @@ where
                 Some(message) = rx.recv(), if can_send.load(Ordering::Relaxed) => {
                     // Convert this to a string json message to feed into the stream
                     let ws_message = match message {
-                        event::Reply::Pong(x) => tungstenite::Message::Pong(x),
-                        msg => {
-                            // TODO: remove unwrap here
-                            let ws_msg = serde_json::to_string(&msg).unwrap();
-                            tungstenite::Message::from(ws_msg)
-                        }
+                        event::Reply::Pong(x) => Some(tungstenite::Message::Pong(x)),
+                        event::Reply::Ping(x) => Some(tungstenite::Message::Ping(x)),
+
+                        // Can send this over the socket
+                        event::Reply::Acknowledge(envelope_id) => {
+                            let ws_msg = json!({
+                                "envelope_id": envelope_id,
+                            }).to_string();
+                            Some(tungstenite::Message::from(ws_msg))
+                        },
+
+                        // Need to post to the web api
+                        event::Reply::Message(msg) => {
+                            cache.post_message(msg).await;
+                            None
+                        },
                     };
-                    // TODO: present some way to do plain vs fancy message, and if
-                    // fancy do a webapi post, otherwise dump into the WS
-                    //
-                    // TODO: look into tracking the sent message with a confirmation
-                    // that it was sent (via msg id) and if it fails, resend with
-                    // backoff
-                    match ws_write.send(ws_message).await {
-                        Ok(_) => (),
-                        Err(e) => {
-                            eprintln!("SYSTEM [Slack RTM]: Connection error: {:?}", e);
-                            reconnect.store(true, Ordering::Relaxed);
-                            can_send.store(false, Ordering::Relaxed);
+                    match ws_message {
+                        None => (),
+                        Some(ws_msg) => {
+                            match ws_write.send(ws_msg).await {
+                                Ok(_) => (),
+                                Err(e) => {
+                                    eprintln!("SYSTEM [Slack RTM]: Connection error: {:?}", e);
+                                    reconnect.store(true, Ordering::Relaxed);
+                                    can_send.store(false, Ordering::Relaxed);
+                                },
+                            }
                         },
                     }
                 },
@@ -196,7 +202,6 @@ where
                                     //    lpd.as_secs(),
                                     //);
                                     let _ = event::send_slack_ping(
-                                        msg_id.clone(),
                                         &mut tx.clone(),
                                         last_ping_sent.clone(),
                                     ).await;

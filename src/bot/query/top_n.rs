@@ -8,13 +8,11 @@ use crate::core::database::DbResult;
 use crate::core::database::Query;
 use crate::core::database::send_query;
 
-use crate::core::event::MsgId;
 use crate::core::event::Reply;
 use crate::core::event::send_simple_message;
 
 
 pub async fn top_n(
-    msg_id: MsgId,
     tx: &mut mpsc::Sender<Reply>,
     sql_tx: &mut mpsc::Sender<Query>,
     channel: String,
@@ -55,14 +53,12 @@ pub async fn top_n(
     // TODO: do something about this
     let _ = match (high, low) {
         (Ok(h), Ok(l)) => send_simple_message(
-            msg_id,
             tx,
             channel,
             thread_ts,
             format!("<@{}>: {}: {}. {}: {}.", user, label.0, h, label.1, l),
         ).await,
         _ => send_simple_message(
-            msg_id,
             tx,
             channel,
             thread_ts,

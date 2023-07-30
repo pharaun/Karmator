@@ -1,6 +1,3 @@
-use slack_api as slack;
-use slack_api::requests::SlackWebRequestSender;
-
 use serde::Deserialize;
 
 use std::sync::Arc;
@@ -8,6 +5,8 @@ use std::sync::Arc;
 // TODO: look at some sort of lru or persist this to sqlite instead?
 use dashmap::DashMap;
 use std::clone::Clone;
+
+use crate::core::event::Message;
 
 
 // TODO: add settings, and have it or something peroidically query the database to load latest
@@ -34,24 +33,98 @@ pub struct Timezone {
     pub offset: i64,
 }
 
+#[derive(Deserialize, Debug)]
+struct Conn {
+    #[allow(dead_code)]
+    ok: bool,
+    url: String
+}
+
+#[derive(Deserialize, Debug)]
+struct UserWrap {
+    #[allow(dead_code)]
+    ok: bool,
+    user: JUser,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
+struct JUser {
+    name: String,
+    real_name: String,
+    is_bot: bool,
+    tz_label: String,
+    tz: String,
+    tz_offset: f32,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct ConversationHistoryResult {
+    ok: bool,
+    messages: Vec<ConversationHistoryMessage>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum ConversationHistoryMessage {
+    Message {
+        text: String,
+        #[serde(rename = "user")]
+        user_id: Option<String>,
+    },
+}
+
 
 impl Cache {
     pub fn new(token: &str) -> Cache {
-        // TODO: fix unwrap
-        let client = slack::default_client().unwrap();
-
         Cache {
             user_cache: Arc::new(DashMap::new()),
             slack_token: token.to_string(),
-            slack_client: client,
+            slack_client: reqwest::Client::new(),
         }
     }
 
-    pub async fn rtm_connect(&self) -> Result<String, String> {
-        let response = slack::rtm::connect(&self.slack_client, &self.slack_token).await.map_err(
-            |e| format!("control - {:?}", e)
+    pub async fn socket_connect(&self, debug: bool) -> Result<String, String> {
+        let url = get_slack_url_for_method("apps.connections.open");
+        let res = self.slack_client.post(url)
+            .header("Content-type", "application/x-www-form-urlencoded")
+            .header("Authorization", format!("Bearer {}", self.slack_token))
+            .send()
+            .await.map_err(
+                |x| format!("{:?}", x)
+            )?.text()
+            .await.map_err(
+                |x| format!("{:?}", x)
+            )?;
+
+        let conn = serde_json::from_str::<Conn>(
+            &res
+        ).map_err(
+            |x| format!("{:?}", x)
         )?;
-        response.url.ok_or(format!("Control - \tNo Ws url"))
+
+        println!("Socket Url: {:?}", conn);
+
+        Ok(if debug {
+            format!("{}&debug_reconnects=true", conn.url)
+        } else {
+            conn.url
+        })
+    }
+
+    pub async fn post_message(&self, message: Message) -> Result<reqwest::Response, String> {
+        let url = get_slack_url_for_method("chat.postMessage");
+        self.slack_client.post(url)
+            .header("Content-type", "application/json")
+            .header("Authorization", format!("Bearer {}", self.slack_token))
+            // TODO: remove the unwrap here
+            .body(serde_json::to_string(&message).unwrap())
+            .send()
+            .await.map_err(
+                |x| format!("{:?}", x)
+            )
     }
 
     pub async fn is_user_bot(&self, user_id: &str) -> Option<bool> {
@@ -79,41 +152,41 @@ impl Cache {
         match ud {
             Some(ud) => Some(ud.clone()),
             None     => {
-                let resp = slack::users::info(
-                    &self.slack_client,
-                    &self.slack_token,
-                    &slack::users::InfoRequest { user: &user_id }
-                ).await;
+                let url = get_slack_url_for_method("users.info");
+                let res = self.slack_client.get(url)
+                    .header("Content-type", "application/json")
+                    .header("Authorization", format!("Bearer {}", self.slack_token))
+                    .query(&vec![("user", &user_id)])
+                    .send()
+                    .await.map_err(
+                        |x| format!("{:?}", x)
+                    ).ok()?
+                    .text()
+                    .await.map_err(
+                        |x| format!("{:?}", x)
+                    ).ok()?;
 
-                let ud = resp.ok().map(
-                    |ui| ui.user
-                ).flatten().map(
-                    |ui| match (ui.name, ui.real_name, ui.is_bot, ui.tz_label, ui.tz, ui.tz_offset) {
-                        (Some(dn), Some(rn), Some(ib), Some(tl), Some(tz), Some(to)) => {
-                            let timezone = Timezone {
-                                label: tl,
-                                tz: tz,
-                                offset: to as i64,
-                            };
+                let user = serde_json::from_str::<UserWrap>(
+                    &res
+                ).map(
+                    |uw| uw.user
+                ).map_err(
+                    |x| format!("{:?}", x)
+                ).ok()?;
 
-                            Some(User {
-                                display_name: dn,
-                                real_name: rn,
-                                is_bot: ib,
-                                timezone: timezone,
-                            })
-                        },
-                        _ => None,
-                    }
-                ).flatten();
-
-                match ud {
-                    Some(ud) => {
-                        self.user_cache.insert(user_id.to_string(), ud.clone());
-                        Some(ud)
+                let user = User {
+                    display_name: user.name,
+                    real_name: user.real_name,
+                    is_bot: user.is_bot,
+                    timezone: Timezone {
+                        label: user.tz_label,
+                        tz: user.tz,
+                        offset: user.tz_offset as i64,
                     },
-                    _ => None,
-                }
+                };
+
+                self.user_cache.insert(user_id.to_string(), user.clone());
+                Some(user)
             },
         }
     }
@@ -121,44 +194,41 @@ impl Cache {
     // TODO: find a better location for this, this is an abuse of the cache
     pub async fn get_message(&self, channel_id: &str, message_ts: &str) -> Option<ConversationHistoryMessage> {
         let url = get_slack_url_for_method("conversations.history");
-
         let params = vec![
-            Some(("token", self.slack_token.clone())),
             Some(("channel", channel_id.to_string())),
             Some(("latest", message_ts.to_string())),
             Some(("inclusive", "true".to_string())),
             Some(("limit", "1".to_string())),
         ];
-        let params = params.into_iter().filter_map(|x| x).collect::<Vec<_>>();
+        let res = self.slack_client.get(url)
+            .header("Content-type", "application/json")
+            .header("Authorization", format!("Bearer {}", self.slack_token))
+            .query(&params)
+            .send()
+            .await.map_err(
+                |x| format!("{:?}", x)
+            ).ok()?
+            .text()
+            .await.map_err(
+                |x| format!("{:?}", x)
+            ).ok()?;
 
-        let res = &self.slack_client.send(
-            &url,
-            &params[..]
-        ).await.map_err(
+        let mess = serde_json::from_str::<ConversationHistoryResult>(
+            &res
+        ).map(
+            |mw| mw.messages
+        ).map_err(
             |x| format!("{:?}", x)
-        ).and_then(|result| {
-            serde_json::from_str::<ConversationHistoryResult>(
-                &result
-            ).or_else(
-                |x| Err(format!("{:?}", x))
-            )
-        });
+        ).ok()?;
 
-        let res = res.as_ref().map(|x| {
-            let messages = &x.messages;
-            if messages.len() != 1 {
-                Err(format!("Malformed messages: {:?}", messages))
-            } else {
-                messages.first().ok_or("Shouldn't happen".to_string())
-            }
-        });
+        let res = if mess.len() != 1 {
+            Err(format!("Malformed messages: {:?}", mess))
+        } else {
+            mess.first().ok_or("Shouldn't happen".to_string())
+        };
 
         match res {
-            Ok(Ok(msg)) => Some(msg.clone()),
-            Ok(Err(x))  => {
-                eprintln!("ERROR [Cache]: {}", x);
-                None
-            },
+            Ok(msg) => Some(msg.clone()),
             Err(x) => {
                 eprintln!("ERROR [Cache]: {}", x);
                 None
@@ -170,24 +240,4 @@ impl Cache {
 
 fn get_slack_url_for_method(method: &str) -> String {
     format!("https://slack.com/api/{}", method)
-}
-
-// This is for the cache message fetcher
-// TODO: upstream/find a better location for this
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct ConversationHistoryResult {
-    ok: bool,
-    messages: Vec<ConversationHistoryMessage>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-pub enum ConversationHistoryMessage {
-    Message {
-        text: String,
-        #[serde(rename = "user")]
-        user_id: Option<String>,
-    },
 }

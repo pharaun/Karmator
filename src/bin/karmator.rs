@@ -24,14 +24,14 @@ use karmator_rust::bot::user_event;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let filename = env::var("SQLITE_FILE").map_err(|_| "SQLITE_FILE env var must be set")?;
-    let token = env::var("SLACK_API_TOKEN").map_err(|_| "SLACK_API_TOKEN env var must be set")?;
+    let app_token = env::var("SLACK_APP_TOKEN").map_err(|_| "SLACK_APP_TOKEN env var must be set")?;
     let backup = env::var("SQLITE_BACKUP_DIR");
 
     // Uptime of program start
     let start_time: DateTime<Utc> = Utc::now();
 
     // System Cache manager
-    let cache = cache::Cache::new(&token);
+    let cache = cache::Cache::new(&app_token);
 
     // Shutdown Signal
     let (sql_shutdown_tx, signal) = signal::Signal::new();
@@ -93,14 +93,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     bot::default_event_loop(
         cache.clone(),
         signal,
-        |event, msg_id, tx| {
+        |event, tx| {
             let sql_tx2 = sql_tx.clone();
             let cache2 = cache.clone();
 
             tokio::spawn(async move {
                 // TODO: check result
                 let _ = user_event::process_user_message(
-                    msg_id,
                     event,
                     tx,
                     sql_tx2,

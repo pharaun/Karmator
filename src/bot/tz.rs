@@ -9,7 +9,6 @@ use chrono::Timelike;
 
 use crate::core::cache;
 
-use crate::core::event::MsgId;
 use crate::core::event::Reply;
 use crate::core::event::send_simple_message;
 
@@ -46,7 +45,6 @@ const TIME_FORMAT: &str = "%-l:%M%P";
 
 
 pub async fn timezone(
-    msg_id: MsgId,
     tx: &mut mpsc::Sender<Reply>,
     cache: &cache::Cache,
     channel_id: String,
@@ -59,7 +57,6 @@ pub async fn timezone(
         let utc_time: DateTime<Utc> = Utc::now();
 
         let _ = send_simple_message(
-            msg_id,
             tx,
             channel_id,
             thread_ts,
@@ -84,7 +81,6 @@ pub async fn timezone(
                     user_id,
                 );
                 let _ = send_simple_message(
-                    msg_id,
                     tx,
                     channel_id,
                     thread_ts,
@@ -95,7 +91,6 @@ pub async fn timezone(
                 match cache.get_user_tz(&user_id).await {
                     None => {
                         let _ = send_simple_message(
-                            msg_id,
                             tx,
                             channel_id,
                             thread_ts,
@@ -106,7 +101,6 @@ pub async fn timezone(
                         match user_tz.tz.parse() {
                             Err(_) => {
                                 let _ = send_simple_message(
-                                    msg_id,
                                     tx,
                                     channel_id,
                                     thread_ts,
@@ -121,7 +115,6 @@ pub async fn timezone(
                                 match convert_naive_time(nt, tz) {
                                     None => {
                                         let _ = send_simple_message(
-                                            msg_id,
                                             tx,
                                             channel_id,
                                             thread_ts,
@@ -130,7 +123,6 @@ pub async fn timezone(
                                     },
                                     Some(given_datetime_tz) => {
                                         let _ = send_simple_message(
-                                            msg_id,
                                             tx,
                                             channel_id,
                                             thread_ts,
@@ -151,7 +143,6 @@ pub async fn timezone(
                 match convert_naive_time(nt, tz_abbv.0) {
                     None => {
                         let _ = send_simple_message(
-                            msg_id,
                             tx,
                             channel_id,
                             thread_ts,
@@ -167,7 +158,6 @@ pub async fn timezone(
                             ),
                         };
                         let _ = send_simple_message(
-                            msg_id,
                             tx,
                             channel_id,
                             thread_ts,

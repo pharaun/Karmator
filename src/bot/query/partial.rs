@@ -10,13 +10,11 @@ use crate::core::database::DbResult;
 use crate::core::database::Query;
 use crate::core::database::send_query;
 
-use crate::core::event::MsgId;
 use crate::core::event::Reply;
 use crate::core::event::send_simple_message;
 
 
 pub async fn partial(
-    msg_id: MsgId,
     tx: &mut mpsc::Sender<Reply>,
     sql_tx: &mut mpsc::Sender<Query>,
     channel: String,
@@ -41,14 +39,12 @@ pub async fn partial(
     // TODO: do something here
     let _ = match res {
         Ok(x) => send_simple_message(
-            msg_id,
             tx,
             channel,
             thread_ts,
             format!("<@{}>: {}", user, x),
         ).await,
         _ => send_simple_message(
-            msg_id,
             tx,
             channel,
             thread_ts,

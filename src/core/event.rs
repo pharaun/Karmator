@@ -13,15 +13,9 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Instant;
 
-use chrono::prelude::Utc;
-
 use tokio::sync::mpsc;
 
 use crate::core::santizer;
-
-
-// Type alias for msg_id
-pub type MsgId = Arc<RelaxedCounter>;
 
 
 #[derive(Debug)]
@@ -51,7 +45,6 @@ pub enum UserEvent {
         thread_ts: Option<String>,
     },
 
-    // TODO: consider looking at slack_api for types to reuse here
     ReactionAdded {
         #[serde(rename = "user")]
         user_id: String,
@@ -136,22 +129,24 @@ struct ErrorDetail {
 }
 
 
-#[derive(Debug, Serialize)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug)]
 pub enum Reply {
-    Message {
-        id: usize,
-        channel: String,
-        text: String,
-        thread_ts: Option<String>,
-    },
-    Ping {
-        id: usize,
-        timestamp: i64,
-    },
-    #[serde(skip)]
+    Message(Message),
+
+    // Acknowledge reception of event
+    Acknowledge(String),
+
+    // Control
+    Ping(Vec<u8>),
     Pong(Vec<u8>),
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct Message {
+    channel: String,
+    text: String,
+    thread_ts: Option<String>,
 }
 
 
@@ -176,7 +171,6 @@ fn parse_event(s: String) -> Option<Event> {
 
 
 pub async fn send_simple_message(
-    msg_id: MsgId,
     tx: &mut mpsc::Sender<Reply>,
     channel: String,
     thread_ts: Option<String>,
@@ -189,17 +183,15 @@ pub async fn send_simple_message(
     // TODO: track if it got santized or not
     let text = santizer::santize_output(&text);
 
-    tx.send(Reply::Message {
-        id: msg_id.inc(),
+    tx.send(Reply::Message(Message {
         channel: channel,
         text: text,
         thread_ts: thread_ts
-    }).await.map_err(|_| "Error sending")
+    })).await.map_err(|_| "Error sending")
 }
 
 
 pub async fn send_slack_ping(
-    msg_id: MsgId,
     tx: &mut mpsc::Sender<Reply>,
     last_ping_sent: Arc<RwLock<Instant>>,
 ) -> Result<(), &'static str> {
@@ -207,10 +199,9 @@ pub async fn send_slack_ping(
         let mut timer = last_ping_sent.write().unwrap();
         *timer = Instant::now();
     }
-    tx.send(Reply::Ping {
-        id: msg_id.inc(),
-        timestamp: Utc::now().timestamp_millis(),
-    }).await.map_err(|_| "Error sending")
+    tx.send(
+        Reply::Ping(vec![])
+    ).await.map_err(|_| "Error sending")
 }
 
 

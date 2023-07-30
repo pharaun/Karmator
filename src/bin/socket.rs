@@ -1,27 +1,16 @@
-use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
 use tokio_tungstenite as tungstenite;
 use futures_util::{SinkExt, StreamExt};
 
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 
 use std::env;
-use std::path::Path;
 use std::result::Result;
-use std::thread;
-
-use chrono::prelude::{Utc, DateTime};
-
-use karmator_rust::core::database;
-use karmator_rust::core::cache;
-use karmator_rust::core::signal;
-use karmator_rust::core::bot;
-use karmator_rust::bot::user_event;
 
 #[derive(Deserialize, Debug)]
 struct Conn {
+    #[allow(dead_code)]
     ok: bool,
     url: String
 }
@@ -75,77 +64,88 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .header("Content-type", "application/x-www-form-urlencoded")
         .header("Authorization", format!("Bearer {}", app_token))
         .send()
-        .await?;
+        .await.map_err(
+            |x| format!("{:?}", x)
+        )?
+        .text()
+        .await.map_err(
+            |x| format!("{:?}", x)
+        )?;
 
-    if res.status().is_success() {
-        let conn = res.json::<Conn>().await?;
-        println!("body: {:?}", conn);
+    let conn = serde_json::from_str::<Conn>(
+        &res
+    ).map_err(
+        |x| format!("{:?}", x)
+    )?;
 
-        let (ws_stream, _) = tungstenite::connect_async(
-                format!("{}&debug_reconnects=true", conn.url)
-            ).await.map_err(|e| format!("Control - \t\t{:?}", e))?;
+    println!("body: {:?}", conn);
 
-        // Split the stream
-        let (mut ws_write, mut ws_read) = ws_stream.split();
+    let (ws_stream, _) = tungstenite::connect_async(
+            format!("{}&debug_reconnects=true", conn.url)
+        ).await.map_err(|e| format!("Control - \t\t{:?}", e))?;
 
-        // Message Tx/Rx from the message loop to the downstream handlers
-        let (tx, mut rx) = mpsc::channel(32);
 
-        loop {
-            tokio::select! {
-                ws_msg = ws_read.next() => {
-                    match ws_msg {
-                        Some(Ok(ws_msg)) => {
-                            println!("rcv - {:?}", ws_msg);
 
-                            let ue = process_control_message(
-                                tx.clone(),
-                                ws_msg,
-                            ).await;
 
-                            // If there's an user event returned spawn off the user event processor
-                            match ue {
-                                Ok(Some(event)) => {
-                                    println!("event -> {:?}", event);
-                                },
-                                Ok(None) => {
-                                    println!("UE is none");
-                                },
-                                Err(e) => {
-                                    println!("UE is err -> {:?}", e);
-                                },
-                            }
-                        },
 
-                        Some(Err(e)) => {
-                            println!("error - {:?}", e);
-                        },
 
-                        // Stream is done/closed
-                        None => {
-                            println!("Terminated by stream closing");
-                        },
-                    }
-                },
 
-                Some(message) = rx.recv() => {
-                    match ws_write.send(message.clone()).await {
-                        Ok(_) => {
-                            println!("send -> {:?}", message);
-                        },
-                        Err(e) => {
-                            eprintln!("SYSTEM [Slack RTM]: Connection error: {:?}", e);
-                        },
-                    }
-                },
-            }
+
+    // Split the stream
+    let (mut ws_write, mut ws_read) = ws_stream.split();
+
+    // Message Tx/Rx from the message loop to the downstream handlers
+    let (tx, mut rx) = mpsc::channel(32);
+
+    loop {
+        tokio::select! {
+            ws_msg = ws_read.next() => {
+                match ws_msg {
+                    Some(Ok(ws_msg)) => {
+                        println!("rcv - {:?}", ws_msg);
+
+                        let ue = process_control_message(
+                            tx.clone(),
+                            ws_msg,
+                        ).await;
+
+                        // If there's an user event returned spawn off the user event processor
+                        match ue {
+                            Ok(Some(event)) => {
+                                println!("event -> {:?}", event);
+                            },
+                            Ok(None) => {
+                                println!("UE is none");
+                            },
+                            Err(e) => {
+                                println!("UE is err -> {:?}", e);
+                            },
+                        }
+                    },
+
+                    Some(Err(e)) => {
+                        println!("error - {:?}", e);
+                    },
+
+                    // Stream is done/closed
+                    None => {
+                        println!("Terminated by stream closing");
+                    },
+                }
+            },
+
+            Some(message) = rx.recv() => {
+                match ws_write.send(message.clone()).await {
+                    Ok(_) => {
+                        println!("send -> {:?}", message);
+                    },
+                    Err(e) => {
+                        eprintln!("SYSTEM [Slack RTM]: Connection error: {:?}", e);
+                    },
+                }
+            },
         }
-
-    } else {
-        println!("Status: {:?}", res.status());
     }
-
-    Ok(())
 }
 
 
@@ -189,7 +189,7 @@ async fn process_control_message(
             println!("Disconnecting - {:?}", x);
             Ok(None)
         },
-        Ok(Ok(Event::EventsApi { envelope_id: ei, accepts_response_payload: p })) => {
+        Ok(Ok(Event::EventsApi { envelope_id: ei, accepts_response_payload: _ })) => {
             let ws_msg = json!({
                 "envelope_id": ei,
             }).to_string();

@@ -21,7 +21,6 @@ use crate::core::cache;
 use crate::core::command;
 use crate::core::database::Query;
 
-use crate::core::event::MsgId;
 use crate::core::event::ReactionItem;
 use crate::core::event::UserEvent;
 use crate::core::event::Reply;
@@ -29,7 +28,6 @@ use crate::core::event::send_simple_message;
 
 
 pub async fn process_user_message(
-    msg_id: MsgId,
     msg: UserEvent,
     mut tx: mpsc::Sender<Reply>,
     mut sql_tx: mpsc::Sender<Query>,
@@ -75,7 +73,6 @@ pub async fn process_user_message(
                     let sha = build_info::GIT_COMMIT_HASH.unwrap_or("Unknown");
 
                     let _ = send_simple_message(
-                        msg_id,
                         &mut tx,
                         channel_id,
                         thread_ts,
@@ -89,7 +86,6 @@ pub async fn process_user_message(
                         Duration::from_secs(3122064000));
 
                     let _ = send_simple_message(
-                        msg_id,
                         &mut tx,
                         channel_id,
                         thread_ts,
@@ -100,7 +96,6 @@ pub async fn process_user_message(
                 Ok(command::Command("help", _)) => {
                     let help = "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote !topkarma !topgivers !topsidevotes !tz";
                     let _ = send_simple_message(
-                        msg_id,
                         &mut tx,
                         channel_id,
                         thread_ts,
@@ -112,7 +107,6 @@ pub async fn process_user_message(
                     let github = "Github repo: https://github.com/pharaun/Karmator";
 
                     let _ = send_simple_message(
-                        msg_id,
                         &mut tx,
                         channel_id,
                         thread_ts,
@@ -122,7 +116,6 @@ pub async fn process_user_message(
 
                 Ok(command::Command("tz", arg)) => {
                     timezone(
-                        msg_id,
                         &mut tx,
                         &cache,
                         channel_id,
@@ -139,7 +132,6 @@ pub async fn process_user_message(
                     //      be cached
                     if arg.is_empty() {
                         top_n(
-                            msg_id,
                             &mut tx,
                             &mut sql_tx,
                             channel_id,
@@ -155,7 +147,6 @@ pub async fn process_user_message(
                         ).await;
                     } else {
                         partial(
-                            msg_id,
                             &mut tx,
                             &mut sql_tx,
                             channel_id,
@@ -170,7 +161,6 @@ pub async fn process_user_message(
                 Ok(command::Command("topkarma", arg)) => {
                     let mut err_tx = tx.clone();
                     let err_future = send_simple_message(
-                        msg_id.clone(),
                         &mut err_tx,
                         channel_id.clone(),
                         thread_ts.clone(),
@@ -188,7 +178,6 @@ pub async fn process_user_message(
                         match limit {
                             Ok(lim@1..=25) => {
                                 top_n(
-                                    msg_id,
                                     &mut tx,
                                     &mut sql_tx,
                                     channel_id,
@@ -213,7 +202,6 @@ pub async fn process_user_message(
                 Ok(command::Command("givers", arg)) => {
                     if arg.is_empty() {
                         top_n(
-                            msg_id,
                             &mut tx,
                             &mut sql_tx,
                             channel_id,
@@ -229,7 +217,6 @@ pub async fn process_user_message(
                         ).await;
                     } else {
                         partial(
-                            msg_id,
                             &mut tx,
                             &mut sql_tx,
                             channel_id,
@@ -244,7 +231,6 @@ pub async fn process_user_message(
                 Ok(command::Command("topgivers", arg)) => {
                     let mut err_tx = tx.clone();
                     let err_future = send_simple_message(
-                        msg_id.clone(),
                         &mut err_tx,
                         channel_id.clone(),
                         thread_ts.clone(),
@@ -262,7 +248,6 @@ pub async fn process_user_message(
                         match limit {
                             Ok(lim@1..=25) => {
                                 top_n(
-                                    msg_id,
                                     &mut tx,
                                     &mut sql_tx,
                                     channel_id,
@@ -287,7 +272,6 @@ pub async fn process_user_message(
                 Ok(command::Command("sidevotes", arg)) => {
                     if arg.is_empty() {
                         top_n(
-                            msg_id,
                             &mut tx,
                             &mut sql_tx,
                             channel_id,
@@ -303,7 +287,6 @@ pub async fn process_user_message(
                         ).await;
                     } else {
                         let _ = send_simple_message(
-                            msg_id,
                             &mut tx,
                             channel_id,
                             thread_ts,
@@ -315,7 +298,6 @@ pub async fn process_user_message(
                 Ok(command::Command("topsidevotes", arg)) => {
                     let mut err_tx = tx.clone();
                     let err_future = send_simple_message(
-                        msg_id.clone(),
                         &mut err_tx,
                         channel_id.clone(),
                         thread_ts.clone(),
@@ -333,7 +315,6 @@ pub async fn process_user_message(
                         match limit {
                             Ok(lim@1..=25) => {
                                 top_n(
-                                    msg_id,
                                     &mut tx,
                                     &mut sql_tx,
                                     channel_id,
@@ -363,7 +344,6 @@ pub async fn process_user_message(
                         match username {
                             Some(ud) => {
                                 ranking(
-                                    msg_id,
                                     &mut tx,
                                     &mut sql_tx,
                                     channel_id,
@@ -376,7 +356,6 @@ pub async fn process_user_message(
                             },
                             _ => {
                                 let _ = send_simple_message(
-                                    msg_id,
                                     &mut tx,
                                     channel_id,
                                     thread_ts,
@@ -389,7 +368,6 @@ pub async fn process_user_message(
                         let target = arg.get(0).unwrap_or(&"INVALID");
 
                         ranking(
-                            msg_id,
                             &mut tx,
                             &mut sql_tx,
                             channel_id,
@@ -401,7 +379,6 @@ pub async fn process_user_message(
                         ).await;
                     } else {
                         let _ = send_simple_message(
-                            msg_id,
                             &mut tx,
                             channel_id,
                             thread_ts,
@@ -418,7 +395,6 @@ pub async fn process_user_message(
                         match username {
                             Some(ud) => {
                                 ranking(
-                                    msg_id,
                                     &mut tx,
                                     &mut sql_tx,
                                     channel_id,
@@ -431,7 +407,6 @@ pub async fn process_user_message(
                             },
                             _ => {
                                 let _ = send_simple_message(
-                                    msg_id,
                                     &mut tx,
                                     channel_id,
                                     thread_ts,
@@ -444,7 +419,6 @@ pub async fn process_user_message(
                         let target = arg.get(0).unwrap_or(&"INVALID");
 
                         ranking(
-                            msg_id,
                             &mut tx,
                             &mut sql_tx,
                             channel_id,
@@ -456,7 +430,6 @@ pub async fn process_user_message(
                         ).await;
                     } else {
                         let _ = send_simple_message(
-                            msg_id,
                             &mut tx,
                             channel_id,
                             thread_ts,
