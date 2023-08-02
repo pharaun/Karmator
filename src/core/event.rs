@@ -69,7 +69,6 @@ pub enum UserEvent {
         ts: String,
         thread_ts: Option<String>,
     },
-
     ReactionAdded {
         #[serde(rename = "user")]
         user_id: String,
@@ -77,7 +76,6 @@ pub enum UserEvent {
         item_user: Option<String>,
         item: ReactionItem,
         event_ts: String,
-        ts: String,
     },
     ReactionRemoved {
         #[serde(rename = "user")]
@@ -86,7 +84,6 @@ pub enum UserEvent {
         item_user: Option<String>,
         item: ReactionItem,
         event_ts: String,
-        ts: String,
     },
 }
 
@@ -95,8 +92,8 @@ pub enum UserEvent {
 #[serde(rename_all = "snake_case")]
 pub enum ReactionItem {
     Message {
-        #[serde(rename = "channel")]
         // I think this is mandatory?
+        #[serde(rename = "channel")]
         channel_id: String,
         ts: String,
     },
@@ -138,7 +135,7 @@ fn parse_event(s: String) -> Option<Event> {
     );
 
     if res.is_err() {
-        println!("Error: {:?}", res);
+        println!("Error: {:?}\n{:?}\n", res, s);
     }
     res.ok()
 }
@@ -200,6 +197,11 @@ pub async fn process_control_message(
 
         tungstenite::Message::Ping(x) => {
             let _ = tx.send(Reply::Pong(x)).await;
+            None
+        },
+
+        // Reply from our heartbeat ping
+        tungstenite::Message::Pong(x) => {
             None
         },
 

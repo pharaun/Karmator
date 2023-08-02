@@ -432,7 +432,6 @@ pub async fn process_user_message(
                 ts,
             },
             event_ts: _,
-            ts: _,
         } => {
             let mut event = Event {
                 // Bot data
@@ -458,7 +457,6 @@ pub async fn process_user_message(
                 ts,
             },
             event_ts: _,
-            ts: _,
         } => {
             let mut event = Event {
                 // Bot data

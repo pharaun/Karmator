@@ -33,6 +33,7 @@ pub async fn add_reacji(
             );
 
             let message_id = match message_id {
+                Ok(message_id) => Ok(Some(message_id)),
                 Err(_) => match event.get_message().await {
                     Ok(message_user_id) => {
                         // We have the message content, insert it into the table and
@@ -55,21 +56,17 @@ pub async fn add_reacji(
                                     santized_text
                                 ).await
                             },
-                            e => Err(format!("ERROR: [User Event] Querying for user/name failed: {:?}", e)),
+                            e => Err(format!("ERROR: [Reacji] Querying for user/name failed: {:?}", e)),
                         }
                     },
-
-                    // This happens when there is no user_id (is none)
-                    // This shouldn't happen but .... slack....
-                    Err(_) => Ok(None),
+                    e => Err(format!("ERROR: [Reacji] Querying for message failed: {:?}", e)),
                 },
-                e => Err(format!("ERROR: [User Event] IDK here: {:?}", e)),
             };
 
             match message_id {
                 Err(e) => {
-                    eprintln!("ERROR: [User Event] Wasn't able to get/store an reactji message, vote isn't recorded");
-                    eprintln!("ERROR: [User Event] Returned error: {:?}", e);
+                    eprintln!("ERROR: [Reacji] Wasn't able to get/store an reactji message, vote isn't recorded");
+                    eprintln!("ERROR: [Reacji] Returned error: {:?}", e);
                 },
                 Ok(None) => (), // These are expected error, drop
                 Ok(Some(mid)) => {
@@ -90,10 +87,10 @@ pub async fn add_reacji(
                             ).await;
 
                             if e.is_err() {
-                                eprintln!("ERROR: [User Event] Query failed: {:?}", e);
+                                eprintln!("ERROR: [Reacji] Query failed: {:?}", e);
                             }
                         },
-                        e => eprintln!("ERROR: [User Event] Querying for user/name failed: {:?}", e),
+                        e => eprintln!("ERROR: [Reacji] Querying for user/name failed: {:?}", e),
                     }
                 },
             }

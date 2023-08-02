@@ -25,13 +25,14 @@ use karmator_rust::bot::user_event;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let filename = env::var("SQLITE_FILE").map_err(|_| "SQLITE_FILE env var must be set")?;
     let app_token = env::var("SLACK_APP_TOKEN").map_err(|_| "SLACK_APP_TOKEN env var must be set")?;
+    let bot_token = env::var("SLACK_BOT_TOKEN").map_err(|_| "SLACK_BOT_TOKEN env var must be set")?;
     let backup = env::var("SQLITE_BACKUP_DIR");
 
     // Uptime of program start
     let start_time: DateTime<Utc> = Utc::now();
 
     // System Cache manager
-    let cache = cache::Cache::new(&app_token);
+    let cache = cache::Cache::new(&app_token, &bot_token);
 
     // Shutdown Signal
     let (sql_shutdown_tx, signal) = signal::Signal::new();

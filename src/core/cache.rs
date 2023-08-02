@@ -14,7 +14,8 @@ use crate::core::event::Message;
 #[derive(Clone)]
 pub struct Cache {
     user_cache: Arc<DashMap<String, User>>,
-    slack_token: String,
+    app_token: String,
+    bot_token: String,
     slack_client: reqwest::Client,
 }
 
@@ -78,10 +79,11 @@ pub enum ConversationHistoryMessage {
 
 
 impl Cache {
-    pub fn new(token: &str) -> Cache {
+    pub fn new(app_token: &str, bot_token: &str) -> Cache {
         Cache {
             user_cache: Arc::new(DashMap::new()),
-            slack_token: token.to_string(),
+            app_token: app_token.to_string(),
+            bot_token: bot_token.to_string(),
             slack_client: reqwest::Client::new(),
         }
     }
@@ -90,7 +92,7 @@ impl Cache {
         let url = get_slack_url_for_method("apps.connections.open");
         let res = self.slack_client.post(url)
             .header("Content-type", "application/x-www-form-urlencoded")
-            .header("Authorization", format!("Bearer {}", self.slack_token))
+            .header("Authorization", format!("Bearer {}", self.app_token))
             .send()
             .await.map_err(
                 |x| format!("{:?}", x)
@@ -118,7 +120,7 @@ impl Cache {
         let url = get_slack_url_for_method("chat.postMessage");
         self.slack_client.post(url)
             .header("Content-type", "application/json")
-            .header("Authorization", format!("Bearer {}", self.slack_token))
+            .header("Authorization", format!("Bearer {}", self.bot_token))
             // TODO: remove the unwrap here
             .body(serde_json::to_string(&message).unwrap())
             .send()
@@ -155,7 +157,7 @@ impl Cache {
                 let url = get_slack_url_for_method("users.info");
                 let res = self.slack_client.get(url)
                     .header("Content-type", "application/json")
-                    .header("Authorization", format!("Bearer {}", self.slack_token))
+                    .header("Authorization", format!("Bearer {}", self.bot_token))
                     .query(&vec![("user", &user_id)])
                     .send()
                     .await.map_err(
@@ -202,7 +204,7 @@ impl Cache {
         ];
         let res = self.slack_client.get(url)
             .header("Content-type", "application/json")
-            .header("Authorization", format!("Bearer {}", self.slack_token))
+            .header("Authorization", format!("Bearer {}", self.bot_token))
             .query(&params)
             .send()
             .await.map_err(
