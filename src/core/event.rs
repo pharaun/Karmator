@@ -228,10 +228,12 @@ pub async fn process_control_message(
 
                 Ok(None)
             },
-            Event::Disconnect {reason: _} => {
+            Event::Disconnect {reason: r} => {
                 // When this is recieved, reconnect
                 reconnect.store(true, Ordering::Relaxed);
                 can_send.store(false, Ordering::Relaxed);
+
+                println!("System [Event]: Disconnect - Reason: {:?}", r);
 
                 Ok(None)
             },

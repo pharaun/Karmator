@@ -26,6 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let filename = env::var("SQLITE_FILE").map_err(|_| "SQLITE_FILE env var must be set")?;
     let app_token = env::var("SLACK_APP_TOKEN").map_err(|_| "SLACK_APP_TOKEN env var must be set")?;
     let bot_token = env::var("SLACK_BOT_TOKEN").map_err(|_| "SLACK_BOT_TOKEN env var must be set")?;
+    // TODO: when SLACK_API_TOKEN pass in (maybe) have this version of bot go into a special mode
+    // which then squlech all public interaction and have it dump old channel info and join the
+    // channels
     let backup = env::var("SQLITE_BACKUP_DIR");
 
     // Uptime of program start

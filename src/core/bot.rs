@@ -64,7 +64,7 @@ where
     // Main server loop, exit if the database dies
     while !signal.should_shutdown() {
         // Work to establish the WS connection
-        let ws_url = cache.socket_connect(true).await?;
+        let ws_url = cache.socket_connect(false).await?;
 
         let (ws_stream, _) = connect_async(ws_url).await.map_err(|e| format!("Control - \t\t{:?}", e))?;
         println!("SYSTEM [Slack Socket]: Websocket connection established");
