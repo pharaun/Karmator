@@ -5,3 +5,6 @@ mod tz;
 
 // TODO: public for fuzz testing
 pub mod parser;
+
+// Migration
+pub mod migration;

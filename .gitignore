@@ -5,3 +5,4 @@ fuzz/artifacts
 fuzz/corpus
 fuzz/target
 target
+test.env
