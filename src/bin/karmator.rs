@@ -46,6 +46,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let migration = migration::Migration::new(&legacy_api_token);
 
+            // Invoke and print result for testing this api out
+            let conv = migration.get_channels(
+                10,
+                vec![],
+                None,
+            ).await;
+
+            println!("DEBUG:\n {:?}", conv);
+
+            // Only join if:
+            //  is_member: true, is_channel: true, is_private: true/false, is_archived: false
+            // TODO:
+            //  - Do the pagination process, and process it block by block.
+            //  - filter out non-desired channels
+            //  - Check (for crash robustness) if already joined or not (reconcilation somehow)
+            //  - Join and confirm join
+
             return Ok(());
         },
         Err(_) => (),
