@@ -80,14 +80,14 @@ fn main() {
         Some(("runs", m))  => {
             let filename = m.get_one::<String>("FILE").unwrap();
             let min = m.get_one::<u32>("min").unwrap();
-            let delete = m.contains_id("delete");
+            let delete = m.get_flag("delete");
 
             run(filename, *min, delete)
         },
         Some(("prune", m)) => {
             let directory = m.get_one::<String>("BACKUPS").unwrap();
-            let delete = m.contains_id("delete");
-            let skip = m.contains_id("skip");
+            let delete = m.get_flag("delete");
+            let skip = m.get_flag("skip");
 
             prune(directory, delete, skip)
         }
