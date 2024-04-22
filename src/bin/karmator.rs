@@ -62,6 +62,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             //  - filter out non-desired channels
             //  - Check (for crash robustness) if already joined or not (reconcilation somehow)
             //  - Join and confirm join
+            //
+            // Implementation:
+            //  - 20 request a minute, set it to like 10 request a minute at say 200 channel a time
+            //  - one request, get a list of channel
+            //  - send list of channel to database to see which one already has been joined
+            //      (or a memory cache)
+            //  - get a list of channel to join,
+            //  - 50 request a minute (for channel join, set it to like 20? join a minute
+            //  - upon successful join, record to database the join for future run.
+            //  - Print some sort of stats like when we hit 0 new joins after a while, turn off
+            //      old bot and let this one run in background + serve new content
+            //  - after old bot is shut off and anything in background that invites it, remove this
 
             return Ok(());
         },
