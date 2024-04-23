@@ -2,6 +2,7 @@ use serde::Deserialize;
 
 #[derive(Clone)]
 pub struct Migration {
+    modern_bot_token: String,
     legacy_app_token: String,
     slack_client: reqwest::Client,
 }
@@ -11,62 +12,134 @@ pub struct Migration {
 struct ChannelsWrap {
     ok: bool,
     channels: Vec<Channel>,
+    response_metadata: Option<ResponseMetadata>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct ChannelWrap {
+    ok: bool,
+    channel: Channel,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct ResponseMetadata {
+    // If "" then is done.
+    next_cursor: Option<String>
 }
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct Channel {
-    id: String,
-    name: String,
+    pub id: String,
+    pub name: String,
 
     // Flags
-    is_member: bool,
-    is_private: bool,
-    is_channel: bool,
-    is_archived: bool,
+    pub is_member: bool,
+    pub is_private: bool,
+    pub is_channel: bool,
+    pub is_archived: bool,
+}
+
+#[derive(Debug)]
+pub struct ChannelsResult {
+    pub channels: Vec<Channel>,
+    pub next_cursor: Option<String>
 }
 
 impl Migration {
-    pub fn new(legacy_app_token: &str) -> Migration {
+    pub fn new(modern_bot_token: &str, legacy_app_token: &str) -> Migration {
         Migration {
+            modern_bot_token: modern_bot_token.to_string(),
             legacy_app_token: legacy_app_token.to_string(),
             slack_client: reqwest::Client::new(),
         }
     }
 
+    // Query legacy bot token
     pub async fn get_channels(
         &self,
         limit: u16,
         // public_channel, private_channel, mpim, im
-        types: Vec<String>,
+        types: Vec<&str>,
         // Pagnation
         cursor: Option<String>
-    ) -> Option<Vec<Channel>> {
+    ) -> Result<ChannelsResult, String> {
         let url = get_slack_url_for_method("conversations.list");
+
+        let mut query = vec![
+            ("limit", limit.to_string()),
+            ("exclude_archived", "true".to_string()),
+            ("types", types.join(","))
+        ];
+        match cursor {
+            Some(c) => query.push(("cursor", c)),
+            None => (),
+        }
+
         let res = self.slack_client.get(url)
             .header("Content-type", "application/json")
             .header("Authorization", format!("Bearer {}", self.legacy_app_token))
-            .query(&vec![("limit", "10"), ("exclude_archived", "true")])
+            .query(&query)
             .send()
             .await.map_err(
-                |x| format!("{:?}", x)
-            ).ok()?
+                |x| format!("err1: {:?}", x)
+            )?
             .text()
             .await.map_err(
-                |x| format!("{:?}", x)
-            ).ok()?;
+                |x| format!("err2: {:?}", x)
+            )?;
 
-        println!("DEBUG: {:?}", res);
-
-        let channels = serde_json::from_str::<ChannelsWrap>(
+        let channels_wrap = serde_json::from_str::<ChannelsWrap>(
             &res
-        ).map(
-            |cw| cw.channels
         ).map_err(
-            |x| format!("{:?}", x)
-        ).ok()?;
+            |x| format!("err3: {:?}", x)
+        )?;
 
-        Some(channels)
+        match channels_wrap.response_metadata {
+            Some(ResponseMetadata {
+                next_cursor: Some(nc)
+            }) if !nc.is_empty() => Ok(ChannelsResult {
+                channels: channels_wrap.channels,
+                next_cursor: Some(nc)
+            }),
+            _ => Ok(ChannelsResult {
+                channels: channels_wrap.channels,
+                next_cursor: None
+            })
+        }
+    }
+
+    // Query Modern bot token
+    pub async fn get_channel_info(
+        &self,
+        channel: &str,
+    ) -> Result<Channel, String> {
+        let url = get_slack_url_for_method("conversations.info");
+
+        let res = self.slack_client.get(url)
+            .header("Content-type", "application/json")
+            .header("Authorization", format!("Bearer {}", self.modern_bot_token))
+            .query(&vec![("channel", channel)])
+            .send()
+            .await.map_err(
+                |x| format!("err1: {:?}", x)
+            )?
+            .text()
+            .await.map_err(
+                |x| format!("err2: {:?}", x)
+            )?;
+
+        println!("DEBUG: {:?}", &res);
+
+        let channel_wrap = serde_json::from_str::<ChannelWrap>(
+            &res
+        ).map_err(
+            |x| format!("err3: {:?}", x)
+        )?;
+
+        Ok(channel_wrap.channel)
     }
 }
 

@@ -1,4 +1,5 @@
 use tokio::sync::mpsc;
+use tokio::time::{sleep, Duration};
 use tokio_stream::wrappers::ReceiverStream;
 
 use std::env;
@@ -44,16 +45,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             println!("INFO [Legacy Mode]: because SLACK_API_TOKEN was set, entering legacy mode");
 
-            let migration = migration::Migration::new(&legacy_api_token);
+            let migration = migration::Migration::new(&bot_token, &legacy_api_token);
 
             // Invoke and print result for testing this api out
             let conv = migration.get_channels(
                 10,
-                vec![],
+                vec!["public_channel"],
                 None,
             ).await;
 
             println!("DEBUG:\n {:?}", conv);
+            sleep(Duration::from_secs(1)).await;
+
+            // Fetch first channel info on modern bot to see its membership
+            let chan_id = conv.unwrap().channels.first().unwrap().id.clone();
+            println!("Chan-id: {:?}", chan_id);
+
+            let info = migration.get_channel_info(&chan_id).await;
+
+            println!("INFO:\n {:?}", info);
+            sleep(Duration::from_secs(1)).await;
 
             // Only join if:
             //  is_member: true, is_channel: true, is_private: true/false, is_archived: false
