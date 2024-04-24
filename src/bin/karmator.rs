@@ -190,32 +190,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 },
                 "join" => {
-                    // TODO:
-                    //  - Check (for crash robustness) if already joined or not (reconcilation somehow)
-                    //  - Join and confirm join
-                    //
-                    // Implementation:
-                    //  - 20 request a minute, set it to like 10 request a minute at say 200 channel a time
-                    //  - one request, get a list of channel
-                    //  - send list of channel to database to see which one already has been joined
-                    //      (or a memory cache)
-                    //  - get a list of channel to join,
-                    //  - 50 request a minute (for channel join, set it to like 20? join a minute
-                    //  - upon successful join, record to database the join for future run.
-                    //  - Print some sort of stats like when we hit 0 new joins after a while, turn off
-                    //      old bot and let this one run in background + serve new content
-                    //  - after old bot is shut off and anything in background that invites it, remove this
+                    let mut sql_tx2 = sql_tx.clone();
+                    let channel_ids = migration::get_all_channel_ids(
+                        &mut sql_tx2
+                    ).await.expect("channel_ids");
 
-                    //// Fetch channel info on modern api to see its membership
-                    //let chan_id = conv.channels.first().unwrap().id.clone();
-                    //println!("Chan-id: {:?}", chan_id);
+                    let channels_len = channel_ids.len();
+                    let mut join_tally: u64 = 0;
+                    let mut fail_tally: u64 = 0;
 
-                    //let info = migration.get_channel_info(&chan_id, false).await;
-                    //println!("modern - conv.info - {:?}", info);
+                    for (channel_id, outcome) in channel_ids {
+                        if outcome != 0 {
+                            // Skipping this one
+                            continue;
+                        }
 
-                    //sleep(Duration::from_secs(1)).await;
+                        // Let's actually join, wait a bit, then query if it actually joined
+                        let info = migration.join_channel(&channel_id, false).await.expect("join_channel");
 
-                    //// TODO: sql nonsense to reconcile things
+                        let new_outcome = match info.is_member {
+                            Some(true) => {
+                                join_tally += 1;
+                                1 // migrated
+                            },
+                            _ => {
+                                fail_tally += 1;
+                                200 //Failure
+                            },
+                        };
+
+                        // Need to update outcome
+                        let mut sql_tx3 = sql_tx.clone();
+                        migration::update_channel(
+                            &mut sql_tx3,
+                            channel_id,
+                            new_outcome
+                        ).await;
+
+                        println!(
+                            "INFO [Legacy Mode]: join-tally: {:?} fail-tally: {:?} total: {:?}",
+                            join_tally, fail_tally, channels_len
+                        );
+
+                        // So that we rate limit ourself
+                        sleep(Duration::from_secs(2)).await;
+                    }
                 },
                 x => {
                     println!("ERROR [Legacy Mode]: unknown state: {:?}", x);

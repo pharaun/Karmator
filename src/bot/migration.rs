@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use rusqlite as rs;
 use serde::Deserialize;
 
@@ -138,6 +140,40 @@ impl Migration {
             .header("Content-type", "application/json")
             .header("Authorization", format!("Bearer {}", token))
             .query(&vec![("channel", channel)])
+            .send()
+            .await.map_err(
+                |x| format!("err1: {:?}", x)
+            )?
+            .text()
+            .await.map_err(
+                |x| format!("err2: {:?}", x)
+            )?;
+
+        let channel_wrap = serde_json::from_str::<ChannelWrap>(
+            &res
+        ).map_err(
+            |x| format!("err3: {:?}", x)
+        )?;
+
+        Ok(channel_wrap.channel)
+    }
+
+    // Query Modern bot token
+    pub async fn join_channel(
+        &self,
+        channel: &str,
+        legacy: bool
+    ) -> Result<Channel, String> {
+        let url = get_slack_url_for_method("conversations.join");
+        let token = if legacy { &self.legacy_app_token } else { &self.modern_bot_token };
+
+        let mut map = HashMap::new();
+        map.insert("channel", channel);
+
+        let res = self.slack_client.post(url)
+            .header("Content-type", "application/json")
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&map)
             .send()
             .await.map_err(
                 |x| format!("err1: {:?}", x)
