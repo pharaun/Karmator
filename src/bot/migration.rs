@@ -147,8 +147,6 @@ impl Migration {
                 |x| format!("err2: {:?}", x)
             )?;
 
-        //println!("DEBUG: {:?}", &res);
-
         let channel_wrap = serde_json::from_str::<ChannelWrap>(
             &res
         ).map_err(
@@ -201,6 +199,27 @@ pub async fn upsert_channel(
             Ok(())
         })
     ).await;
+}
+
+pub async fn get_all_channel_ids(
+    sql_tx: &mut mpsc::Sender<Query>,
+) -> DbResult<Vec<(String, u16)>> {
+    send_query(
+        sql_tx,
+        Box::new(move |conn: &mut rs::Connection| {
+            let mut stmt = conn.prepare("SELECT channel_id, outcome FROM chan_status")?;
+            let mut rows = stmt.query([])?;
+
+            let mut ret: Vec<(String, u16)> = vec![];
+            while let Ok(Some(row)) = rows.next() {
+                let id: String = row.get(0)?;
+                let outcome: u16 = row.get(1)?;
+
+                ret.push((id, outcome));
+            }
+            Ok(ret)
+        })
+    ).await
 }
 
 fn get_slack_url_for_method(method: &str) -> String {

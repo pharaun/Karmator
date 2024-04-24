@@ -131,6 +131,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         sleep(Duration::from_secs(10)).await;
                     }
                 },
+                "validate" => {
+                    // Scan through the list of channels and validate their status
+                    //  - set migration done if already member of a channel
+                    //  - if is not member of a channel, reset it to todo
+                    let mut sql_tx2 = sql_tx.clone();
+                    let channel_ids = migration::get_all_channel_ids(
+                        &mut sql_tx2
+                    ).await.expect("channel_ids");
+
+                    let channels_len = channel_ids.len();
+                    let mut tally: u64 = 0;
+
+                    for (channel_id, outcome) in channel_ids {
+                        let info = migration.get_channel_info(&channel_id, false).await.expect("get_channel_info");
+
+                        match info.is_member {
+                            Some(false) => {
+                                // Need to join so check if outcome is correct or not.
+                                // if its failed, then print out the channel id
+                                if outcome != 0 && outcome != 1 {
+                                    println!("Channel: {:?} - failed: {:?}", channel_id, outcome);
+                                    break;
+                                } else {
+                                    // Need to update outcome
+                                    let mut sql_tx3 = sql_tx.clone();
+                                    migration::update_channel(
+                                        &mut sql_tx3,
+                                        channel_id,
+                                        0 // TO-DO
+                                    ).await;
+                                }
+                            },
+                            Some(true) => {
+                                // Need to update outcome
+                                let mut sql_tx3 = sql_tx.clone();
+                                migration::update_channel(
+                                    &mut sql_tx3,
+                                    channel_id,
+                                    1 // Done/Confirmed
+                                ).await;
+                            },
+                            None => {
+                                // Unexpected
+                                println!("ERROR: unexpected None from channel_info");
+                                break;
+                            }
+                        }
+
+                        tally += 1;
+                        println!(
+                            "INFO [Legacy Mode]: Tally: {:?}/{:?}",
+                            tally, channels_len
+                        );
+
+                        // So that we rate limit ourself
+                        sleep(Duration::from_secs(2)).await;
+                    }
+                },
                 "join" => {
                     // TODO:
                     //  - Check (for crash robustness) if already joined or not (reconcilation somehow)
