@@ -146,6 +146,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for (channel_id, outcome) in channel_ids {
                         let info = migration.get_channel_info(&channel_id, false).await.expect("get_channel_info");
 
+                        if info.is_archived {
+                            println!("CHANNEL ARCHIVED - {:?}", &info.name);
+
+                            let mut sql_tx3 = sql_tx.clone();
+                            migration::delete_channel(
+                                &mut sql_tx3,
+                                channel_id.clone(),
+                            ).await;
+                        }
+
                         match info.is_member {
                             Some(false) => {
                                 // Need to join so check if outcome is correct or not.
@@ -196,11 +206,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ).await.expect("channel_ids");
 
                     let channels_len = channel_ids.len();
+                    let mut skip_tally: u64 = 0;
                     let mut join_tally: u64 = 0;
                     let mut fail_tally: u64 = 0;
 
                     for (channel_id, outcome) in channel_ids {
                         if outcome != 0 {
+                            skip_tally += 1;
                             // Skipping this one
                             continue;
                         }
@@ -228,8 +240,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ).await;
 
                         println!(
-                            "INFO [Legacy Mode]: join-tally: {:?} fail-tally: {:?} total: {:?}",
-                            join_tally, fail_tally, channels_len
+                            "INFO [Legacy Mode]: skip-tally: {:?} join-tally: {:?} fail-tally: {:?} total: {:?}",
+                            skip_tally, join_tally, fail_tally, channels_len
                         );
 
                         // So that we rate limit ourself

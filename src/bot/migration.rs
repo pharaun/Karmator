@@ -258,6 +258,20 @@ pub async fn get_all_channel_ids(
     ).await
 }
 
+pub async fn delete_channel(
+    sql_tx: &mut mpsc::Sender<Query>,
+    channel_id: String,
+) {
+    let _ = send_query(
+        sql_tx,
+        Box::new(move |conn: &mut rs::Connection| {
+            let mut stmt = conn.prepare("DELETE FROM chan_status WHERE channel_id = ?")?;
+            stmt.execute(rs::params![channel_id])?;
+            Ok(())
+        })
+    ).await;
+}
+
 fn get_slack_url_for_method(method: &str) -> String {
     format!("https://slack.com/api/{}", method)
 }
