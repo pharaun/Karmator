@@ -79,24 +79,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("INFO [Legacy Mode]: SLACK_STATE set to {:?}", state);
 
             let migration = migration::Migration::new(&bot_token, &legacy_api_token);
-            // TODO:
-            //  - Do the pagination process, and process it block by block.
-            //  - filter out non-desired channels
-            //  - Check (for crash robustness) if already joined or not (reconcilation somehow)
-            //  - Join and confirm join
-            //
-            // Implementation:
-            //  - 20 request a minute, set it to like 10 request a minute at say 200 channel a time
-            //  - one request, get a list of channel
-            //  - send list of channel to database to see which one already has been joined
-            //      (or a memory cache)
-            //  - get a list of channel to join,
-            //  - 50 request a minute (for channel join, set it to like 20? join a minute
-            //  - upon successful join, record to database the join for future run.
-            //  - Print some sort of stats like when we hit 0 new joins after a while, turn off
-            //      old bot and let this one run in background + serve new content
-            //  - after old bot is shut off and anything in background that invites it, remove this
-
 
             // There is a few state to be in
             // list - fetch all channel and compare/update the sql db table
@@ -111,6 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             100,
                             vec!["public_channel"],
                             next_cursor,
+                            true,
                             true
                         ).await.expect("list-query");
                         next_cursor = conv.next_cursor;
@@ -120,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         for channel in conv.channels {
                             // Only join if:
                             //  is_member: true, is_channel: true, is_private: true/false, is_archived: false
-                            if channel.is_member == true &&
+                            if (channel.is_member == Some(true) || channel.is_member == None) &&
                                 channel.is_channel == true &&
                                 channel.is_archived == false {
 
@@ -149,6 +132,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 },
                 "join" => {
+                    // TODO:
+                    //  - Check (for crash robustness) if already joined or not (reconcilation somehow)
+                    //  - Join and confirm join
+                    //
+                    // Implementation:
+                    //  - 20 request a minute, set it to like 10 request a minute at say 200 channel a time
+                    //  - one request, get a list of channel
+                    //  - send list of channel to database to see which one already has been joined
+                    //      (or a memory cache)
+                    //  - get a list of channel to join,
+                    //  - 50 request a minute (for channel join, set it to like 20? join a minute
+                    //  - upon successful join, record to database the join for future run.
+                    //  - Print some sort of stats like when we hit 0 new joins after a while, turn off
+                    //      old bot and let this one run in background + serve new content
+                    //  - after old bot is shut off and anything in background that invites it, remove this
+
                     //// Fetch channel info on modern api to see its membership
                     //let chan_id = conv.channels.first().unwrap().id.clone();
                     //println!("Chan-id: {:?}", chan_id);

@@ -44,7 +44,7 @@ pub struct Channel {
     pub name: String,
 
     // Flags
-    pub is_member: bool,
+    pub is_member: Option<bool>,
     pub is_private: bool,
     pub is_channel: bool,
     pub is_archived: bool,
@@ -73,9 +73,14 @@ impl Migration {
         types: Vec<&str>,
         // Pagnation
         cursor: Option<String>,
-        legacy: bool
+        legacy: bool,
+        users: bool
     ) -> Result<ChannelsResult, String> {
-        let url = get_slack_url_for_method("conversations.list");
+        let url = if users {
+            get_slack_url_for_method("users.conversations")
+        } else {
+            get_slack_url_for_method("conversations.list")
+        };
 
         let mut query = vec![
             ("limit", limit.to_string()),
