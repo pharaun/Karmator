@@ -1,4 +1,12 @@
+use rusqlite as rs;
 use serde::Deserialize;
+
+use tokio::sync::mpsc;
+
+use crate::core::database::DbResult;
+use crate::core::database::Query;
+use crate::core::database::send_query;
+
 
 #[derive(Clone)]
 pub struct Migration {
@@ -64,7 +72,8 @@ impl Migration {
         // public_channel, private_channel, mpim, im
         types: Vec<&str>,
         // Pagnation
-        cursor: Option<String>
+        cursor: Option<String>,
+        legacy: bool
     ) -> Result<ChannelsResult, String> {
         let url = get_slack_url_for_method("conversations.list");
 
@@ -78,9 +87,10 @@ impl Migration {
             None => (),
         }
 
+        let token = if legacy { &self.legacy_app_token } else { &self.modern_bot_token };
         let res = self.slack_client.get(url)
             .header("Content-type", "application/json")
-            .header("Authorization", format!("Bearer {}", self.legacy_app_token))
+            .header("Authorization", format!("Bearer {}", token))
             .query(&query)
             .send()
             .await.map_err(
@@ -115,12 +125,13 @@ impl Migration {
     pub async fn get_channel_info(
         &self,
         channel: &str,
+        legacy: bool
     ) -> Result<Channel, String> {
         let url = get_slack_url_for_method("conversations.info");
-
+        let token = if legacy { &self.legacy_app_token } else { &self.modern_bot_token };
         let res = self.slack_client.get(url)
             .header("Content-type", "application/json")
-            .header("Authorization", format!("Bearer {}", self.modern_bot_token))
+            .header("Authorization", format!("Bearer {}", token))
             .query(&vec![("channel", channel)])
             .send()
             .await.map_err(
@@ -131,7 +142,7 @@ impl Migration {
                 |x| format!("err2: {:?}", x)
             )?;
 
-        println!("DEBUG: {:?}", &res);
+        //println!("DEBUG: {:?}", &res);
 
         let channel_wrap = serde_json::from_str::<ChannelWrap>(
             &res
@@ -143,6 +154,49 @@ impl Migration {
     }
 }
 
+//	/* Outcome
+//	 * 0 = To-do
+//	 * 1 = Done/confirmed
+//	 * 2?? = Failed
+//	 * 	00 = Generic Failure
+//	 */
+//	outcome INTEGER NOT NULL,
+pub async fn update_channel(
+    sql_tx: &mut mpsc::Sender<Query>,
+    channel_id: String,
+    outcome: u16,
+) {
+    let _ = send_query(
+        sql_tx,
+        Box::new(move |conn: &mut rs::Connection| {
+            let mut stmt = conn.prepare("UPDATE chan_status SET outcome = ? WHERE channel_id = ?")?;
+            stmt.execute(rs::params![outcome, channel_id])?;
+            Ok(())
+        })
+    ).await;
+}
+
+pub async fn upsert_channel(
+    sql_tx: &mut mpsc::Sender<Query>,
+    channel_id: String,
+    channel_name: String,
+) {
+    let _ = send_query(
+        sql_tx,
+        Box::new(move |conn: &mut rs::Connection| {
+            let mut stmt = conn.prepare("SELECT id FROM chan_status WHERE channel_id = ?")?;
+            let mut rows = stmt.query(rs::params![channel_id])?;
+
+            if let Ok(None) = rows.next() {
+                let mut stmt = conn.prepare(
+                    "INSERT INTO chan_status (channel_id, channel_name, outcome) VALUES (?, ?, ?)"
+                )?;
+                stmt.insert(rs::params![channel_id, channel_name, 0])?;
+            }
+            Ok(())
+        })
+    ).await;
+}
 
 fn get_slack_url_for_method(method: &str) -> String {
     format!("https://slack.com/api/{}", method)
