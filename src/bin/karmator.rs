@@ -257,34 +257,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         env::var("SLACK_NEW_BOT_USER_ID").expect("SLACK_NEW_BOT_USER_ID")
                     );
 
-                    // TEST
-                    migration.post_message(
-                        "test-channel-id",
-                        &instruction,
-                        true
-                    ).await;
+                    loop {
+                        let conv = migration.get_channels(
+                            100,
+                            vec!["private_channel"],
+                            next_cursor,
+                            true,
+                            true
+                        ).await.expect("list-query");
+                        next_cursor = conv.next_cursor;
 
-//                    loop {
-//                        let conv = migration.get_channels(
-//                            100,
-//                            vec!["private_channel"],
-//                            next_cursor,
-//                            true,
-//                            true
-//                        ).await.expect("list-query");
-//                        next_cursor = conv.next_cursor;
-//
-//                        for channel in conv.channels {
-//                            println!("Name: {:?}", channel.name);
-//                        }
-//
-//                        if next_cursor.is_none() {
-//                            break;
-//                        }
-//
-//                        // So that we rate limit ourself
-//                        sleep(Duration::from_secs(10)).await;
-//                    }
+                        for channel in conv.channels {
+                            println!("Sending Message: {:?}", channel.name);
+                            //migration.post_message(
+                            //    &channel.id,
+                            //    &instruction,
+                            //    true
+                            //).await;
+                            //sleep(Duration::from_secs(10)).await;
+                        }
+
+                        if next_cursor.is_none() {
+                            break;
+                        }
+
+                        sleep(Duration::from_secs(10)).await;
+                    }
                 },
                 x => {
                     println!("ERROR [Legacy Mode]: unknown state: {:?}", x);
