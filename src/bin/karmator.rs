@@ -248,6 +248,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         sleep(Duration::from_secs(2)).await;
                     }
                 },
+                "special" => {
+                    let mut tally: u64 = 0;
+                    let mut next_cursor: Option<String> = None;
+
+                    let instruction = format!(
+                        "[*ACTION REQUIRED*] Hello! In order to make use of newer Slack features, we must unfortunately create another Karmator user. It is not possible to automatically join private channels, so we need your help. To continue to use Karmator features, invite <@{}> into this channel. This message will happen only once.",
+                        env::var("SLACK_NEW_BOT_USER_ID").expect("SLACK_NEW_BOT_USER_ID")
+                    );
+
+                    // TEST
+                    migration.post_message(
+                        "test-channel-id",
+                        &instruction,
+                        true
+                    ).await;
+
+//                    loop {
+//                        let conv = migration.get_channels(
+//                            100,
+//                            vec!["private_channel"],
+//                            next_cursor,
+//                            true,
+//                            true
+//                        ).await.expect("list-query");
+//                        next_cursor = conv.next_cursor;
+//
+//                        for channel in conv.channels {
+//                            println!("Name: {:?}", channel.name);
+//                        }
+//
+//                        if next_cursor.is_none() {
+//                            break;
+//                        }
+//
+//                        // So that we rate limit ourself
+//                        sleep(Duration::from_secs(10)).await;
+//                    }
+                },
                 x => {
                     println!("ERROR [Legacy Mode]: unknown state: {:?}", x);
                     return Ok(());

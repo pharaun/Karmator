@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use rusqlite as rs;
 use serde::Deserialize;
+use serde_json::json;
 
 use tokio::sync::mpsc;
 
@@ -190,6 +191,43 @@ impl Migration {
         )?;
 
         Ok(channel_wrap.channel)
+    }
+
+    // Query legacy bot token
+    pub async fn post_message(
+        &self,
+        channel: &str,
+        text: &str,
+        legacy: bool
+    ) -> Result<(), String> {
+        let url = get_slack_url_for_method("chat.postMessage");
+        let token = if legacy { &self.legacy_app_token } else { &self.modern_bot_token };
+
+        let body = json!({
+            "channel": channel,
+            "as_user": true,
+            "blocks": [{
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": text
+                }
+            }]
+        });
+
+        let res = self.slack_client.post(url)
+            .header("Content-type", "application/json")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(body.to_string())
+            .send()
+            .await.map_err(
+                |x| format!("err1: {:?}", x)
+            )?
+            .text()
+            .await.map_err(
+                |x| format!("err2: {:?}", x)
+            )?;
+        Ok(())
     }
 }
 
