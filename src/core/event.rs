@@ -64,8 +64,8 @@ pub enum UserEvent {
         #[serde(rename = "channel")]
         channel_id: Option<String>,
         #[serde(rename = "user")]
-        user_id: String,
-        text: String,
+        user_id: Option<String>,
+        text: Option<String>,
         ts: String,
         thread_ts: Option<String>,
     },

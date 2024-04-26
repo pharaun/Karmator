@@ -136,8 +136,8 @@ pub async fn process_user_message(
         UserEvent::Message {
             channel_id: Some(channel_id),
             subtype: None,
-            text,
-            user_id,
+            text: Some(text),
+            user_id: Some(user_id),
             thread_ts,
             hidden: _,
             ts: _,
