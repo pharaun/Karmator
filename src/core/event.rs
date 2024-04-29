@@ -46,6 +46,11 @@ enum Event {
 #[serde(rename_all = "snake_case")]
 enum Payload {
     EventCallback {
+        // https://docs.rs/serde_json/1.0.116/serde_json/fn.from_value.html
+        // Convert this into value so that i can still process an event and reply
+        // ack to slack while still failing to parse the nested user-event, could
+        // even then be able to shuffle these events out of the bot core into the
+        // actual bot itself
         event: UserEvent,
     },
 }
