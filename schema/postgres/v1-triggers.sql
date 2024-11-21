@@ -12,8 +12,10 @@ CREATE OR REPLACE FUNCTION insert_karma_count() RETURNS trigger AS $insert_karma
 		ELSIF NEW.amount = -1 THEN col := 'down';
 		END IF;
 
-		EXECUTE format('UPDATE karma_given_count SET %I = %I + 1 WHERE name = $1', col) USING NEW.by_whom_name;
-		EXECUTE format('UPDATE karma_received_count SET %I = %I + 1 WHERE name = $1', col) USING NEW.for_what_name;
+		EXECUTE format('UPDATE karma_given_count SET %I = %I + 1 WHERE name = $1', col, col) USING NEW.by_whom_name;
+		EXECUTE format('UPDATE karma_received_count SET %I = %I + 1 WHERE name = $1', col, col) USING NEW.for_what_name;
+
+		RETURN NULL; -- Result is ignored since its an AFTER trigger
 	END;
 $insert_karma_count$ LANGUAGE PLPGSQL;
 
@@ -27,8 +29,10 @@ CREATE OR REPLACE FUNCTION delete_karma_count() RETURNS trigger AS $delete_karma
 		ELSIF OLD.amount = -1 THEN col := 'down';
 		END IF;
 
-		EXECUTE format('UPDATE karma_given_count SET %I = %I - 1 WHERE name = $1', col) USING OLD.by_whom_name;
-		EXECUTE format('UPDATE karma_received_count SET %I = %I - 1 WHERE name = $1', col) USING OLD.for_what_name;
+		EXECUTE format('UPDATE karma_given_count SET %I = %I - 1 WHERE name = $1', col, col) USING OLD.by_whom_name;
+		EXECUTE format('UPDATE karma_received_count SET %I = %I - 1 WHERE name = $1', col, col) USING OLD.for_what_name;
+
+		RETURN NULL; -- Result is ignored since its an AFTER trigger
 	END;
 $delete_karma_count$ LANGUAGE PLPGSQL;
 
@@ -40,20 +44,20 @@ CREATE OR REPLACE TRIGGER delete_karma_count AFTER DELETE ON votes FOR EACH ROW 
 
 CREATE OR REPLACE FUNCTION insert_reacji_karma_count() RETURNS trigger AS $insert_reacji_karma_count$
 	DECLARE col text;
-	DECLARE message text;
-	DECLARE for_what_name text;
+	DECLARE var_message text;
+	DECLARE var_for_what_name text;
 	BEGIN
 		-- Grab the message content and the for_what_name target for all of the later queries
-		SELECT message INTO message FROM reacji_message WHERE id = NEW.reacji_message_id;
-		SELECT cleaned_nick INTO for_what_name FROM nick_metadata
+		SELECT message INTO var_message FROM reacji_message WHERE id = NEW.reacji_message_id;
+		SELECT cleaned_nick INTO var_for_what_name FROM nick_metadata
 			INNER JOIN reacji_message ON nick_metadata.id = reacji_message.nick_id
 			WHERE reacji_message.id = NEW.reacji_message_id;
 
 		-- Insert if these records doesn't already exist
 		-- Two entry in karma_recieved_count, one for karma on the message, one for whom sent the message
 		INSERT INTO karma_given_count (name) VALUES (NEW.by_whom_name) ON CONFLICT (name) DO NOTHING;
-		INSERT INTO karma_received_count (name) VALUES (message) ON CONFLICT (name) DO NOTHING;
-		INSERT INTO karma_received_count (name) VALUES (for_what_name) ON CONFLICT (name) DO NOTHING;
+		INSERT INTO karma_received_count (name) VALUES (var_message) ON CONFLICT (name) DO NOTHING;
+		INSERT INTO karma_received_count (name) VALUES (var_for_what_name) ON CONFLICT (name) DO NOTHING;
 
 		-- Handle which column to update depending on the amount
 		-- 1 = upvote, -1 = downvote, 0 = sidevote
@@ -63,20 +67,22 @@ CREATE OR REPLACE FUNCTION insert_reacji_karma_count() RETURNS trigger AS $inser
 		ELSIF NEW.amount = -1 THEN col := 'down';
 		END IF;
 
-		EXECUTE format('UPDATE karma_given_count SET %I = %I + $1 WHERE name = $2', col) USING NEW.action, NEW.by_whom_name;
-		EXECUTE format('UPDATE karma_received_count SET %I = %I + $1 WHERE name = $2', col) USING NEW.action, message;
-		EXECUTE format('UPDATE karma_received_count SET %I = %I + $1 WHERE name = $2', col) USING NEW.action, for_what_name;
+		EXECUTE format('UPDATE karma_given_count SET %I = %I + $1 WHERE name = $2', col, col) USING NEW.action, NEW.by_whom_name;
+		EXECUTE format('UPDATE karma_received_count SET %I = %I + $1 WHERE name = $2', col, col) USING NEW.action, var_message;
+		EXECUTE format('UPDATE karma_received_count SET %I = %I + $1 WHERE name = $2', col, col) USING NEW.action, var_for_what_name;
+
+		RETURN NULL; -- Result is ignored since its an AFTER trigger
 	END;
 $insert_reacji_karma_count$ LANGUAGE PLPGSQL;
 
 CREATE OR REPLACE FUNCTION delete_reacji_karma_count() RETURNS trigger AS $delete_reacji_karma_count$
 	DECLARE col text;
-	DECLARE message text;
-	DECLARE for_what_name text;
+	DECLARE var_message text;
+	DECLARE var_for_what_name text;
 	BEGIN
 		-- Grab the message content and the for_what_name target for all of the later queries
-		SELECT message INTO message FROM reacji_message WHERE id = OLD.reacji_message_id;
-		SELECT cleaned_nick INTO for_what_name FROM nick_metadata
+		SELECT message INTO var_message FROM reacji_message WHERE id = OLD.reacji_message_id;
+		SELECT cleaned_nick INTO var_for_what_name FROM nick_metadata
 			INNER JOIN reacji_message ON nick_metadata.id = reacji_message.nick_id
 			WHERE reacji_message.id = OLD.reacji_message_id;
 
@@ -88,9 +94,11 @@ CREATE OR REPLACE FUNCTION delete_reacji_karma_count() RETURNS trigger AS $delet
 		ELSIF OLD.amount = -1 THEN col := 'down';
 		END IF;
 
-		EXECUTE format('UPDATE karma_given_count SET %I = %I - $1 WHERE name = $2', col) USING OLD.action, OLD.by_whom_name;
-		EXECUTE format('UPDATE karma_received_count SET %I = %I - $1 WHERE name = $2', col) USING OLD.action, message;
-		EXECUTE format('UPDATE karma_received_count SET %I = %I - $1 WHERE name = $2', col) USING OLD.action, for_what_name;
+		EXECUTE format('UPDATE karma_given_count SET %I = %I - $1 WHERE name = $2', col, col) USING OLD.action, OLD.by_whom_name;
+		EXECUTE format('UPDATE karma_received_count SET %I = %I - $1 WHERE name = $2', col, col) USING OLD.action, var_message;
+		EXECUTE format('UPDATE karma_received_count SET %I = %I - $1 WHERE name = $2', col, col) USING OLD.action, var_for_what_name;
+
+		RETURN NULL; -- Result is ignored since its an AFTER trigger
 	END;
 $delete_reacji_karma_count$ LANGUAGE PLPGSQL;
 
