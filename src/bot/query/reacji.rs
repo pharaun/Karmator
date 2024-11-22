@@ -1,5 +1,3 @@
-use rusqlite as rs;
-
 use chrono::prelude::{Utc, DateTime};
 
 use tokio::sync::mpsc;

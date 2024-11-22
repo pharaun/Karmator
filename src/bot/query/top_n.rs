@@ -1,15 +1,9 @@
-use rusqlite as rs;
-
 use tokio::sync::mpsc;
 use tokio_postgres::Client;
 use std::sync::Arc;
 
 use crate::bot::query::{KarmaCol, KarmaTyp, OrdQuery};
 use crate::bot::user_event::Event;
-
-use crate::core::database::DbResult;
-use crate::core::database::Query;
-use crate::core::database::send_query;
 
 
 pub async fn top_n(
@@ -61,29 +55,22 @@ async fn top_n_denormalized(
     karma_typ: KarmaTyp,
     limit: u32,
     ord: OrdQuery
-) -> DbResult<Vec<(String, i32)>> {
-    send_query(
-        client.clone(),
-        Box::new(move |conn: &mut rs::Connection| {
-            let mut stmt = conn.prepare(&format!(
-                "SELECT name, {t_col} as total FROM {table} ORDER BY total {q_ord} LIMIT {limit}",
-                t_col=karma_typ,
-                table=karma_col,
-                q_ord=ord,
-                limit=limit
-            ))?;
-            let mut rows = stmt.query([])?;
+) -> Result<Vec<(String, i32)>, String> {
+    let rows = client.query(&format!(
+        "SELECT name, {t_col} as total FROM {table} ORDER BY total {q_ord} LIMIT {limit}",
+        t_col=karma_typ,
+        table=karma_col,
+        q_ord=ord,
+        limit=limit
+    ), &[]).await.map_err(|x| x.to_string())?;
 
-            let mut ret: Vec<(String, i32)> = vec![];
+    let mut ret: Vec<(String, i32)> = vec![];
 
-            while let Ok(Some(row)) = rows.next() {
-                let name: String = row.get(0)?;
-                let count: i32 = row.get(1)?;
+    for row in rows {
+        let name: String = row.get(0);
+        let count: i32 = row.get(1);
 
-                ret.push((name.clone(), count));
-            }
-            Ok(ret)
-        })
-    ).await
+        ret.push((name.clone(), count));
+    }
+    Ok(ret)
 }
-

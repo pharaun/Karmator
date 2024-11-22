@@ -1,5 +1,3 @@
-use rusqlite as rs;
-
 use tokio::sync::mpsc;
 use tokio_postgres::Client;
 

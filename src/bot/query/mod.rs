@@ -4,7 +4,6 @@ pub mod ranking;
 pub mod reacji;
 pub mod top_n;
 
-use rusqlite as rs;
 use tokio_postgres::Client;
 
 use unicase::UniCase;

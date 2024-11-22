@@ -1,15 +1,9 @@
-use rusqlite as rs;
-
 use tokio::sync::mpsc;
 use tokio_postgres::Client;
 use std::sync::Arc;
 
 use crate::bot::query::{KarmaCol, KarmaTyp, KarmaName};
 use crate::bot::user_event::Event;
-
-use crate::core::database::DbResult;
-use crate::core::database::Query;
-use crate::core::database::send_query;
 
 
 pub async fn ranking(
@@ -69,65 +63,40 @@ async fn ranking_denormalized(
     karma_col: KarmaCol,
     karma_typ: KarmaTyp,
     user: KarmaName
-) -> DbResult<Option<u32>> {
-    send_query(
-        client.clone(),
-        Box::new(move |conn: &mut rs::Connection| {
-            // Default won't work here, override
-            let t_col2 = match karma_typ {
-                KarmaTyp::Total => "kcol2.up - kcol2.down",
-                KarmaTyp::Side  => "kcol2.side",
-            };
+) -> Result<Option<u32>, String> {
+    // Default won't work here, override
+    let t_col2 = match karma_typ {
+        KarmaTyp::Total => "kcol2.up - kcol2.down",
+        KarmaTyp::Side  => "kcol2.side",
+    };
 
-            let mut stmt = conn.prepare(&format!(
-                "SELECT CASE WHEN (
-                    EXISTS (SELECT TRUE FROM {table} WHERE name = ?1)
-                ) THEN (
-                    SELECT (COUNT(name) + 1) FROM {table} WHERE (
-                        {t_col1}
-                    ) > (
-                        SELECT ({t_col2}) FROM {table} AS kcol2 WHERE kcol2.name = ?2
-                    )
-                ) ELSE NULL END",
-                table=karma_col, t_col1=karma_typ, t_col2=t_col2
-            ))?;
-            let user = user.to_string();
-            let mut rows = stmt.query(rs::params![user, user])?;
+    let user = user.to_string();
+    let rows = client.query_one(&format!(
+        "SELECT CASE WHEN (
+            EXISTS (SELECT TRUE FROM {table} WHERE name = ?1)
+        ) THEN (
+            SELECT (COUNT(name) + 1) FROM {table} WHERE (
+                {t_col1}
+            ) > (
+                SELECT ({t_col2}) FROM {table} AS kcol2 WHERE kcol2.name = ?2
+            )
+        ) ELSE NULL END",
+        table=karma_col, t_col1=karma_typ, t_col2=t_col2
+    ), &[user, user]).await.map_err(|x| x.to_string())?;
 
-            if let Ok(Some(row)) = rows.next() {
-                let count: Option<u32> = row.get(0).ok();
-
-                Ok(count)
-            } else {
-                Err(format!(
-                    "ERROR [Sql Worker]: RankingDenormalized - karma_col: {:?}, karma_typ: {:?}, user: {:?}",
-                    karma_col, karma_typ, user
-                ).into())
-            }
-        })
-    ).await
+    let count: Option<u32> = row.get(0).ok();
+    Ok(count)
 }
 
 async fn count(
     client: Arc<Client>,
     karma_col: KarmaCol,
-) -> DbResult<u32> {
-    send_query(
-        client.clone(),
-        Box::new(move |conn: &mut rs::Connection| {
-            let mut stmt = conn.prepare(&format!(
-                "SELECT COUNT(name) FROM {table}",
-                table=karma_col
-            ))?;
-            let mut rows = stmt.query([])?;
+) -> Result<u32, String> {
+    let rows = client.query_one(&format!(
+        "SELECT COUNT(name) FROM {table}",
+        table=karma_col
+    ), &[]).await.map_err(|x| x.to_string())?;
 
-            if let Ok(Some(row)) = rows.next() {
-                let count: u32 = row.get(0)?;
-
-                Ok(count)
-            } else {
-                Err(format!("ERROR [Sql Worker]: Count - ERROR - karma_col: {:?}", karma_col).into())
-            }
-        })
-    ).await
+    let count: Option<u32> = row.get(0).ok();
+    Ok(count)
 }
