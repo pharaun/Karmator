@@ -1,6 +1,8 @@
 use rusqlite as rs;
 
 use tokio::sync::mpsc;
+use tokio_postgres::Client;
+use std::sync::Arc;
 
 use crate::bot::query::{KarmaCol, KarmaTyp, KarmaName};
 use crate::bot::user_event::Event;
@@ -12,32 +14,32 @@ use crate::core::database::send_query;
 
 pub async fn ranking(
     event: &mut Event,
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     ktyp: KarmaTyp,
     target: &str,
     label: &str,
 ) {
     let target_recieved = ranking_denormalized(
-        sql_tx,
+        client.clone(),
         KarmaCol::Recieved,
         ktyp,
         KarmaName::new(target),
     ).await.map(|e| e.map(|c| format!("{}", c)));
 
     let total_recieved = count(
-        sql_tx,
+        client.clone(),
         KarmaCol::Recieved,
     ).await.map(|e| format!("{}", e));
 
     let target_given = ranking_denormalized(
-        sql_tx,
+        client.clone(),
         KarmaCol::Given,
         ktyp,
         KarmaName::new(target),
     ).await.map(|e| e.map(|c| format!("{}", c)));
 
     let total_given = count(
-        sql_tx,
+        client.clone(),
         KarmaCol::Given,
     ).await.map(|e| format!("{}", e));
 
@@ -63,13 +65,13 @@ pub async fn ranking(
 }
 
 async fn ranking_denormalized(
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     karma_col: KarmaCol,
     karma_typ: KarmaTyp,
     user: KarmaName
 ) -> DbResult<Option<u32>> {
     send_query(
-        sql_tx,
+        client.clone(),
         Box::new(move |conn: &mut rs::Connection| {
             // Default won't work here, override
             let t_col2 = match karma_typ {
@@ -107,11 +109,11 @@ async fn ranking_denormalized(
 }
 
 async fn count(
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     karma_col: KarmaCol,
 ) -> DbResult<u32> {
     send_query(
-        sql_tx,
+        client.clone(),
         Box::new(move |conn: &mut rs::Connection| {
             let mut stmt = conn.prepare(&format!(
                 "SELECT COUNT(name) FROM {table}",

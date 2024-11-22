@@ -6,3 +6,5 @@ fuzz/corpus
 fuzz/target
 target
 test.env
+global-bundle.pem
+run.sh

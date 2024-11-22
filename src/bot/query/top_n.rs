@@ -1,6 +1,8 @@
 use rusqlite as rs;
 
 use tokio::sync::mpsc;
+use tokio_postgres::Client;
+use std::sync::Arc;
 
 use crate::bot::query::{KarmaCol, KarmaTyp, OrdQuery};
 use crate::bot::user_event::Event;
@@ -12,7 +14,7 @@ use crate::core::database::send_query;
 
 pub async fn top_n(
     event: &mut Event,
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     kcol1: KarmaCol,
     kord1: OrdQuery,
     kcol2: KarmaCol,
@@ -22,7 +24,7 @@ pub async fn top_n(
     limit: u32,
 ) {
     let high = top_n_denormalized(
-        sql_tx,
+        client.clone(),
         kcol1,
         ktyp,
         limit,
@@ -34,7 +36,7 @@ pub async fn top_n(
     });
 
     let low = top_n_denormalized(
-        sql_tx,
+        client.clone(),
         kcol2,
         ktyp,
         limit,
@@ -54,14 +56,14 @@ pub async fn top_n(
 
 
 async fn top_n_denormalized(
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     karma_col: KarmaCol,
     karma_typ: KarmaTyp,
     limit: u32,
     ord: OrdQuery
 ) -> DbResult<Vec<(String, i32)>> {
     send_query(
-        sql_tx,
+        client.clone(),
         Box::new(move |conn: &mut rs::Connection| {
             let mut stmt = conn.prepare(&format!(
                 "SELECT name, {t_col} as total FROM {table} ORDER BY total {q_ord} LIMIT {limit}",

@@ -1,11 +1,14 @@
 use tokio::sync::mpsc;
 
+use tokio_postgres::Client;
+
 use chrono::prelude::{Utc, DateTime};
 use humantime::format_duration;
 
 use std::result::Result;
 use std::str::FromStr;
 use std::time::Duration;
+use std::sync::Arc;
 
 use crate::bot::build_info;
 use crate::bot::query::santizer;
@@ -127,7 +130,7 @@ impl Event {
 pub async fn process_user_message(
     msg: UserEvent,
     tx: mpsc::Sender<Reply>,
-    mut sql_tx: mpsc::Sender<Query>,
+    client: Arc<Client>,
     start_time: DateTime<Utc>,
     cache: cache::Cache,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -201,7 +204,7 @@ pub async fn process_user_message(
                     if arg.is_empty() {
                         top_n(
                             &mut event.clone(),
-                            &mut sql_tx,
+                            client.clone(),
                             KarmaCol::Recieved,
                             OrdQuery::Desc,
                             KarmaCol::Recieved,
@@ -213,7 +216,7 @@ pub async fn process_user_message(
                     } else {
                         partial(
                             &mut event.clone(),
-                            &mut sql_tx,
+                            client.clone(),
                             KarmaCol::Recieved,
                             arg,
                         ).await;
@@ -233,7 +236,7 @@ pub async fn process_user_message(
                             Ok(lim@1..=25) => {
                                 top_n(
                                     &mut event.clone(),
-                                    &mut sql_tx,
+                                    client.clone(),
                                     KarmaCol::Recieved,
                                     OrdQuery::Desc,
                                     KarmaCol::Recieved,
@@ -254,7 +257,7 @@ pub async fn process_user_message(
                     if arg.is_empty() {
                         top_n(
                             &mut event.clone(),
-                            &mut sql_tx,
+                            client.clone(),
                             KarmaCol::Given,
                             OrdQuery::Desc,
                             KarmaCol::Given,
@@ -266,7 +269,7 @@ pub async fn process_user_message(
                     } else {
                         partial(
                             &mut event.clone(),
-                            &mut sql_tx,
+                            client.clone(),
                             KarmaCol::Given,
                             arg,
                         ).await;
@@ -286,7 +289,7 @@ pub async fn process_user_message(
                             Ok(lim@1..=25) => {
                                 top_n(
                                     &mut event.clone(),
-                                    &mut sql_tx,
+                                    client.clone(),
                                     KarmaCol::Given,
                                     OrdQuery::Desc,
                                     KarmaCol::Given,
@@ -307,7 +310,7 @@ pub async fn process_user_message(
                     if arg.is_empty() {
                         top_n(
                             &mut event.clone(),
-                            &mut sql_tx,
+                            client.clone(),
                             KarmaCol::Recieved,
                             OrdQuery::Desc,
                             KarmaCol::Given,
@@ -334,7 +337,7 @@ pub async fn process_user_message(
                             Ok(lim@1..=25) => {
                                 top_n(
                                     &mut event.clone(),
-                                    &mut sql_tx,
+                                    client.clone(),
                                     KarmaCol::Recieved,
                                     OrdQuery::Desc,
                                     KarmaCol::Given,
@@ -358,7 +361,7 @@ pub async fn process_user_message(
                             Some(ud) => {
                                 ranking(
                                     &mut event.clone(),
-                                    &mut sql_tx,
+                                    client.clone(),
                                     KarmaTyp::Total,
                                     &ud,
                                     "Your",
@@ -374,7 +377,7 @@ pub async fn process_user_message(
 
                         ranking(
                             &mut event.clone(),
-                            &mut sql_tx,
+                            client.clone(),
                             KarmaTyp::Total,
                             target,
                             &format!("{}", target),
@@ -391,7 +394,7 @@ pub async fn process_user_message(
                             Some(ud) => {
                                 ranking(
                                     &mut event.clone(),
-                                    &mut sql_tx,
+                                    client.clone(),
                                     KarmaTyp::Side,
                                     &ud,
                                     "Your",
@@ -407,7 +410,7 @@ pub async fn process_user_message(
 
                         ranking(
                             &mut event.clone(),
-                            &mut sql_tx,
+                            client.clone(),
                             KarmaTyp::Side,
                             target,
                             &format!("{}", target),
@@ -419,7 +422,7 @@ pub async fn process_user_message(
 
                 Ok(command::Command(x, _)) => println!("INFO [User Event]: No handler: {:?}", x),
 
-                Err(_) => add_karma(&mut sql_tx, &event).await,
+                Err(_) => add_karma(client.clone(), &event).await,
             }
         },
 
@@ -441,7 +444,7 @@ pub async fn process_user_message(
             };
 
             add_reacji(
-                &mut sql_tx,
+                client.clone(),
                 &mut event,
                 &reaction,
                 ReacjiAction::Add,
@@ -466,7 +469,7 @@ pub async fn process_user_message(
             };
 
             add_reacji(
-                &mut sql_tx,
+                client.clone(),
                 &mut event,
                 &reaction,
                 ReacjiAction::Del,

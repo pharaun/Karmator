@@ -1,8 +1,10 @@
 use rusqlite as rs;
 
 use tokio::sync::mpsc;
+use tokio_postgres::Client;
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::bot::query::{KarmaCol, KarmaName};
 use crate::bot::user_event::Event;
@@ -14,12 +16,12 @@ use crate::core::database::send_query;
 
 pub async fn partial(
     event: &mut Event,
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     kcol: KarmaCol,
     arg: Vec<&str>,
 ) {
     let res = partial_query(
-        sql_tx,
+        client.clone(),
         kcol,
         arg.into_iter().map(|i| KarmaName::new(i)).collect(),
     ).await.map(|e| {
@@ -40,12 +42,12 @@ pub async fn partial(
 
 
 async fn partial_query(
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     karma_col: KarmaCol,
     users: HashSet<KarmaName>,
 ) -> DbResult<Vec<(String, i32, i32, i32)>> {
     send_query(
-        sql_tx,
+        client.clone(),
         Box::new(move |conn: &mut rs::Connection| {
             // Hack to insert enough parameterizers into the query
             let p_user = {

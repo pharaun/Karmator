@@ -5,9 +5,11 @@ pub mod reacji;
 pub mod top_n;
 
 use rusqlite as rs;
+use tokio_postgres::Client;
 
 use unicase::UniCase;
 use std::fmt;
+use std::sync::Arc;
 
 use unicode_normalization::{UnicodeNormalization, is_nfc_quick, IsNormalized};
 

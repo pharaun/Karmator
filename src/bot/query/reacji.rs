@@ -3,6 +3,8 @@ use rusqlite as rs;
 use chrono::prelude::{Utc, DateTime};
 
 use tokio::sync::mpsc;
+use tokio_postgres::Client;
+use std::sync::Arc;
 
 use crate::bot::parser::karma::Karma;
 use crate::bot::parser::reacji_to_karma;
@@ -16,7 +18,7 @@ use crate::core::database::send_query;
 
 
 pub async fn add_reacji(
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     event: &mut Event,
     input: &str,
     action: ReacjiAction,
@@ -24,7 +26,7 @@ pub async fn add_reacji(
     match reacji_to_karma(input) {
         Some(karma) => {
             let message_id = query_reacji_message(
-                sql_tx,
+                client.clone(),
                 event.channel_id.clone(),
                 event.thread_ts.clone().unwrap()
             ).await.map_or_else(
@@ -46,7 +48,7 @@ pub async fn add_reacji(
                         ) {
                             (Some(ud), Some(rn)) => {
                                 add_reacji_message(
-                                    sql_tx,
+                                    client.clone(),
                                     message_user_id,
                                     KarmaName::new(&ud),
                                     KarmaName::new(&rn),
@@ -76,7 +78,7 @@ pub async fn add_reacji(
                     ) {
                         (Some(ud), Some(rn)) => {
                             let e = add_reacji_query(
-                                sql_tx,
+                                client.clone(),
                                 Utc::now(),
                                 event.user_id.clone(),
                                 KarmaName::new(&ud),
@@ -101,12 +103,12 @@ pub async fn add_reacji(
 
 
 async fn query_reacji_message(
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     channel_id: String,
     message_ts: String,
 ) -> DbResult<Option<i64>> {
     send_query(
-        sql_tx,
+        client.clone(),
         Box::new(move |conn: &mut rs::Connection| {
             let channel_id: Option<i64> = {
                 let mut stmt = conn.prepare("SELECT id FROM chan_metadata WHERE channel = ?")?;
@@ -140,7 +142,7 @@ async fn query_reacji_message(
 
 
 async fn add_reacji_message(
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     user_id: String,
     username: KarmaName,
     real_name: KarmaName,
@@ -149,7 +151,7 @@ async fn add_reacji_message(
     message: String,
 ) -> DbResult<Option<i64>> {
     send_query(
-        sql_tx,
+        client.clone(),
         Box::new(move |conn: &mut rs::Connection| {
             let nick_id: i64 = {
                 let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?")?;
@@ -214,7 +216,7 @@ async fn add_reacji_message(
 
 
 async fn add_reacji_query(
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     timestamp: DateTime<Utc>,
     user_id: String,
     username: KarmaName,
@@ -224,7 +226,7 @@ async fn add_reacji_query(
     amount: Karma,
 ) -> DbResult<Option<i64>> {
     send_query(
-        sql_tx,
+        client.clone(),
         Box::new(move |conn: &mut rs::Connection| {
             let nick_id: i64 = {
                 let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?")?;

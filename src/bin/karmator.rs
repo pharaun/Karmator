@@ -6,8 +6,14 @@ use std::env;
 use std::path::Path;
 use std::result::Result;
 use std::thread;
+use std::sync::Arc;
 
 use chrono::prelude::{Utc, DateTime};
+
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::CertificateDer;
+use rustls::ClientConfig as RustlsClientConfig;
+use tokio_postgres_rustls::MakeRustlsConnect;
 
 use karmator_rust::core::database;
 use karmator_rust::core::cache;
@@ -16,18 +22,12 @@ use karmator_rust::core::bot;
 use karmator_rust::bot::user_event;
 
 
-// TODO:
-// Fix voting for - @luisp++ case it should -> luisp++ for the database
-// Fix command parsing for <@user> -> user for commands
-// FIX self-voting on reacji since we now also upvote the owner of the message itself along with
-//      the message
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let filename = env::var("SQLITE_FILE").map_err(|_| "SQLITE_FILE env var must be set")?;
+    let postgres_pem = env::var("POSTGRES_PEM").map_err(|_| "POSTGRES_PEM env var must be set")?;
+    let postgres_url = env::var("POSTGRES_URL").map_err(|_| "POSTGRES_URL env var must be set")?;
     let app_token = env::var("SLACK_APP_TOKEN").map_err(|_| "SLACK_APP_TOKEN env var must be set")?;
     let bot_token = env::var("SLACK_BOT_TOKEN").map_err(|_| "SLACK_BOT_TOKEN env var must be set")?;
-    let backup = env::var("SQLITE_BACKUP_DIR");
 
     // Uptime of program start
     let start_time: DateTime<Utc> = Utc::now();
@@ -38,56 +38,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Shutdown Signal
     let (sql_shutdown_tx, signal) = signal::Signal::new();
 
-
     //*******************
-    // Sql bits
+    // Postgres bits
     //*******************
+    let tls = {
+        // TODO: Improve this (find alternative for native-tls)
+        let certs: Vec<_> = CertificateDer::pem_file_iter(postgres_pem)
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.add_parsable_certificates(certs);
+        let tls_config = RustlsClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        MakeRustlsConnect::new(tls_config)
+    };
 
-    // Sql request/reply channels for the downstream handlers to talk to the
-    // sqlite worker thread
-    let (sql_tx, sql_rx) = mpsc::channel(32);
+    let (client, connection) = tokio_postgres::connect(&postgres_url, tls).await?;
+    let client = Arc::new(client);
 
-    // Launch the sqlite worker thread
-    let sql_worker = thread::Builder::new().name("sqlite_worker".into()).spawn(move || {
-        println!("INFO [Sql Worker]: Launching");
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("ERROR [Sql Worker]: {:?}", e);
 
-        let res = database::process_queries(
-            Path::new(&filename),
-            ReceiverStream::new(sql_rx),
-        );
-        eprintln!("ERROR [Sql Worker]: {:?}", res);
-
-        // Worker died, signal the shutdown signal
-        let _ = sql_shutdown_tx.send(true);
-
-        println!("INFO [Sql Worker]: Exiting");
-    })?;
-
+            // Worker died, signal the shutdown signal
+            let _ = sql_shutdown_tx.send(true);
+        }
+    });
 
     //*******************
     // Setting up backup
+    // TODO: figure out backups
     //*******************
-    let backup_callback: Box<dyn Fn()> = match backup {
-        Ok(b) => {
-            // Install an backup job for backing up the database
-            let sql_tx3 = sql_tx.clone();
-            Box::new(move || {
-                let sql_tx4 = sql_tx3.clone();
-                let path = b.clone();
-                tokio::spawn(async move {
-                    let _ = database::backup(
-                        path.clone(),
-                        sql_tx4
-                    ).await;
-                });
-            })
-        },
-        Err(_) => {
-            println!("WARNING [Backup]: SQLITE_BACKUP_DIR env var must be set");
-            Box::new(|| {})
-        },
-    };
-
+    let backup_callback: Box<dyn Fn()> = Box::new(move || {});
 
     //*******************
     // Core bot eventloop
@@ -96,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cache.clone(),
         signal,
         |event, tx| {
-            let sql_tx2 = sql_tx.clone();
+            let client2 = client.clone();
             let cache2 = cache.clone();
 
             tokio::spawn(async move {
@@ -104,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = user_event::process_user_message(
                     event,
                     tx,
-                    sql_tx2,
+                    client2,
                     start_time,
                     cache2,
                 ).await;
@@ -112,16 +96,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         backup_callback,
     ).await?;
-
-
-    //*******************
-    // Sql bits
-    //*******************
-
-    // Force drop the sender (since all other sender clone should be dropped by now)
-    drop(sql_tx);
-    let res = sql_worker.join();
-    println!("SYSTEM [Sql Worker]: Thread Join: {:?}", res);
 
     Ok(())
 }

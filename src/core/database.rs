@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::fs::File;
 use std::io::{SeekFrom, Seek, copy};
+use std::sync::Arc;
 
 use zstd::stream::read::Encoder;
 
@@ -11,6 +12,7 @@ use chrono::{Local, DateTime};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 use tokio::task;
+use tokio_postgres::Client;
 
 use futures::executor::block_on_stream;
 use tokio_stream::wrappers::ReceiverStream;
@@ -22,7 +24,7 @@ type Query2<T> = Box<dyn FnOnce(&mut rs::Connection) -> Result<T, Box<dyn std::e
 
 
 pub async fn send_query<T>(
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     query: Query2<T>,
 ) -> DbResult<T>
 where
@@ -39,7 +41,7 @@ where
         }
     };
 
-    sql_tx.send(Box::new(query2)).await.map_err(|_| "Error sending query".to_string())?;
+    //sql_tx.send(Box::new(query2)).await.map_err(|_| "Error sending query".to_string())?;
     rx.await.map_err(|_| "Error recieving".to_string())
 }
 
@@ -69,7 +71,7 @@ pub fn process_queries(
 
 pub async fn backup(
     backup_path: String,
-    mut sql_tx: mpsc::Sender<Query>,
+    client: Arc<Client>,
 ) -> DbResult<()> {
     let local: DateTime<Local> = Local::now();
     let mut path = PathBuf::from(backup_path);
@@ -84,7 +86,7 @@ pub async fn backup(
 
         // Run a backup now
         send_query(
-            &mut sql_tx,
+            client.clone(),
             Box::new(move |conn: &mut rs::Connection| {
                 let mut dst = rs::Connection::open(
                     &temp_path

@@ -3,6 +3,8 @@ use rusqlite as rs;
 use chrono::prelude::{Utc, DateTime};
 
 use tokio::sync::mpsc;
+use tokio_postgres::Client;
+use std::sync::Arc;
 
 use crate::bot::parser::karma::KST;
 use crate::bot::parser::karma;
@@ -17,7 +19,7 @@ use crate::core::database::send_query;
 
 
 pub async fn add_karma(
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     event: &Event,
 ) {
     match karma::parse(&event.santize().await) {
@@ -46,7 +48,7 @@ pub async fn add_karma(
                 match (username, user_real_name) {
                     (Some(ud), Some(rn)) => {
                         let _ = add_karma_query(
-                            sql_tx,
+                            client.clone(),
                             Utc::now(),
                             event.user_id.clone(),
                             KarmaName::new(&ud),
@@ -72,7 +74,7 @@ pub async fn add_karma(
 
 
 async fn add_karma_query(
-    sql_tx: &mut mpsc::Sender<Query>,
+    client: Arc<Client>,
     timestamp: DateTime<Utc>,
     user_id: String,
     username: KarmaName,
@@ -81,7 +83,7 @@ async fn add_karma_query(
     karma: Vec<KST>,
 ) -> DbResult<Option<i64>> {
     send_query(
-        sql_tx,
+        client.clone(),
         Box::new(move |conn: &mut rs::Connection| {
             let nick_id: i64 = {
                 let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?")?;
