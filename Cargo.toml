@@ -55,3 +55,6 @@ tokio-postgres = "0.7.12"
 tokio-postgres-rustls = "0.13"
 rustls = "0.23"
 bytes = "1.8.0"
+
+# Logging
+env_logger = "0.11"

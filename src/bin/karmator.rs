@@ -17,6 +17,8 @@ use karmator_rust::bot::user_event;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+
     let postgres_pem = env::var("POSTGRES_PEM").map_err(|_| "POSTGRES_PEM env var must be set")?;
     let postgres_url = env::var("POSTGRES_URL").map_err(|_| "POSTGRES_URL env var must be set")?;
     let app_token = env::var("SLACK_APP_TOKEN").map_err(|_| "SLACK_APP_TOKEN env var must be set")?;

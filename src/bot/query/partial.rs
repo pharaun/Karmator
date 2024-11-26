@@ -1,5 +1,4 @@
 use tokio_postgres::Client;
-use tokio_postgres::types::ToSql;
 
 use std::collections::HashSet;
 use std::sync::Arc;
