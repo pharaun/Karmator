@@ -1,4 +1,3 @@
-use tokio::sync::mpsc;
 use tokio_postgres::Client;
 use std::sync::Arc;
 
@@ -73,19 +72,18 @@ async fn ranking_denormalized(
     let user = user.to_string();
     let rows = client.query_one(&format!(
         "SELECT CASE WHEN (
-            EXISTS (SELECT TRUE FROM {table} WHERE name = ?1)
+            EXISTS (SELECT TRUE FROM {table} WHERE name = $1)
         ) THEN (
             SELECT (COUNT(name) + 1) FROM {table} WHERE (
                 {t_col1}
             ) > (
-                SELECT ({t_col2}) FROM {table} AS kcol2 WHERE kcol2.name = ?2
+                SELECT ({t_col2}) FROM {table} AS kcol2 WHERE kcol2.name = $2
             )
         ) ELSE NULL END",
         table=karma_col, t_col1=karma_typ, t_col2=t_col2
-    ), &[user, user]).await.map_err(|x| x.to_string())?;
+    ), &[&user, &user]).await.map_err(|x| x.to_string())?;
 
-    let count: Option<u32> = row.get(0).ok();
-    Ok(count)
+    Ok(rows.get(0))
 }
 
 async fn count(
@@ -97,6 +95,5 @@ async fn count(
         table=karma_col
     ), &[]).await.map_err(|x| x.to_string())?;
 
-    let count: Option<u32> = row.get(0).ok();
-    Ok(count)
+    Ok(rows.get(0))
 }

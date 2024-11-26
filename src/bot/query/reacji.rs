@@ -1,6 +1,5 @@
 use chrono::prelude::{Utc, DateTime};
 
-use tokio::sync::mpsc;
 use tokio_postgres::Client;
 use std::sync::Arc;
 
@@ -9,10 +8,6 @@ use crate::bot::parser::reacji_to_karma;
 
 use crate::bot::query::{KarmaName, ReacjiAction};
 use crate::bot::user_event::Event;
-
-use crate::core::database::DbResult;
-use crate::core::database::Query;
-use crate::core::database::send_query;
 
 
 pub async fn add_reacji(
@@ -104,38 +99,29 @@ async fn query_reacji_message(
     client: Arc<Client>,
     channel_id: String,
     message_ts: String,
-) -> DbResult<Option<i64>> {
-    send_query(
-        client.clone(),
-        Box::new(move |conn: &mut rs::Connection| {
-            let channel_id: Option<i64> = {
-                let mut stmt = conn.prepare("SELECT id FROM chan_metadata WHERE channel = ?")?;
-                let mut rows = stmt.query(rs::params![channel_id])?;
+) -> Result<Option<i64>, String> {
+    let channel_id: Result<i64, String> = {
+        let row = client.query_one(
+            "SELECT id FROM chan_metadata WHERE channel = $1",
+            &[&channel_id]).await.map_err(|x| x.to_string())?;
+        Ok(row.get(0))
+    };
 
-                if let Ok(Some(row)) = rows.next() {
-                    row.get(0).ok()
-                } else {
-                    None
-                }
-            };
+    match channel_id {
+        Ok(channel_id) => {
+            // We good let's proceed, otherwise abort since if channel id isn't here its
+            // not going to be in reacji_message either
+            let row = client.query_one(
+                "SELECT id FROM reacji_message WHERE ts = ? AND chan_id = ?"
+                , &[&message_ts, &channel_id]).await.map_err(|x| x.to_string());
 
-            if let Some(channel_id) = channel_id {
-                // We good let's proceed, otherwise abort since if channel id isn't here its
-                // not going to be in reacji_message either
-                let mut stmt = conn.prepare("SELECT id FROM reacji_message WHERE ts = ? AND chan_id = ?")?;
-                let mut rows = stmt.query(rs::params![message_ts, channel_id])?;
-
-                if let Ok(Some(row)) = rows.next() {
-                    let msg_id: Option<i64> = row.get(0).ok();
-                    Ok(msg_id)
-                } else {
-                    Ok(None)
-                }
-            } else {
-                Ok(None)
+            match row {
+                Ok(r) => Ok(r.get(0)),
+                Err(x) => Err(x),
             }
-        })
-    ).await
+        },
+        Err(x) => Err(x),
+    }
 }
 
 
@@ -147,69 +133,69 @@ async fn add_reacji_message(
     channel_id: String,
     message_ts: String,
     message: String,
-) -> DbResult<Option<i64>> {
-    send_query(
-        client.clone(),
-        Box::new(move |conn: &mut rs::Connection| {
-            let nick_id: i64 = {
-                let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?")?;
-                let mut rows = stmt.query(rs::params![user_id])?;
+) -> Result<Option<i64>, String> {
+    let nick_id: i64 = {
+        let rows = client.query_opt(
+            "SELECT id FROM nick_metadata WHERE username = ?"
+            , &[&username]).await.map_err(|x| x.to_string());
 
-                if let Ok(Some(row)) = rows.next() {
-                    row.get(0)?
-                } else {
-                    let mut stmt = conn.prepare(
-                        "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?)"
-                    )?;
-                    stmt.insert(rs::params![username, real_name, user_id, "SlackServer"])?
-                }
-            };
+        if let Ok(Some(row)) = rows {
+            row.get(0)
+        } else {
+            let row = client.query_one(
+                "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?) RETURNING id"
+                , &[&username, &real_name, &user_id, &"SlackServer"]).await.map_err(|x| x.to_string())?;
+            row.get(0)
+        }
+    };
 
-            let channel_id: i64 = {
-                let mut stmt = conn.prepare("SELECT id FROM chan_metadata WHERE channel = ?")?;
-                let mut rows = stmt.query(rs::params![channel_id])?;
+    let channel_id: i64 = {
+        let rows = client.query_opt(
+            "SELECT id FROM chan_metadata WHERE channel = ?"
+            , &[&channel_id]).await.map_err(|x| x.to_string());
 
-                if let Ok(Some(row)) = rows.next() {
-                    row.get(0)?
-                } else {
-                    let mut stmt = conn.prepare("INSERT INTO chan_metadata (channel) VALUES (?)")?;
-                    stmt.insert(rs::params![channel_id])?
-                }
-            };
+        if let Ok(Some(row)) = rows {
+            row.get(0)
+        } else {
+            let row = client.query_one(
+                "INSERT INTO chan_metadata (channel) VALUES (?) RETURNING id"
+                , &[&channel_id]).await.map_err(|x| x.to_string())?;
+            row.get(0)
+        }
+    };
 
-            // Insert the reacji_message content now
-            let reacji_message_id: i64 = {
-                let mut stmt = conn.prepare("SELECT id, nick_id, message FROM reacji_message WHERE ts = ? AND chan_id = ?")?;
-                let mut rows = stmt.query(rs::params![message_ts, channel_id])?;
+    // Insert the reacji_message content now
+    let reacji_message_id: i64 = {
+        let rows = client.query_opt(
+            "SELECT id, nick_id, message FROM reacji_message WHERE ts = ? AND chan_id = ?"
+            , &[&message_ts, &channel_id]).await.map_err(|x| x.to_string());
 
-                if let Ok(Some(row)) = rows.next() {
-                    // Compare the 2 and if its not the same, warn in log, otherwise return
-                    let id = row.get(0)?;
-                    let sql_nick: i64 = row.get(1)?;
-                    let sql_message: String = row.get(2)?;
+        if let Ok(Some(row)) = rows {
+            // Compare the 2 and if its not the same, warn in log, otherwise return
+            let id = row.get(0);
+            let sql_nick: i64 = row.get(1);
+            let sql_message: String = row.get(2);
 
-                    // Compare
-                    if sql_nick != nick_id || sql_message != message {
-                        eprintln!("ERROR: [Reacji Message] duplicate channel + ts");
-                        eprintln!("ERROR: [Reacji Message] \tSlack Nick: {}", nick_id);
-                        eprintln!("ERROR: [Reacji Message] \tSql Nick:   {}", sql_nick);
-                        eprintln!("ERROR: [Reacji Message] \tSlack Msg:  {}", message);
-                        eprintln!("ERROR: [Reacji Message] \tSql Msg:    {}", sql_message);
-                    }
+            // Compare
+            if sql_nick != nick_id || sql_message != message {
+                eprintln!("ERROR: [Reacji Message] duplicate channel + ts");
+                eprintln!("ERROR: [Reacji Message] \tSlack Nick: {}", nick_id);
+                eprintln!("ERROR: [Reacji Message] \tSql Nick:   {}", sql_nick);
+                eprintln!("ERROR: [Reacji Message] \tSlack Msg:  {}", message);
+                eprintln!("ERROR: [Reacji Message] \tSql Msg:    {}", sql_message);
+            }
 
-                    // Return one anyway for now
-                    id
-                } else {
-                    let mut stmt = conn.prepare(
-                        "INSERT INTO reacji_message (ts, chan_id, nick_id, message) VALUES (?, ?, ?, ?)"
-                    )?;
-                    stmt.insert(rs::params![message_ts, channel_id, nick_id, message])?
-                }
-            };
+            // Return one anyway for now
+            id
+        } else {
+            let row = client.query_one(
+                "INSERT INTO reacji_message (ts, chan_id, nick_id, message) VALUES (?, ?, ?, ?) RETURNING id"
+                , &[&message_ts, &channel_id, &nick_id, &message]).await.map_err(|x| x.to_string())?;
+            row.get(0)
+        }
+    };
 
-            Ok(Some(reacji_message_id))
-        })
-    ).await
+    Ok(Some(reacji_message_id))
 }
 
 
@@ -222,39 +208,32 @@ async fn add_reacji_query(
     action: ReacjiAction,
     message_id: i64,
     amount: Karma,
-) -> DbResult<Option<i64>> {
-    send_query(
-        client.clone(),
-        Box::new(move |conn: &mut rs::Connection| {
-            let nick_id: i64 = {
-                let mut stmt = conn.prepare("SELECT id FROM nick_metadata WHERE username = ?")?;
-                let mut rows = stmt.query(rs::params![user_id])?;
+) -> Result<Option<i64>, String> {
+    let nick_id: i64 = {
+        let rows = client.query_opt(
+            "SELECT id FROM nick_metadata WHERE username = ?"
+            , &[&username]).await.map_err(|x| x.to_string());
 
-                if let Ok(Some(row)) = rows.next() {
-                    row.get(0)?
-                } else {
-                    let mut stmt = conn.prepare(
-                        "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?)"
-                    )?;
+        if let Ok(Some(row)) = rows {
+            row.get(0)
+        } else {
+            let row = client.query_one(
+                "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?) RETURNING id"
+                , &[&username, &real_name, &user_id, &"SlackServer"]).await.map_err(|x| x.to_string())?;
+            row.get(0)
+        }
+    };
 
-                    stmt.insert(rs::params![username, real_name, user_id, "SlackServer"])?
-                }
-            };
+    let ts = timestamp.to_rfc3339();
+    let ts = ts.trim_end_matches("+00:00");
 
-            let ts = timestamp.to_rfc3339();
-            let ts = ts.trim_end_matches("+00:00");
-
-            // Insert the reacji into the database
-            let mut stmt = conn.prepare(
-                "INSERT INTO reacji_votes
-                    (voted_at, by_whom_name, action, reacji_message_id, amount, nick_id)
-                VALUES
-                    (?, ?, ?, ?, ?, ?)"
-            )?;
-
-            stmt.insert(rs::params![ts, username, action, message_id, amount, nick_id])?;
-
-            Ok(None)
-        })
-    ).await
+    // Insert the reacji into the database
+    let row = client.query_one(
+        "INSERT INTO reacji_votes
+            (voted_at, by_whom_name, action, reacji_message_id, amount, nick_id)
+        VALUES
+            (?, ?, ?, ?, ?, ?)
+        RETURNING id"
+        , &[&ts, &username, &action, &message_id, &amount, &nick_id]).await.map_err(|x| x.to_string())?;
+    Ok(Some(row.get(0)))
 }

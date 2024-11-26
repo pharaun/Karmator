@@ -146,7 +146,7 @@ where
 
                         // Need to post to the web api
                         event::Reply::Message(msg) => {
-                            cache.post_message(msg).await;
+                            let _ = cache.post_message(msg).await;
                             None
                         },
                     };

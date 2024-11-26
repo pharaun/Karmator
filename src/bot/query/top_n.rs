@@ -1,4 +1,3 @@
-use tokio::sync::mpsc;
 use tokio_postgres::Client;
 use std::sync::Arc;
 

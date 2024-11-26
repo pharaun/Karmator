@@ -1,11 +1,5 @@
-use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration};
-use tokio_stream::wrappers::ReceiverStream;
-
 use std::env;
-use std::path::Path;
 use std::result::Result;
-use std::thread;
 use std::sync::Arc;
 
 use chrono::prelude::{Utc, DateTime};
@@ -15,7 +9,6 @@ use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig as RustlsClientConfig;
 use tokio_postgres_rustls::MakeRustlsConnect;
 
-use karmator_rust::core::database;
 use karmator_rust::core::cache;
 use karmator_rust::core::signal;
 use karmator_rust::core::bot;

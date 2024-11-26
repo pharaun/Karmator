@@ -4,11 +4,16 @@ pub mod ranking;
 pub mod reacji;
 pub mod top_n;
 
-use tokio_postgres::Client;
+use tokio_postgres::types::ToSql;
+use tokio_postgres::types::to_sql_checked;
+use tokio_postgres::types::Type;
+use tokio_postgres::types::IsNull;
+
+use bytes::BytesMut;
 
 use unicase::UniCase;
 use std::fmt;
-use std::sync::Arc;
+use std::error::Error;
 
 use unicode_normalization::{UnicodeNormalization, is_nfc_quick, IsNormalized};
 
@@ -26,7 +31,7 @@ pub fn normalize(input: &str) -> String {
 }
 
 // Custom Type to handle unicase for the query users
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct KarmaName(UniCase<String>);
 
 impl KarmaName {
@@ -42,36 +47,46 @@ impl ToString for KarmaName {
     }
 }
 
-impl rs::ToSql for KarmaName {
-    fn to_sql(&self) -> rs::Result<rs::types::ToSqlOutput<'_>> {
-        Ok(rs::types::ToSqlOutput::from(self.to_string()))
+impl ToSql for KarmaName {
+    fn to_sql(&self, ty: &Type, w: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        self.to_string().to_sql(ty, w);
+        Ok(IsNull::No)
     }
+
+    fn accepts(ty: &Type) -> bool {matches!(*ty, Type::TEXT | Type::VARCHAR)}
+    to_sql_checked!();
 }
 
-impl rs::ToSql for Karma {
-    fn to_sql(&self) -> rs::Result<rs::types::ToSqlOutput<'_>> {
-        Ok(rs::types::ToSqlOutput::from(
-            match self {
-                Karma::Up   => 1,
-                Karma::Down => -1,
-                Karma::Side => 0,
-            }
-        ))
+impl ToSql for Karma {
+    fn to_sql(&self, ty: &Type, w: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        let value: i16 = match *self {
+            Karma::Up   => 1,
+            Karma::Down => -1,
+            Karma::Side => 0,
+        };
+        value.to_sql(ty, w);
+        Ok(IsNull::No)
     }
+
+    fn accepts(ty: &Type) -> bool {matches!(*ty, Type::INT2)}
+    to_sql_checked!();
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum ReacjiAction { Add, Del }
 
-impl rs::ToSql for ReacjiAction {
-    fn to_sql(&self) -> rs::Result<rs::types::ToSqlOutput<'_>> {
-        Ok(rs::types::ToSqlOutput::from(
-            match self {
-                ReacjiAction::Add => 1,
-                ReacjiAction::Del => -1,
-            }
-        ))
+impl ToSql for ReacjiAction {
+    fn to_sql(&self, ty: &Type, w: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        let value: i16 = match *self {
+            ReacjiAction::Add => 1,
+            ReacjiAction::Del => -1,
+        };
+        value.to_sql(ty, w);
+        Ok(IsNull::No)
     }
+
+    fn accepts(ty: &Type) -> bool {matches!(*ty, Type::INT2)}
+    to_sql_checked!();
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -23,7 +23,6 @@ use crate::bot::tz::timezone;
 
 use crate::core::cache;
 use crate::core::command;
-use crate::core::database::Query;
 
 use crate::core::event::ReactionItem;
 use crate::core::event::UserEvent;

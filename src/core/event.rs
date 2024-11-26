@@ -206,7 +206,7 @@ pub async fn process_control_message(
         },
 
         // Reply from our heartbeat ping
-        tungstenite::Message::Pong(x) => {
+        tungstenite::Message::Pong(_) => {
             None
         },
 
