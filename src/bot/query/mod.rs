@@ -8,12 +8,14 @@ use tokio_postgres::types::ToSql;
 use tokio_postgres::types::to_sql_checked;
 use tokio_postgres::types::Type;
 use tokio_postgres::types::IsNull;
+use tokio_postgres::Client;
 
 use bytes::BytesMut;
 
 use unicase::UniCase;
 use std::fmt;
 use std::error::Error;
+use std::sync::Arc;
 
 use unicode_normalization::{UnicodeNormalization, is_nfc_quick, IsNormalized};
 
@@ -49,7 +51,7 @@ impl ToString for KarmaName {
 
 impl ToSql for KarmaName {
     fn to_sql(&self, ty: &Type, w: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-        self.to_string().to_sql(ty, w);
+        self.to_string().to_sql(ty, w)?;
         Ok(IsNull::No)
     }
 
@@ -64,7 +66,7 @@ impl ToSql for Karma {
             Karma::Down => -1,
             Karma::Side => 0,
         };
-        value.to_sql(ty, w);
+        value.to_sql(ty, w)?;
         Ok(IsNull::No)
     }
 
@@ -81,7 +83,7 @@ impl ToSql for ReacjiAction {
             ReacjiAction::Add => 1,
             ReacjiAction::Del => -1,
         };
-        value.to_sql(ty, w);
+        value.to_sql(ty, w)?;
         Ok(IsNull::No)
     }
 
@@ -163,6 +165,43 @@ pub async fn santizer(
             }
 
             safe_text.join("")
+        },
+    }
+}
+
+pub async fn add_nick(
+    client: Arc<Client>,
+    user_id: String,
+    username: KarmaName,
+    real_name: KarmaName,
+) -> Result<i64, Box<dyn Error + Send + Sync>> {
+    let row = client.query_opt("SELECT id FROM nick_metadata WHERE username = $1", &[&user_id]).await?;
+
+    match row {
+        Some(r) => Ok(r.try_get(0)?),
+        None => {
+            let row = client.query_one(
+                "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES ($1, $2, $3, $4) RETURNING id",
+                &[&username, &real_name, &user_id, &"SlackServer"]
+            ).await?;
+            Ok(row.try_get(0)?)
+        },
+    }
+}
+
+pub async fn add_channel(
+    client: Arc<Client>,
+    channel_id: String,
+) -> Result<i64, Box<dyn Error + Send + Sync>> {
+    let row = client.query_opt("SELECT id FROM chan_metadata WHERE channel = $1", &[&channel_id]).await?;
+    match row {
+        Some(r) => Ok(r.try_get(0)?),
+        None => {
+            let row = client.query_one(
+                "INSERT INTO chan_metadata (channel) VALUES ($1) RETURNING id",
+                &[&channel_id]
+            ).await?;
+            Ok(row.try_get(0)?)
         },
     }
 }

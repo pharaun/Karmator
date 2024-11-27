@@ -2,6 +2,7 @@ use tokio_postgres::Client;
 
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::error::Error;
 
 use futures_util::{pin_mut, TryStreamExt};
 
@@ -40,7 +41,7 @@ async fn partial_query(
     client: Arc<Client>,
     karma_col: KarmaCol,
     users: HashSet<KarmaName>,
-) -> Result<Vec<(String, i32, i32, i32)>, String> {
+) -> Result<Vec<(String, i32, i32, i32)>, Box<dyn Error + Send + Sync>> {
     // Hack to insert enough parameterizers into the query
     let p_user = {
         let mut p_user: String = "$1".to_string();
@@ -53,7 +54,7 @@ async fn partial_query(
     let params: Vec<String> = users.iter().map(|x| x.to_string()).collect();
 
     // Maxmium Pain here we go!
-    let mut it = client.query_raw(&query, params).await.map_err(|x| x.to_string())?;
+    let it = client.query_raw(&query, params).await?;
 
     // TODO: figure out how to debug this one
 
@@ -62,11 +63,11 @@ async fn partial_query(
     let mut has: HashSet<KarmaName> = HashSet::new();
 
     pin_mut!(it);
-    while let Some(row) = it.try_next().await.map_err(|x| x.to_string())? {
-        let name: String = row.get(0);
-        let up: i32 = row.get(1);
-        let down: i32 = row.get(2);
-        let side: i32 = row.get(3);
+    while let Some(row) = it.try_next().await? {
+        let name: String = row.try_get(0)?;
+        let up: i32 = row.try_get(1)?;
+        let down: i32 = row.try_get(2)?;
+        let side: i32 = row.try_get(3)?;
 
         has.insert(KarmaName::new(&name));
         ret.push((name, up, down, side));

@@ -11,6 +11,9 @@ use crate::bot::query::KarmaName;
 use crate::bot::query::normalize;
 use crate::bot::user_event::Event;
 
+use crate::bot::query::add_nick;
+use crate::bot::query::add_channel;
+
 
 pub async fn add_karma(
     client: Arc<Client>,
@@ -80,35 +83,12 @@ async fn add_karma_query(
     real_name: KarmaName,
     channel_id: Option<String>,
     karma: Vec<KST>,
-) -> Result<(), Box<dyn Error>> {
-    let nick_id: i64 = {
-        let row = client.query_opt("SELECT id FROM nick_metadata WHERE username = $1", &[&user_id]).await?;
-
-        match row {
-            Some(r) => r.try_get(0),
-            None => {
-                let row = client.query_one(
-                    "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES ($1, $2, $3, $4) RETURNING id",
-                    &[&username, &real_name, &user_id, &"SlackServer"]
-                ).await?;
-
-                row.try_get(0)
-            },
-        }
-    }?;
-
-    let channel_id: Option<i64> = if let Some(cid) = channel_id {
-        let rows = client.query_one("SELECT id FROM chan_metadata WHERE channel = $1", &[&cid]).await;
-
-        if let Ok(row) = rows {
-            row.try_get(0)
-        } else {
-            let row = client.query_one("INSERT INTO chan_metadata (channel) VALUES ($1) RETURNING id", &[&cid]).await?;
-            row.try_get(0)
-        }
-    } else {
-        Ok(None)
-    }?;
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let nick_id: i64 = add_nick(client.clone(), user_id, username.clone(), real_name).await?;
+    let channel_id: Option<i64> = match channel_id {
+        Some(cid) => Some(add_channel(client.clone(), cid).await?),
+        None => None,
+    };
 
     // Shove the karma into the db now
     for KST(karma_text, amount) in karma.iter() {

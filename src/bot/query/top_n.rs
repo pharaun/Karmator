@@ -1,5 +1,6 @@
 use tokio_postgres::Client;
 use std::sync::Arc;
+use std::error::Error;
 
 use crate::bot::query::{KarmaCol, KarmaTyp, OrdQuery};
 use crate::bot::user_event::Event;
@@ -54,21 +55,19 @@ async fn top_n_denormalized(
     karma_typ: KarmaTyp,
     limit: u32,
     ord: OrdQuery
-) -> Result<Vec<(String, i32)>, String> {
+) -> Result<Vec<(String, i32)>, Box<dyn Error + Send + Sync>> {
     let rows = client.query(&format!(
         "SELECT name, {t_col} as total FROM {table} ORDER BY total {q_ord} LIMIT {limit}",
         t_col=karma_typ,
         table=karma_col,
         q_ord=ord,
         limit=limit
-    ), &[]).await.map_err(|x| x.to_string());
-    println!("INFO [Top N]: Query: {:?}", rows);
+    ), &[]).await?;
 
     let mut ret: Vec<(String, i32)> = vec![];
-
-    for row in rows.unwrap() {
-        let name: String = row.get(0);
-        let count: i32 = row.get(1);
+    for row in rows {
+        let name: String = row.try_get(0)?;
+        let count: i32 = row.try_get(1)?;
 
         ret.push((name.clone(), count));
     }
