@@ -42,17 +42,19 @@ pub fn str_to_karma(input: &str) -> Karma {
 
 pub fn reacji_to_karma(input: &str) -> Option<Karma> {
     match input {
-        "++"            => Some(Karma::Up),
-        "++1"           => Some(Karma::Up),
-        "++vert"        => Some(Karma::Up),
-        "plusone"       => Some(Karma::Up),
-        "plus1"         => Some(Karma::Up),
-        "++-inverted"   => Some(Karma::Up),
-        "upvote"        => Some(Karma::Up),
-        "--"            => Some(Karma::Down),
-        "minus1"        => Some(Karma::Down),
-        "downvote"      => Some(Karma::Down),
-        "+-"            => Some(Karma::Side),
-        _               => None,
+        "++"               => Some(Karma::Up),
+        "++1"              => Some(Karma::Up),
+        "++vert"           => Some(Karma::Up),
+        "plusone"          => Some(Karma::Up),
+        "plus1"            => Some(Karma::Up),
+        "++-inverted"      => Some(Karma::Up),
+        "upvote"           => Some(Karma::Up),
+        "heavy_plus_sign"  => Some(Karma::Up),
+        "heavy_minus_sign" => Some(Karma::Down),
+        "--"               => Some(Karma::Down),
+        "minus1"           => Some(Karma::Down),
+        "downvote"         => Some(Karma::Down),
+        "+-"               => Some(Karma::Side),
+        _                  => None,
     }
 }

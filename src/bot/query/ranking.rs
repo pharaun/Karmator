@@ -20,6 +20,7 @@ pub async fn ranking(
         KarmaName::new(target),
     ).await.map(|e| e.map(|c| format!("{}", c)));
 
+
     let total_recieved = count(
         client.clone(),
         KarmaCol::Recieved,
@@ -40,11 +41,37 @@ pub async fn ranking(
     // Formatting the ranks
     let receiving = match (target_recieved, total_recieved) {
         (Ok(Some(r)), Ok(tr)) => Some(format!("{} rank is {} of {} in receiving", label, r, tr)),
+        (Err(a), Err(b)) => {
+            eprintln!("ERROR: [Ranking]: target received - database error {:?}", a);
+            eprintln!("ERROR: [Ranking]: total received - database error {:?}", b);
+            None
+        },
+        (Err(a), _) => {
+            eprintln!("ERROR: [Ranking]: target received - database error {:?}", a);
+            None
+        },
+        (_, Err(b)) => {
+            eprintln!("ERROR: [Ranking]: total received - database error {:?}", b);
+            None
+        },
         _ => None,
     };
 
     let giving = match (target_given, total_given) {
         (Ok(Some(g)), Ok(tg)) => Some(format!("{} rank is {} of {} in giving", label, g, tg)),
+        (Err(a), Err(b)) => {
+            eprintln!("ERROR: [Ranking]: target given - database error {:?}", a);
+            eprintln!("ERROR: [Ranking]: total given - database error {:?}", b);
+            None
+        },
+        (Err(a), _) => {
+            eprintln!("ERROR: [Ranking]: target given - database error {:?}", a);
+            None
+        },
+        (_, Err(b)) => {
+            eprintln!("ERROR: [Ranking]: total given - database error {:?}", b);
+            None
+        },
         _ => None,
     };
 
@@ -63,7 +90,7 @@ async fn ranking_denormalized(
     karma_col: KarmaCol,
     karma_typ: KarmaTyp,
     user: KarmaName
-) -> Result<Option<u32>, Box<dyn Error + Send + Sync>> {
+) -> Result<Option<i64>, Box<dyn Error + Send + Sync>> {
     // Default won't work here, override
     let t_col2 = match karma_typ {
         KarmaTyp::Total => "kcol2.up - kcol2.down",
@@ -87,7 +114,7 @@ async fn ranking_denormalized(
 async fn count(
     client: Arc<Client>,
     karma_col: KarmaCol,
-) -> Result<u32, Box<dyn Error + Send + Sync>> {
+) -> Result<i64, Box<dyn Error + Send + Sync>> {
     Ok(client.query_one(&format!(
         "SELECT COUNT(name) FROM {table}",
         table=karma_col), &[]).await?.try_get(0)?
