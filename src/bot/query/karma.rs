@@ -2,6 +2,7 @@ use chrono::prelude::{Utc, DateTime};
 
 use tokio_postgres::Client;
 use std::sync::Arc;
+use std::error::Error;
 
 use crate::bot::parser::karma::KST;
 use crate::bot::parser::karma;
@@ -40,8 +41,7 @@ pub async fn add_karma(
             if !karma.is_empty() {
                 match (username, user_real_name) {
                     (Some(ud), Some(rn)) => {
-                        // improve error
-                        let _ = add_karma_query(
+                        let res = add_karma_query(
                             client.clone(),
                             Utc::now(),
                             event.user_id.clone(),
@@ -50,6 +50,11 @@ pub async fn add_karma(
                             Some(event.channel_id.clone()),
                             karma
                         ).await;
+
+                        match res {
+                            Ok(_) => (),
+                            Err(x) => eprintln!("ERROR: [User Event] database error - {:?}", x),
+                        }
                     },
                     _ => eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack"),
                 }
@@ -75,49 +80,47 @@ async fn add_karma_query(
     real_name: KarmaName,
     channel_id: Option<String>,
     karma: Vec<KST>,
-) -> Result<(), String> {
+) -> Result<(), Box<dyn Error>> {
     let nick_id: i64 = {
-        let row = client.query_one("SELECT id FROM nick_metadata WHERE username = ?", &[&user_id]).await.map_err(|x| x.to_string());
+        let row = client.query_opt("SELECT id FROM nick_metadata WHERE username = $1", &[&user_id]).await?;
 
         match row {
-            Ok(r) => r.get(0),
-            Err(_) => {
+            Some(r) => r.try_get(0),
+            None => {
                 let row = client.query_one(
-                    "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?) RETURNING id",
+                    "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES ($1, $2, $3, $4) RETURNING id",
                     &[&username, &real_name, &user_id, &"SlackServer"]
-                ).await.map_err(|x| x.to_string())?;
-                row.get(0)
-            }
+                ).await?;
+
+                row.try_get(0)
+            },
         }
-    };
+    }?;
 
     let channel_id: Option<i64> = if let Some(cid) = channel_id {
-        let rows = client.query_one("SELECT id FROM chan_metadata WHERE channel = ?", &[&cid]).await.map_err(|x| x.to_string());
+        let rows = client.query_one("SELECT id FROM chan_metadata WHERE channel = $1", &[&cid]).await;
 
         if let Ok(row) = rows {
-            row.get(0)
+            row.try_get(0)
         } else {
-            let row = client.query_one("INSERT INTO chan_metadata (channel) VALUES (?) RETURNING id", &[&cid]).await.map_err(|x| x.to_string())?;
-            row.get(0)
+            let row = client.query_one("INSERT INTO chan_metadata (channel) VALUES ($1) RETURNING id", &[&cid]).await?;
+            row.try_get(0)
         }
     } else {
-        None
-    };
+        Ok(None)
+    }?;
 
     // Shove the karma into the db now
     for KST(karma_text, amount) in karma.iter() {
-        let ts = timestamp.to_rfc3339();
-        let ts = ts.trim_end_matches("+00:00");
         let karma_text = normalize(karma_text);
 
-        // TODO: better handle failure of username, maybe we should make username
-        // mandatory before inserting?
+        // TODO: better handle failure of username, maybe we should make username mandatory before inserting?
         client.execute(
             "INSERT INTO votes
                 (voted_at, by_whom_name, for_what_name, amount, nick_id, chan_id)
             VALUES
-                (?, ?, ?, ?, ?, ?)"
-            , &[&ts, &username, &karma_text, &amount, &nick_id, &channel_id]).await.map_err(|x| x.to_string())?;
+                ($1, $2, $3, $4, $5, $6)"
+            , &[&timestamp, &username, &karma_text, &amount, &nick_id, &channel_id]).await?;
     }
     Ok(())
 }

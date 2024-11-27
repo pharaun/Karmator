@@ -103,8 +103,9 @@ async fn query_reacji_message(
     let channel_id: Result<i64, String> = {
         let row = client.query_one(
             "SELECT id FROM chan_metadata WHERE channel = $1",
-            &[&channel_id]).await.map_err(|x| x.to_string())?;
-        Ok(row.get(0))
+            &[&channel_id]).await.map_err(|x| x.to_string());
+        println!("INFO [Reacji]: Query: {:?}", row);
+        Ok(row.unwrap().get(0))
     };
 
     match channel_id {
@@ -115,6 +116,7 @@ async fn query_reacji_message(
                 "SELECT id FROM reacji_message WHERE ts = ? AND chan_id = ?"
                 , &[&message_ts, &channel_id]).await.map_err(|x| x.to_string());
 
+            println!("INFO [Reacji]: Query: {:?}", row);
             match row {
                 Ok(r) => Ok(r.get(0)),
                 Err(x) => Err(x),
@@ -138,14 +140,16 @@ async fn add_reacji_message(
         let rows = client.query_opt(
             "SELECT id FROM nick_metadata WHERE username = ?"
             , &[&username]).await.map_err(|x| x.to_string());
+        println!("INFO [Reacji]: Query: {:?}", rows);
 
         if let Ok(Some(row)) = rows {
             row.get(0)
         } else {
             let row = client.query_one(
                 "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES (?, ?, ?, ?) RETURNING id"
-                , &[&username, &real_name, &user_id, &"SlackServer"]).await.map_err(|x| x.to_string())?;
-            row.get(0)
+                , &[&username, &real_name, &user_id, &"SlackServer"]).await.map_err(|x| x.to_string());
+            println!("INFO [Reacji]: Query: {:?}", row);
+            row.unwrap().get(0)
         }
     };
 
@@ -154,13 +158,15 @@ async fn add_reacji_message(
             "SELECT id FROM chan_metadata WHERE channel = ?"
             , &[&channel_id]).await.map_err(|x| x.to_string());
 
+        println!("INFO [Reacji]: Query: {:?}", rows);
         if let Ok(Some(row)) = rows {
             row.get(0)
         } else {
             let row = client.query_one(
                 "INSERT INTO chan_metadata (channel) VALUES (?) RETURNING id"
-                , &[&channel_id]).await.map_err(|x| x.to_string())?;
-            row.get(0)
+                , &[&channel_id]).await.map_err(|x| x.to_string());
+            println!("INFO [Reacji]: Query: {:?}", row);
+            row.unwrap().get(0)
         }
     };
 
@@ -170,6 +176,7 @@ async fn add_reacji_message(
             "SELECT id, nick_id, message FROM reacji_message WHERE ts = ? AND chan_id = ?"
             , &[&message_ts, &channel_id]).await.map_err(|x| x.to_string());
 
+        println!("INFO [Reacji]: Query: {:?}", rows);
         if let Ok(Some(row)) = rows {
             // Compare the 2 and if its not the same, warn in log, otherwise return
             let id = row.get(0);
@@ -190,8 +197,9 @@ async fn add_reacji_message(
         } else {
             let row = client.query_one(
                 "INSERT INTO reacji_message (ts, chan_id, nick_id, message) VALUES (?, ?, ?, ?) RETURNING id"
-                , &[&message_ts, &channel_id, &nick_id, &message]).await.map_err(|x| x.to_string())?;
-            row.get(0)
+                , &[&message_ts, &channel_id, &nick_id, &message]).await.map_err(|x| x.to_string());
+            println!("INFO [Reacji]: Query: {:?}", row);
+            row.unwrap().get(0)
         }
     };
 

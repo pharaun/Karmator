@@ -81,9 +81,11 @@ async fn ranking_denormalized(
             )
         ) ELSE NULL END",
         table=karma_col, t_col1=karma_typ, t_col2=t_col2
-    ), &[&user, &user]).await.map_err(|x| x.to_string())?;
+    ), &[&user, &user]).await.map_err(|x| x.to_string());
 
-    Ok(rows.get(0))
+    println!("INFO [Ranking]: Query: {:?}", rows);
+
+    Ok(rows.unwrap().get(0))
 }
 
 async fn count(
@@ -93,7 +95,8 @@ async fn count(
     let rows = client.query_one(&format!(
         "SELECT COUNT(name) FROM {table}",
         table=karma_col
-    ), &[]).await.map_err(|x| x.to_string())?;
+    ), &[]).await.map_err(|x| x.to_string());
 
-    Ok(rows.get(0))
+    println!("INFO [Ranking]: Query: {:?}", rows);
+    Ok(rows.unwrap().get(0))
 }

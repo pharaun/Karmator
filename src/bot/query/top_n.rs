@@ -61,11 +61,12 @@ async fn top_n_denormalized(
         table=karma_col,
         q_ord=ord,
         limit=limit
-    ), &[]).await.map_err(|x| x.to_string())?;
+    ), &[]).await.map_err(|x| x.to_string());
+    println!("INFO [Top N]: Query: {:?}", rows);
 
     let mut ret: Vec<(String, i32)> = vec![];
 
-    for row in rows {
+    for row in rows.unwrap() {
         let name: String = row.get(0);
         let count: i32 = row.get(1);
 

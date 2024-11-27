@@ -1,10 +1,19 @@
-/* Permission */
-GRANT SELECT, INSERT ON TABLE nick_metadata TO $USER$;
-GRANT SELECT, INSERT ON TABLE chan_metadata TO $USER$;
-GRANT SELECT, INSERT ON TABLE reacji_message TO $USER$;
+\set user ASDF
 
-GRANT INSERT ON TABLE votes TO $USER$;
-GRANT INSERT ON TABLE reacji_votes TO $USER$;
+/* Table */
+GRANT SELECT, INSERT ON TABLE nick_metadata TO :user;
+GRANT SELECT, INSERT ON TABLE chan_metadata TO :user;
+GRANT SELECT, INSERT ON TABLE reacji_message TO :user;
 
-GRANT SELECT ON TABLE karma_given_count TO $USER$;
-GRANT SELECT ON TABLE karma_received_count TO $USER$;
+GRANT SELECT, INSERT ON TABLE votes TO :user;
+GRANT SELECT, INSERT ON TABLE reacji_votes TO :user;
+
+GRANT SELECT, INSERT, UPDATE ON TABLE karma_given_count TO :user;
+GRANT SELECT, INSERT, UPDATE ON TABLE karma_received_count TO :user;
+
+/* Triggers */
+GRANT EXECUTE ON FUNCTION delete_karma_count() TO :user;
+GRANT EXECUTE ON FUNCTION delete_reacji_karma_count() TO :user;
+GRANT EXECUTE ON FUNCTION insert_karma_count() TO :user;
+GRANT EXECUTE ON FUNCTION insert_reacji_karma_count() TO :user;
+
