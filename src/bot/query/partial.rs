@@ -32,7 +32,10 @@ pub async fn partial(
     // TODO: do something here
     let _ = match res {
         Ok(x) => event.send_reply(&x).await,
-        _ => event.send_reply("Something went wrong").await,
+        e => {
+            eprintln!("partial something went wrong - {:?}", e);
+            event.send_reply("Something went wrong").await
+        },
     };
 }
 
@@ -41,7 +44,7 @@ async fn partial_query(
     client: Arc<Client>,
     karma_col: KarmaCol,
     users: HashSet<KarmaName>,
-) -> Result<Vec<(String, i32, i32, i32)>, Box<dyn Error + Send + Sync>> {
+) -> Result<Vec<(String, i64, i64, i64)>, Box<dyn Error + Send + Sync>> {
     // Hack to insert enough parameterizers into the query
     let p_user = {
         let mut p_user: String = "md5(lower($1))".to_string();
@@ -62,15 +65,15 @@ async fn partial_query(
     // TODO: figure out how to debug this one
 
     // A bit more additional work than usual
-    let mut ret: Vec<(String, i32, i32, i32)> = vec![];
+    let mut ret: Vec<(String, i64, i64, i64)> = vec![];
     let mut has: HashSet<KarmaName> = HashSet::new();
 
     pin_mut!(it);
     while let Some(row) = it.try_next().await? {
         let name: String = row.try_get(0)?;
-        let up: i32 = row.try_get(1)?;
-        let down: i32 = row.try_get(2)?;
-        let side: i32 = row.try_get(3)?;
+        let up: i64 = row.try_get(1)?;
+        let down: i64 = row.try_get(2)?;
+        let side: i64 = row.try_get(3)?;
 
         has.insert(KarmaName::new(&name));
         ret.push((name, up, down, side));
