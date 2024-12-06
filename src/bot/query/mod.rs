@@ -104,13 +104,13 @@ impl fmt::Display for OrdQuery {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum KarmaCol { Given, Recieved }
+pub enum KarmaCol { Given, Received }
 
 impl fmt::Display for KarmaCol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             KarmaCol::Given    => write!(f, "karma_given_count"),
-            KarmaCol::Recieved => write!(f, "karma_received_count"),
+            KarmaCol::Received => write!(f, "karma_received_count"),
         }
     }
 }
