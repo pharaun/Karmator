@@ -56,7 +56,7 @@ CREATE OR REPLACE FUNCTION insert_reacji_karma_count() RETURNS trigger AS $inser
             WHERE reacji_message.id = NEW.reacji_message_id;
 
         -- Insert if these records doesn't already exist
-        -- Two entry in karma_recieved_count, one for karma on the message, one for whom sent the message
+        -- Two entry in karma_received_count, one for karma on the message, one for whom sent the message
         INSERT INTO karma_given_count (name) VALUES (NEW.by_whom_name) ON CONFLICT (name) DO NOTHING;
         INSERT INTO karma_received_count (name) VALUES (var_message) ON CONFLICT (name) DO NOTHING;
         INSERT INTO karma_received_count (name) VALUES (var_for_what_name) ON CONFLICT (name) DO NOTHING;

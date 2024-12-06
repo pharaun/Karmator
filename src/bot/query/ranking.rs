@@ -13,17 +13,17 @@ pub async fn ranking(
     target: &str,
     label: &str,
 ) {
-    let target_recieved = ranking_denormalized(
+    let target_received = ranking_denormalized(
         client.clone(),
-        KarmaCol::Recieved,
+        KarmaCol::Received,
         ktyp,
         KarmaName::new(target),
     ).await.map(|e| e.map(|c| format!("{}", c)));
 
 
-    let total_recieved = count(
+    let total_received = count(
         client.clone(),
-        KarmaCol::Recieved,
+        KarmaCol::Received,
     ).await.map(|e| format!("{}", e));
 
     let target_given = ranking_denormalized(
@@ -39,7 +39,7 @@ pub async fn ranking(
     ).await.map(|e| format!("{}", e));
 
     // Formatting the ranks
-    let receiving = match (target_recieved, total_recieved) {
+    let receiving = match (target_received, total_received) {
         (Ok(Some(r)), Ok(tr)) => Some(format!("{} rank is {} of {} in receiving", label, r, tr)),
         (Err(a), Err(b)) => {
             eprintln!("ERROR: [Ranking]: target received - database error {:?}", a);

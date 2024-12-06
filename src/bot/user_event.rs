@@ -204,9 +204,9 @@ pub async fn process_user_message(
                         top_n(
                             &mut event.clone(),
                             client.clone(),
-                            KarmaCol::Recieved,
+                            KarmaCol::Received,
                             OrdQuery::Desc,
-                            KarmaCol::Recieved,
+                            KarmaCol::Received,
                             OrdQuery::Asc,
                             KarmaTyp::Total,
                             ("highest karma", "lowest karma"),
@@ -216,7 +216,7 @@ pub async fn process_user_message(
                         partial(
                             &mut event.clone(),
                             client.clone(),
-                            KarmaCol::Recieved,
+                            KarmaCol::Received,
                             arg,
                         ).await;
                     }
@@ -236,9 +236,9 @@ pub async fn process_user_message(
                                 top_n(
                                     &mut event.clone(),
                                     client.clone(),
-                                    KarmaCol::Recieved,
+                                    KarmaCol::Received,
                                     OrdQuery::Desc,
-                                    KarmaCol::Recieved,
+                                    KarmaCol::Received,
                                     OrdQuery::Asc,
                                     KarmaTyp::Total,
                                     ("\nhighest karma", "\nlowest karma"),
@@ -310,12 +310,12 @@ pub async fn process_user_message(
                         top_n(
                             &mut event.clone(),
                             client.clone(),
-                            KarmaCol::Recieved,
+                            KarmaCol::Received,
                             OrdQuery::Desc,
                             KarmaCol::Given,
                             OrdQuery::Desc,
                             KarmaTyp::Side,
-                            ("most sidevotes recieved", "most sidevotes given"),
+                            ("most sidevotes received", "most sidevotes given"),
                             3u32,
                         ).await;
                     } else {
@@ -337,12 +337,12 @@ pub async fn process_user_message(
                                 top_n(
                                     &mut event.clone(),
                                     client.clone(),
-                                    KarmaCol::Recieved,
+                                    KarmaCol::Received,
                                     OrdQuery::Desc,
                                     KarmaCol::Given,
                                     OrdQuery::Desc,
                                     KarmaTyp::Side,
-                                    ("\nmost sidevotes recieved", "\nmost sidevotes given"),
+                                    ("\nmost sidevotes received", "\nmost sidevotes given"),
                                     lim,
                                 ).await;
                             },

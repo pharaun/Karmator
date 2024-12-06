@@ -186,7 +186,7 @@ pub async fn process_control_message(
     can_send: Arc<AtomicBool>,
     reconnect: Arc<AtomicBool>,
     reconnect_count: Arc<RelaxedCounter>,
-    last_message_recieved: Arc<RwLock<Instant>>,
+    last_message_received: Arc<RwLock<Instant>>,
     msg: tungstenite::Message,
 ) -> Result<Option<UserEvent>, Box<dyn std::error::Error>>
 {
@@ -194,7 +194,7 @@ pub async fn process_control_message(
     let raw_msg = match msg {
         tungstenite::Message::Text(x) => {
             {
-                let mut timer = last_message_recieved.write().unwrap();
+                let mut timer = last_message_received.write().unwrap();
                 *timer = Instant::now();
             }
             Some(x)
@@ -227,14 +227,14 @@ pub async fn process_control_message(
     if let Some(e) = raw_msg.and_then(parse_event) {
         match e {
             Event::Hello {num_connections: _} => {
-                // Hold on sending messages till this is recieved.
+                // Hold on sending messages till this is received.
                 can_send.store(true, Ordering::Relaxed);
                 reconnect_count.reset();
 
                 Ok(None)
             },
             Event::Disconnect {reason: r} => {
-                // When this is recieved, reconnect
+                // When this is received, reconnect
                 reconnect.store(true, Ordering::Relaxed);
                 can_send.store(false, Ordering::Relaxed);
 

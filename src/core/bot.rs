@@ -41,7 +41,7 @@ where
     ) -> (),
     F2: Fn() -> (),
 {
-    // Atomic boolean for ensuring send can't happen till the hello is recieved from slack
+    // Atomic boolean for ensuring send can't happen till the hello is received from slack
     let can_send = Arc::new(AtomicBool::new(false));
 
     // Atomic boolean for exiting and re-establishing the connection
@@ -49,7 +49,7 @@ where
     let reconnect_count = Arc::new(RelaxedCounter::new(0));
 
     // Monotonical clock for heartbeat/ping management
-    let last_message_recieved = Arc::new(RwLock::new(Instant::now()));
+    let last_message_received = Arc::new(RwLock::new(Instant::now()));
     let last_ping_sent = Arc::new(RwLock::new(Instant::now()));
 
     // Interval timers for heartbeat + recurring jobs
@@ -98,7 +98,7 @@ where
                                 can_send.clone(),
                                 reconnect.clone(),
                                 reconnect_count.clone(),
-                                last_message_recieved.clone(),
+                                last_message_received.clone(),
                                 ws_msg,
                             ).await;
 
@@ -173,7 +173,7 @@ where
                     let now = Instant::now();
 
                     let last_message_delta = {
-                        let timer = last_message_recieved.read().unwrap();
+                        let timer = last_message_received.read().unwrap();
                         now.checked_duration_since(*timer)
                     };
 
@@ -186,13 +186,13 @@ where
                     // their timer are *ahead* of the 'now' which is fine, stop checking.
                     match (last_message_delta, last_ping_delta) {
                         (Some(lmd), Some(lpd)) => {
-                            // Check if more than 30s has past since the last slack message recieved
+                            // Check if more than 30s has past since the last slack message received
                             //  - [Yes] Check if more than 30s has past since the send of the last ping
                             //    - [Yes] Send Ping
                             //    - [No] Do nothing
                             //  - [No] Do nothing
                             //
-                            // Check if more than 2m has past since the last slack message recieved
+                            // Check if more than 2m has past since the last slack message received
                             //  - [Yes] Reconnect
                             //  - [No] Do nothing
                             if lmd.as_secs() > 30 {
