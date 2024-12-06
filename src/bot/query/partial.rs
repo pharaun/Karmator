@@ -44,13 +44,16 @@ async fn partial_query(
 ) -> Result<Vec<(String, i32, i32, i32)>, Box<dyn Error + Send + Sync>> {
     // Hack to insert enough parameterizers into the query
     let p_user = {
-        let mut p_user: String = "$1".to_string();
+        let mut p_user: String = "md5(lower($1))".to_string();
         for i in 2..(users.len() + 1) {
-            p_user.push_str(&format!(", ${}", i));
+            p_user.push_str(&format!(", md5(lower(${}))", i));
         }
         p_user
     };
-    let query: String = format!("SELECT name, up, down, side FROM {table} WHERE name in ({p_user}) ORDER BY name DESC", table=karma_col, p_user=p_user);
+    let query: String = format!(
+        "SELECT name, up, down, side FROM {table} WHERE md5(lower(name)) in ({p_user}) ORDER BY name DESC",
+        table=karma_col, p_user=p_user
+    );
     let params: Vec<String> = users.iter().map(|x| x.to_string()).collect();
 
     // Maxmium Pain here we go!

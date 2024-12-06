@@ -99,12 +99,12 @@ async fn ranking_denormalized(
 
     Ok(client.query_one(&format!(
         "SELECT CASE WHEN (
-            EXISTS (SELECT TRUE FROM {table} WHERE name = $1)
+            EXISTS (SELECT TRUE FROM {table} WHERE md5(lower(name)) = md5(lower($1)))
         ) THEN (
             SELECT (COUNT(name) + 1) FROM {table} WHERE (
                 {t_col1}
             ) > (
-                SELECT ({t_col2}) FROM {table} AS kcol2 WHERE kcol2.name = $1
+                SELECT ({t_col2}) FROM {table} AS kcol2 WHERE md5(lower(kcol2.name)) = md5(lower($1))
             )
         ) ELSE NULL END",
         table=karma_col, t_col1=karma_typ, t_col2=t_col2), &[&user]).await?.try_get(0)?
