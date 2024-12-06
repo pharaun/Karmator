@@ -12,8 +12,9 @@ CREATE OR REPLACE FUNCTION insert_karma_count() RETURNS trigger AS $insert_karma
         ELSIF NEW.amount = -1 THEN col := 'down';
         END IF;
 
-        EXECUTE format('UPDATE karma_given_count SET %I = %I + 1 WHERE name = $1', col, col) USING NEW.by_whom_name;
-        EXECUTE format('UPDATE karma_received_count SET %I = %I + 1 WHERE name = $1', col, col) USING NEW.for_what_name;
+        -- Due to the md5(lower(name)) index, we need to query like this here
+        EXECUTE format('UPDATE karma_given_count SET %I = %I + 1 WHERE md5(lower(name)) = md5(lower($1))', col, col) USING NEW.by_whom_name;
+        EXECUTE format('UPDATE karma_received_count SET %I = %I + 1 WHERE md5(lower(name)) = md5(lower($1))', col, col) USING NEW.for_what_name;
 
         RETURN NULL; -- Result is ignored since its an AFTER trigger
     END;
@@ -29,8 +30,9 @@ CREATE OR REPLACE FUNCTION delete_karma_count() RETURNS trigger AS $delete_karma
         ELSIF OLD.amount = -1 THEN col := 'down';
         END IF;
 
-        EXECUTE format('UPDATE karma_given_count SET %I = %I - 1 WHERE name = $1', col, col) USING OLD.by_whom_name;
-        EXECUTE format('UPDATE karma_received_count SET %I = %I - 1 WHERE name = $1', col, col) USING OLD.for_what_name;
+        -- Due to the md5(lower(name)) index, we need to query like this here
+        EXECUTE format('UPDATE karma_given_count SET %I = %I - 1 WHERE md5(lower(name)) = md5(lower($1))', col, col) USING OLD.by_whom_name;
+        EXECUTE format('UPDATE karma_received_count SET %I = %I - 1 WHERE md5(lower(name)) = md5(lower($1))', col, col) USING OLD.for_what_name;
 
         RETURN NULL; -- Result is ignored since its an AFTER trigger
     END;
@@ -67,9 +69,10 @@ CREATE OR REPLACE FUNCTION insert_reacji_karma_count() RETURNS trigger AS $inser
         ELSIF NEW.amount = -1 THEN col := 'down';
         END IF;
 
-        EXECUTE format('UPDATE karma_given_count SET %I = %I + $1 WHERE name = $2', col, col) USING NEW.action, NEW.by_whom_name;
-        EXECUTE format('UPDATE karma_received_count SET %I = %I + $1 WHERE name = $2', col, col) USING NEW.action, var_message;
-        EXECUTE format('UPDATE karma_received_count SET %I = %I + $1 WHERE name = $2', col, col) USING NEW.action, var_for_what_name;
+        -- Due to the md5(lower(name)) index, we need to query like this here
+        EXECUTE format('UPDATE karma_given_count SET %I = %I + $1 WHERE md5(lower(name)) = md5(lower($2))', col, col) USING NEW.action, NEW.by_whom_name;
+        EXECUTE format('UPDATE karma_received_count SET %I = %I + $1 WHERE md5(lower(name)) = md5(lower($2))', col, col) USING NEW.action, var_message;
+        EXECUTE format('UPDATE karma_received_count SET %I = %I + $1 WHERE md5(lower(name)) = md5(lower($2))', col, col) USING NEW.action, var_for_what_name;
 
         RETURN NULL; -- Result is ignored since its an AFTER trigger
     END;
@@ -88,15 +91,16 @@ CREATE OR REPLACE FUNCTION delete_reacji_karma_count() RETURNS trigger AS $delet
 
         -- Handle which column to update depending on the amount
         -- 1 = upvote, -1 = downvote, 0 = sidevote
-        -- Be clever because action: 1 = add, -1 = remove so we can just add action here
+        -- Be clever because action: 1 = add, -1 = remove so we can just sub action here
         if OLD.amount = 0 THEN col := 'side';
         ELSIF OLD.amount = 1 THEN col := 'up';
         ELSIF OLD.amount = -1 THEN col := 'down';
         END IF;
 
-        EXECUTE format('UPDATE karma_given_count SET %I = %I - $1 WHERE name = $2', col, col) USING OLD.action, OLD.by_whom_name;
-        EXECUTE format('UPDATE karma_received_count SET %I = %I - $1 WHERE name = $2', col, col) USING OLD.action, var_message;
-        EXECUTE format('UPDATE karma_received_count SET %I = %I - $1 WHERE name = $2', col, col) USING OLD.action, var_for_what_name;
+        -- Due to the md5(lower(name)) index, we need to query like this here
+        EXECUTE format('UPDATE karma_given_count SET %I = %I - $1 WHERE md5(lower(name)) = md5(lower($2))', col, col) USING OLD.action, OLD.by_whom_name;
+        EXECUTE format('UPDATE karma_received_count SET %I = %I - $1 WHERE md5(lower(name)) = md5(lower($2))', col, col) USING OLD.action, var_message;
+        EXECUTE format('UPDATE karma_received_count SET %I = %I - $1 WHERE md5(lower(name)) = md5(lower($2))', col, col) USING OLD.action, var_for_what_name;
 
         RETURN NULL; -- Result is ignored since its an AFTER trigger
     END;
