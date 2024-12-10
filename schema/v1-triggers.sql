@@ -2,8 +2,8 @@ CREATE OR REPLACE FUNCTION insert_karma_count() RETURNS trigger AS $insert_karma
     DECLARE col text;
     BEGIN
         -- Insert if these records doesn't already exist
-        INSERT INTO karma_given_count (name) VALUES (NEW.by_whom_name) ON CONFLICT (name) DO NOTHING;
-        INSERT INTO karma_received_count (name) VALUES (NEW.for_what_name) ON CONFLICT (name) DO NOTHING;
+        INSERT INTO karma_given_count (name) VALUES (NEW.by_whom_name) ON CONFLICT (md5(lower(name))) DO NOTHING;
+        INSERT INTO karma_received_count (name) VALUES (NEW.for_what_name) ON CONFLICT (md5(lower(name))) DO NOTHING;
 
         -- Handle which column to update depending on the amount
         -- 1 = upvote, -1 = downvote, 0 = sidevote
@@ -57,9 +57,9 @@ CREATE OR REPLACE FUNCTION insert_reacji_karma_count() RETURNS trigger AS $inser
 
         -- Insert if these records doesn't already exist
         -- Two entry in karma_received_count, one for karma on the message, one for whom sent the message
-        INSERT INTO karma_given_count (name) VALUES (NEW.by_whom_name) ON CONFLICT (name) DO NOTHING;
-        INSERT INTO karma_received_count (name) VALUES (var_message) ON CONFLICT (name) DO NOTHING;
-        INSERT INTO karma_received_count (name) VALUES (var_for_what_name) ON CONFLICT (name) DO NOTHING;
+        INSERT INTO karma_given_count (name) VALUES (NEW.by_whom_name) ON CONFLICT (md5(lower(name))) DO NOTHING;
+        INSERT INTO karma_received_count (name) VALUES (var_message) ON CONFLICT (md5(lower(name))) DO NOTHING;
+        INSERT INTO karma_received_count (name) VALUES (var_for_what_name) ON CONFLICT (md5(lower(name))) DO NOTHING;
 
         -- Handle which column to update depending on the amount
         -- 1 = upvote, -1 = downvote, 0 = sidevote
