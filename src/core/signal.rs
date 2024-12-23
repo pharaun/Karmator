@@ -1,6 +1,6 @@
 use tokio::sync::watch;
 
-use log::{trace, debug, info, warn, error};
+use log::info;
 
 #[cfg(windows)]
 use tokio::signal;
@@ -23,7 +23,7 @@ pub struct Signal {
 
 impl Signal {
     pub fn new() -> (watch::Sender<bool>, Signal) {
-        println!("INFO [Ctrl-c listener]: installed");
+        info!("Signal installed");
         let (tx, rx) = watch::channel(false);
 
         (tx, Signal {

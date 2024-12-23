@@ -26,7 +26,6 @@ use nom::{
   },
 };
 use std::fmt;
-use log::{trace, debug, info, warn, error};
 
 
 #[derive(Debug, PartialEq)]

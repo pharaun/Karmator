@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bot_token = env::var("SLACK_BOT_TOKEN").map_err(|_| "SLACK_BOT_TOKEN env var must be set")?;
 
     // System slack client manager
-    let slack = slack::Client::new("https://slack.com/api", &app_token, &bot_token);
+    let slack = slack::Client::new("https://slack.com/api", &app_token, &bot_token, 50);
 
     // Shutdown Signal
     let (sql_shutdown_tx, signal) = signal::Signal::new();

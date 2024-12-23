@@ -6,10 +6,8 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use anyhow::Result as AResult;
-use log::{trace, debug, info, warn, error};
 
-// TODO: look at some sort of lru or persist this to sqlite instead?
-use dashmap::DashMap;
+use quick_cache::sync::Cache;
 
 use crate::core::event::Message;
 
@@ -29,7 +27,7 @@ impl HttpSender for ReqwestSender {
 #[derive(Clone)]
 pub struct Client<S: HttpSender=ReqwestSender> {
     url: String,
-    user_cache: Arc<DashMap<String, User>>,
+    user_cache: Arc<Cache<String, User>>,
     app_token: String,
     bot_token: String,
     client: reqwest::Client,
@@ -95,10 +93,10 @@ pub enum ConversationHistoryMessage {
 }
 
 impl Client<ReqwestSender> {
-    pub fn new(url: &str, app_token: &str, bot_token: &str) -> Client {
+    pub fn new(url: &str, app_token: &str, bot_token: &str, capacity: usize) -> Client {
         Client {
             url: url.to_string(),
-            user_cache: Arc::new(DashMap::new()),
+            user_cache: Arc::new(Cache::new(capacity)),
             app_token: app_token.to_string(),
             bot_token: bot_token.to_string(),
             client: reqwest::Client::new(),
@@ -108,10 +106,10 @@ impl Client<ReqwestSender> {
 }
 
 impl<S: HttpSender> Client<S> {
-    pub fn with_sender(sender: S, url: &str, app_token: &str, bot_token: &str) -> Client<S> {
+    pub fn with_sender(sender: S, url: &str, app_token: &str, bot_token: &str, capacity: usize) -> Client<S> {
         Client {
             url: url.to_string(),
-            user_cache: Arc::new(DashMap::new()),
+            user_cache: Arc::new(Cache::new(capacity)),
             app_token: app_token.to_string(),
             bot_token: bot_token.to_string(),
             client: reqwest::Client::new(),
@@ -130,8 +128,6 @@ impl<S: HttpSender> Client<S> {
                 .header("Content-type", "application/x-www-form-urlencoded")
                 .header("Authorization", format!("Bearer {}", self.app_token))
             ).await?.json::<Conn>().await?;
-
-        println!("Socket Url: {:?}", conn);
 
         Ok(if debug {
             format!("{}&debug_reconnects=true", conn.url)
@@ -152,6 +148,7 @@ impl<S: HttpSender> Client<S> {
             ).await
     }
 
+    // TODO: improve the error handling of these, since the api call can fail
     pub async fn is_user_bot(&self, user_id: &str) -> Option<bool> {
         let user = self.get_user(user_id).await;
         user.unwrap().map(|u| u.is_bot)
@@ -173,10 +170,12 @@ impl<S: HttpSender> Client<S> {
     }
 
     async fn get_user(&self, user_id: &str) -> AResult<Option<User>> {
-        let ud = self.user_cache.get(user_id);
-        match ud {
-            Some(ud) => Ok(Some(ud.clone())),
-            None     => {
+        self.user_cache.get_or_insert_async(
+            user_id,
+            async {
+                // TODO: handle the case when a user does not exist:
+                // {"ok": false, "error": "user_not_found"}
+                // Map this to a None result
                 let url = self.get_slack_url_for_method("users.info");
                 let user = self.sender.send(
                     self.client.get(url)
@@ -185,7 +184,7 @@ impl<S: HttpSender> Client<S> {
                         .query(&vec![("user", &user_id)])
                     ).await?.json::<UserWrap>().await.map(|uw| uw.user)?;
 
-                let user = User {
+                Ok(User {
                     display_name: user.name,
                     real_name: user.real_name,
                     is_bot: user.is_bot,
@@ -194,12 +193,9 @@ impl<S: HttpSender> Client<S> {
                         tz: user.tz,
                         offset: user.tz_offset as i64,
                     },
-                };
-
-                self.user_cache.insert(user_id.to_string(), user.clone());
-                Ok(Some(user))
-            },
-        }
+                })
+            }
+        ).await.map(|u| Some(u))
     }
 
     pub async fn get_message(
@@ -243,7 +239,7 @@ mod test_slack_client {
 
     fn client_response(status: u16, body: &'static str) -> Client<FakeSender> {
         let sender = FakeSender(status, body);
-        Client::with_sender(sender, "http://localhost/api", "app_token", "bot_token")
+        Client::with_sender(sender, "http://localhost/api", "app_token", "bot_token", 10)
     }
 
     struct PanicSender;
@@ -254,7 +250,7 @@ mod test_slack_client {
     }
 
     fn panic_response() -> Client<PanicSender> {
-        Client::with_sender(PanicSender, "http://localhost/api", "app_token", "bot_token")
+        Client::with_sender(PanicSender, "http://localhost/api", "app_token", "bot_token", 10)
     }
 
     #[tokio::test]
