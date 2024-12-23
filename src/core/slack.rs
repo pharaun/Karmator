@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use anyhow::Result as AResult;
+use log::{trace, debug, info, warn, error};
 
 // TODO: look at some sort of lru or persist this to sqlite instead?
 use dashmap::DashMap;
@@ -26,7 +27,7 @@ impl HttpSender for ReqwestSender {
 }
 
 #[derive(Clone)]
-pub struct Cache<S: HttpSender=ReqwestSender> {
+pub struct Client<S: HttpSender=ReqwestSender> {
     url: String,
     user_cache: Arc<DashMap<String, User>>,
     app_token: String,
@@ -93,9 +94,9 @@ pub enum ConversationHistoryMessage {
     },
 }
 
-impl Cache<ReqwestSender> {
-    pub fn new(url: &str, app_token: &str, bot_token: &str) -> Cache {
-        Cache {
+impl Client<ReqwestSender> {
+    pub fn new(url: &str, app_token: &str, bot_token: &str) -> Client {
+        Client {
             url: url.to_string(),
             user_cache: Arc::new(DashMap::new()),
             app_token: app_token.to_string(),
@@ -106,9 +107,9 @@ impl Cache<ReqwestSender> {
     }
 }
 
-impl<S: HttpSender> Cache<S> {
-    pub fn with_sender(sender: S, url: &str, app_token: &str, bot_token: &str) -> Cache<S> {
-        Cache {
+impl<S: HttpSender> Client<S> {
+    pub fn with_sender(sender: S, url: &str, app_token: &str, bot_token: &str) -> Client<S> {
+        Client {
             url: url.to_string(),
             user_cache: Arc::new(DashMap::new()),
             app_token: app_token.to_string(),
@@ -229,7 +230,7 @@ impl<S: HttpSender> Cache<S> {
 }
 
 #[cfg(test)]
-mod test_cache {
+mod test_slack_client {
     use http::response;
     use super::*;
 
@@ -240,9 +241,9 @@ mod test_cache {
         }
     }
 
-    fn cache_response(status: u16, body: &'static str) -> Cache<FakeSender> {
+    fn client_response(status: u16, body: &'static str) -> Client<FakeSender> {
         let sender = FakeSender(status, body);
-        Cache::with_sender(sender, "http://localhost/api", "app_token", "bot_token")
+        Client::with_sender(sender, "http://localhost/api", "app_token", "bot_token")
     }
 
     struct PanicSender;
@@ -252,24 +253,24 @@ mod test_cache {
         }
     }
 
-    fn panic_response() -> Cache<PanicSender> {
-        Cache::with_sender(PanicSender, "http://localhost/api", "app_token", "bot_token")
+    fn panic_response() -> Client<PanicSender> {
+        Client::with_sender(PanicSender, "http://localhost/api", "app_token", "bot_token")
     }
 
     #[tokio::test]
     async fn test_socket_connect() {
-        let cache = cache_response(200, r#"{
+        let client = client_response(200, r#"{
             "ok": true,
             "url": "http://localhost/websocket"
         }"#);
-        let result = cache.socket_connect(false).await;
+        let result = client.socket_connect(false).await;
 
         assert_eq!(result.unwrap(), "http://localhost/websocket");
     }
 
     #[tokio::test]
     async fn test_one_message() {
-        let cache = cache_response(200, r#"{
+        let client = client_response(200, r#"{
             "ok": true,
             "messages": [{
                 "type": "message",
@@ -277,7 +278,7 @@ mod test_cache {
                 "user": "userId"
             }]
         }"#);
-        let result = cache.get_message("whatever", "whenever").await;
+        let result = client.get_message("whatever", "whenever").await;
 
         assert_eq!(
             result.unwrap(),
@@ -287,7 +288,7 @@ mod test_cache {
 
     #[tokio::test]
     async fn test_two_message() {
-        let cache = cache_response(200, r#"{
+        let client = client_response(200, r#"{
             "ok": true,
             "messages": [{
                 "type": "message",
@@ -298,7 +299,7 @@ mod test_cache {
                 "text": "Two"
             }]
         }"#);
-        let result = cache.get_message("whatever", "whenever").await;
+        let result = client.get_message("whatever", "whenever").await;
 
         assert!(result.is_err());
     }
@@ -306,13 +307,13 @@ mod test_cache {
     #[tokio::test]
     #[should_panic]
     async fn test_get_user_verify_panic() {
-        let cache = panic_response();
-        let _ = cache.get_user("whoever").await;
+        let client = panic_response();
+        let _ = client.get_user("whoever").await;
     }
 
     #[tokio::test]
     async fn test_get_user_in_cache() {
-        let cache = panic_response();
+        let client = panic_response();
 
         // Insert user into cache
         let user = User {
@@ -321,9 +322,9 @@ mod test_cache {
             is_bot: false,
             timezone: Timezone { label: "Den".into(), tz: "MST".into(), offset: 1234 }
         };
-        cache.user_cache.insert("whoever".into(), user.clone());
+        client.user_cache.insert("whoever".into(), user.clone());
 
-        let result = cache.get_user("whoever").await;
+        let result = client.get_user("whoever").await;
 
         assert_eq!(
             result.unwrap(),
@@ -333,7 +334,7 @@ mod test_cache {
 
     #[tokio::test]
     async fn test_get_user_not_in_cache() {
-        let cache = cache_response(200, r#"{
+        let client = client_response(200, r#"{
             "ok": true,
             "user": {
                 "name": "dn",
@@ -344,7 +345,7 @@ mod test_cache {
                 "tz_offset": 1234
             }
         }"#);
-        let result = cache.get_user("whoever").await;
+        let result = client.get_user("whoever").await;
 
         let user = User {
             display_name: "dn".into(),
@@ -355,7 +356,7 @@ mod test_cache {
 
         assert_eq!(result.unwrap(), Some(user.clone()));
 
-        let ud = cache.user_cache.get("whoever");
+        let ud = client.user_cache.get("whoever");
         match ud {
             Some(ud) => assert_eq!(ud.clone(), user),
             None => panic!("Should have been in the cache"),

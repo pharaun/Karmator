@@ -20,7 +20,7 @@ use std::sync::Arc;
 use unicode_normalization::{UnicodeNormalization, is_nfc_quick, IsNormalized};
 
 use crate::bot::parser::karma::Karma;
-use crate::core::cache;
+use crate::core::slack;
 use crate::core::santizer;
 
 
@@ -129,7 +129,7 @@ impl fmt::Display for KarmaTyp {
 
 pub async fn santizer(
     input: &str,
-    cache: &cache::Cache,
+    slack: &slack::Client,
 ) -> String {
     match santizer::parse(input).ok() {
         None      => {
@@ -146,7 +146,7 @@ pub async fn santizer(
                 match seg {
                     santizer::Segment::User(uid, l) => {
                         // Do a user id lookup
-                        let username = cache.get_username(&uid).await;
+                        let username = slack.get_username(&uid).await;
 
                         match username {
                             Some(name) => safe_text.push(name),

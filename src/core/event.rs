@@ -13,6 +13,8 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Instant;
 
+use log::{trace, debug, info, warn, error};
+
 use tokio::sync::mpsc;
 
 use crate::core::santizer;

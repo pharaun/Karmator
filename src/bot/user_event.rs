@@ -2,12 +2,8 @@ use tokio::sync::mpsc;
 
 use tokio_postgres::Client;
 
-use chrono::prelude::{Utc, DateTime};
-use humantime::format_duration;
-
 use std::result::Result;
 use std::str::FromStr;
-use std::time::Duration;
 use std::sync::Arc;
 
 use crate::bot::build_info;
@@ -21,7 +17,7 @@ use crate::bot::query::top_n::top_n;
 use crate::bot::query::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
 use crate::bot::tz::timezone;
 
-use crate::core::cache;
+use crate::core::slack;
 use crate::core::command;
 
 use crate::core::event::ReactionItem;
@@ -33,7 +29,7 @@ use crate::core::event::send_simple_message;
 #[derive(Clone)]
 pub struct Event {
     // Bot Data
-    cache: cache::Cache,
+    slack: slack::Client,
     tx: mpsc::Sender<Reply>,
 
     // User Data
@@ -45,7 +41,7 @@ pub struct Event {
 
 impl Event {
     async fn is_user_bot(&self) -> bool {
-        match self.cache.is_user_bot(&self.user_id).await {
+        match self.slack.is_user_bot(&self.user_id).await {
             None => {
                 eprintln!("ERROR [User Event]: No info on user: {:?}", &self.user_id);
 
@@ -63,8 +59,8 @@ impl Event {
         }
     }
 
-    pub async fn get_user_tz(&self) -> Option<cache::Timezone> {
-        self.cache.get_user_tz(&self.user_id).await
+    pub async fn get_user_tz(&self) -> Option<slack::Timezone> {
+        self.slack.get_user_tz(&self.user_id).await
     }
 
     pub async fn get_username(&self) -> Option<String> {
@@ -72,7 +68,7 @@ impl Event {
     }
 
     pub async fn get_other_username(&self, user_id: &str) -> Option<String> {
-        self.cache.get_username(user_id).await
+        self.slack.get_username(user_id).await
     }
 
     pub async fn get_user_real_name(&self) -> Option<String> {
@@ -80,7 +76,7 @@ impl Event {
     }
 
     pub async fn get_other_user_real_name(&self, user_id: &str) -> Option<String> {
-        self.cache.get_user_real_name(user_id).await
+        self.slack.get_user_real_name(user_id).await
     }
 
     // TODO: to support an existing bug, this will return the message's owner user_id
@@ -88,12 +84,12 @@ impl Event {
         match &self.thread_ts {
             None => Err("No timestamp set for reacji event!".to_string()),
             Some(ts) => {
-                match self.cache.get_message(&self.channel_id, &ts).await {
-                    Ok(Some(cache::ConversationHistoryMessage::Message { text, user_id: Some(user_id) })) => {
+                match self.slack.get_message(&self.channel_id, &ts).await {
+                    Ok(Some(slack::ConversationHistoryMessage::Message { text, user_id: Some(user_id) })) => {
                         self.text = Some(text);
                         Ok(user_id)
                     },
-                    Ok(Some(cache::ConversationHistoryMessage::Message { text: _, user_id: None })) => {
+                    Ok(Some(slack::ConversationHistoryMessage::Message { text: _, user_id: None })) => {
                         Err("Slack failed to give a owner for this message".to_string())
                     },
                     e => Err(format!("ERROR: [User Event] IDK here: {:?}", e)),
@@ -116,7 +112,7 @@ impl Event {
     pub async fn santize(&self) -> String {
         match &self.text {
             None => "".to_string(),
-            Some(text) => santizer(text, &self.cache).await,
+            Some(text) => santizer(text, &self.slack).await,
         }
     }
 
@@ -130,9 +126,8 @@ pub async fn process_user_message(
     msg: UserEvent,
     tx: mpsc::Sender<Reply>,
     client: Arc<Client>,
-    start_time: DateTime<Utc>,
-    cache: cache::Cache,
-) -> Result<(), Box<dyn std::error::Error>> {
+    slack: slack::Client,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Check if its a message/certain string, if so, reply
     match msg {
         UserEvent::Message {
@@ -146,7 +141,7 @@ pub async fn process_user_message(
         } => {
             let mut event = Event {
                 // Bot data
-                cache, tx,
+                slack, tx,
                 // User data
                 channel_id, user_id, thread_ts, text: Some(text)
             };
@@ -173,12 +168,8 @@ pub async fn process_user_message(
                     ).await;
                 },
 
-                Ok(command::Command("uptime", _)) => {
-                    let end_time: DateTime<Utc> = Utc::now();
-                    let durt = end_time.signed_duration_since(start_time).to_std().unwrap_or(
-                        Duration::from_secs(3122064000));
-
-                    event.send_reply(&format_duration(durt).to_string()).await;
+                Ok(command::Command("PING", _)) => {
+                    event.send_reply("PONG").await;
                 },
 
                 Ok(command::Command("help", _)) => {
@@ -437,7 +428,7 @@ pub async fn process_user_message(
         } => {
             let mut event = Event {
                 // Bot data
-                cache, tx,
+                slack, tx,
                 // User data
                 channel_id, user_id, thread_ts: Some(ts), text: None
             };
@@ -462,7 +453,7 @@ pub async fn process_user_message(
         } => {
             let mut event = Event {
                 // Bot data
-                cache, tx,
+                slack, tx,
                 // User data
                 channel_id, user_id, thread_ts: Some(ts), text: None
             };

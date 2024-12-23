@@ -1,5 +1,7 @@
 use tokio::sync::watch;
 
+use log::{trace, debug, info, warn, error};
+
 #[cfg(windows)]
 use tokio::signal;
 

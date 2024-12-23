@@ -9,6 +9,8 @@ use tokio::time::MissedTickBehavior;
 
 use serde_json::json;
 
+use log::{debug, info, warn, error};
+
 use atomic_counter::AtomicCounter;
 use atomic_counter::RelaxedCounter;
 use std::sync::atomic::AtomicBool;
@@ -20,16 +22,13 @@ use std::sync::RwLock;
 use std::time::Duration;
 use std::time::Instant;
 
-use crate::core::cache;
+use crate::core::slack;
 use crate::core::event;
 use crate::core::signal;
 
 
-//********************
-// Core Bot event loop
-//********************
 pub async fn default_event_loop<F1>(
-    cache: cache::Cache,
+    slack: slack::Client,
     mut signal: signal::Signal,
     user_event_listener: F1,
 ) -> Result<(), Box<dyn std::error::Error>>
@@ -50,11 +49,9 @@ where
     let last_message_received = Arc::new(RwLock::new(Instant::now()));
     let last_ping_sent = Arc::new(RwLock::new(Instant::now()));
 
-    // Interval timers for heartbeat + recurring jobs
+    // Interval timers for heartbeat
     let mut heartbeat = time::interval(time::Duration::from_secs(1));
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    let mut recurring = time::interval(time::Duration::from_secs(60 * 5));
-    recurring.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     // Message Tx/Rx from the message loop to the downstream handlers
     let (tx, mut rx) = mpsc::channel(32);
@@ -62,10 +59,10 @@ where
     // Main server loop, exit if the database dies
     while !signal.should_shutdown() {
         // Work to establish the WS connection
-        let ws_url = cache.socket_connect(false).await?;
+        let ws_url = slack.socket_connect(false).await?;
 
-        let (ws_stream, _) = connect_async(ws_url).await.map_err(|e| format!("Control - \t\t{:?}", e))?;
-        println!("SYSTEM [Slack Socket]: Websocket connection established");
+        let (ws_stream, _) = connect_async(ws_url).await?;
+        info!("Slack Websocket - connection established");
 
         // Split the stream
         let (mut ws_write, mut ws_read) = ws_stream.split();
@@ -79,45 +76,34 @@ where
         while !reconnect.load(Ordering::Relaxed) && !signal.should_shutdown() {
             tokio::select! {
                 // Listens for shutdown signals from the system or the database
-                _ = signal.shutdown() => (),
+                _ = signal.shutdown() => info!("Shutdown signal received"),
 
                 ws_msg = ws_read.next() => {
                     match ws_msg {
                         Some(Ok(ws_msg)) => {
-                            // TODO: we may have some ordering funnyness if we spawn a processor per
-                            // inbound message, ponder doing one processor per channel so its consistent
-                            // order per channel, if want to be intelligent about it, have a timeout, if a
-                            // channel has been quiet long enough, go ahead and shut down the channel processor.
-                            //
-                            // TODO: this could explode if the outstream or database get backed up it will just
-                            // spawn more and more inbound message, not good.
-                            let ue = event::process_control_message(
+                            match event::process_control_message(
                                 tx.clone(),
                                 can_send.clone(),
                                 reconnect.clone(),
                                 reconnect_count.clone(),
                                 last_message_received.clone(),
                                 ws_msg,
-                            ).await;
-
-                            // If there's an user event returned spawn off the user event processor
-                            if let Ok(Some(event)) = ue {
-                                // TODO: should handle error here and listen
-                                user_event_listener(
-                                    event,
-                                    tx.clone()
-                                );
+                            ).await {
+                                // If there's an user event returned spawn off the user event processor
+                                Ok(Some(event)) => user_event_listener(event, tx.clone()),
+                                Err(e) => error!("process_control_message error: {:?}", e),
+                                _ => (),
                             }
                         },
                         Some(Err(e)) => {
-                            eprintln!("SYSTEM [Slack Socket]: Connection error: {:?}", e);
+                            error!("Slack Websocket - Connection error: {:?}", e);
                             reconnect.store(true, Ordering::Relaxed);
                             can_send.store(false, Ordering::Relaxed);
                         },
 
                         // Stream is done/closed
                         None => {
-                            println!("SYSTEM [Slack Socket]: Stream closed, reconnecting");
+                            warn!("Slack Websocket - Stream closed, reconnecting");
                             reconnect.store(true, Ordering::Relaxed);
                             can_send.store(false, Ordering::Relaxed);
                         },
@@ -130,36 +116,24 @@ where
                 // gracefully drain the rx queue before exiting
                 Some(message) = rx.recv(), if can_send.load(Ordering::Relaxed) => {
                     // Convert this to a string json message to feed into the stream
-                    let ws_message = match message {
-                        event::Reply::Pong(x) => Some(tungstenite::Message::Pong(x)),
-                        event::Reply::Ping(x) => Some(tungstenite::Message::Ping(x)),
-
-                        // Can send this over the socket
-                        event::Reply::Acknowledge(envelope_id) => {
-                            let ws_msg = json!({
-                                "envelope_id": envelope_id,
-                            }).to_string();
-                            Some(tungstenite::Message::from(ws_msg))
-                        },
-
-                        // Need to post to the web api
+                    if let Err(e) = match message {
+                        event::Reply::Pong(x) => ws_write.send(tungstenite::Message::Pong(x)).await,
+                        event::Reply::Ping(x) => ws_write.send(tungstenite::Message::Ping(x)).await,
+                        event::Reply::Acknowledge(envelope_id) => ws_write.send(tungstenite::Message::from(
+                            json!({
+                                "envelope_id": envelope_id
+                            }).to_string())
+                        ).await,
                         event::Reply::Message(msg) => {
-                            let _ = cache.post_message(msg).await;
-                            None
+                            // Need to post to the web api
+                            // TODO: improve error handling here
+                            let _ = slack.post_message(msg).await;
+                            Ok(())
                         },
-                    };
-                    match ws_message {
-                        None => (),
-                        Some(ws_msg) => {
-                            match ws_write.send(ws_msg).await {
-                                Ok(_) => (),
-                                Err(e) => {
-                                    eprintln!("SYSTEM [Slack Socket]: Connection error: {:?}", e);
-                                    reconnect.store(true, Ordering::Relaxed);
-                                    can_send.store(false, Ordering::Relaxed);
-                                },
-                            }
-                        },
+                    } {
+                        error!("Slack Websocket - Connection error: {:?}", e);
+                        reconnect.store(true, Ordering::Relaxed);
+                        can_send.store(false, Ordering::Relaxed);
                     }
                 },
 
@@ -192,17 +166,19 @@ where
                             //  - [No] Do nothing
                             if lmd.as_secs() > 30 {
                                 if lpd.as_secs() > 30 {
-                                    //println!("SYSTEM [Slack Socket]: Last message: {:?}s, Last ping: {:?}s",
-                                    //    lmd.as_secs(),
-                                    //    lpd.as_secs(),
-                                    //);
-                                    let _ = event::send_slack_ping(
+                                    debug!("Slack Websocket Heartbeat - Last message: {:?}s, Last ping: {:?}s",
+                                        lmd.as_secs(),
+                                        lpd.as_secs(),
+                                    );
+                                    if let Err(e) = event::send_slack_ping(
                                         &mut tx.clone(),
                                         last_ping_sent.clone(),
-                                    ).await;
+                                    ).await {
+                                        warn!("Slack Websocket Heartbeat - Error sending ping {:?}", e);
+                                    }
                                 }
                             } else if lmd.as_secs() > 120 {
-                                eprintln!("SYSTEM [Slack Socket]: Last message: {:?}s, reconnecting", lmd.as_secs());
+                                info!("Slack Websocket Heartbeat - Last message: {:?}s, reconnecting", lmd.as_secs());
                                 reconnect.store(true, Ordering::Relaxed);
                                 can_send.store(false, Ordering::Relaxed);
                             }
@@ -220,15 +196,14 @@ where
             let count = reconnect_count.clone().inc();
 
             if count <= 10 {
-                println!("SYSTEM [Slack Socket]: Reconnecting, try: {:?}", count);
+                info!("Slack websocket - Reconnecting, try: {:?}", count);
                 time::sleep(Duration::from_secs(20)).await;
             } else {
-                eprintln!("ERROR [Slack Socket]: Exceeded 10 retries, shutting down");
+                error!("Slack Websocket - Exceeded 10 retries, shutting down");
                 signal.shutdown_now();
                 break;
             }
         }
     }
-
     Ok(())
 }
