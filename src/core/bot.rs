@@ -28,18 +28,16 @@ use crate::core::signal;
 //********************
 // Core Bot event loop
 //********************
-pub async fn default_event_loop<F1, F2>(
+pub async fn default_event_loop<F1>(
     cache: cache::Cache,
     mut signal: signal::Signal,
     user_event_listener: F1,
-    recurring_job: F2
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     F1: Fn(
         event::UserEvent,
         mpsc::Sender<event::Reply>
     ) -> (),
-    F2: Fn() -> (),
 {
     // Atomic boolean for ensuring send can't happen till the hello is received from slack
     let can_send = Arc::new(AtomicBool::new(false));
@@ -164,9 +162,6 @@ where
                         },
                     }
                 },
-
-                // This is woken up peroidically to run recurring jobs
-                _ = recurring.tick() => recurring_job(),
 
                 // This is woken up peroidically to force a heartbeat check
                 _ = heartbeat.tick() => {

@@ -1,22 +1,38 @@
 use serde::Deserialize;
 
+use std::future::Future;
+use std::clone::Clone;
 use std::sync::Arc;
+
+use anyhow::anyhow;
+use anyhow::Result as AResult;
 
 // TODO: look at some sort of lru or persist this to sqlite instead?
 use dashmap::DashMap;
-use std::clone::Clone;
 
 use crate::core::event::Message;
 
 
-// TODO: add settings, and have it or something peroidically query the database to load latest
-// settings into the cache, so that things can grab the settings they need from the settings cache
+pub trait HttpSender {
+    fn send(&self, request: reqwest::RequestBuilder) -> impl Future<Output = AResult<reqwest::Response>> + Send;
+}
+
 #[derive(Clone)]
-pub struct Cache {
+pub struct ReqwestSender;
+impl HttpSender for ReqwestSender {
+    async fn send(&self, request: reqwest::RequestBuilder) -> AResult<reqwest::Response> {
+        request.send().await.map_err(|e| e.into())
+    }
+}
+
+#[derive(Clone)]
+pub struct Cache<S: HttpSender=ReqwestSender> {
+    url: String,
     user_cache: Arc<DashMap<String, User>>,
     app_token: String,
     bot_token: String,
-    slack_client: reqwest::Client,
+    client: reqwest::Client,
+    sender: S,
 }
 
 #[derive(Clone)]
@@ -77,35 +93,42 @@ pub enum ConversationHistoryMessage {
     },
 }
 
-
-impl Cache {
-    pub fn new(app_token: &str, bot_token: &str) -> Cache {
+impl Cache<ReqwestSender> {
+    pub fn new(url: &str, app_token: &str, bot_token: &str) -> Cache {
         Cache {
+            url: url.to_string(),
             user_cache: Arc::new(DashMap::new()),
             app_token: app_token.to_string(),
             bot_token: bot_token.to_string(),
-            slack_client: reqwest::Client::new(),
+            client: reqwest::Client::new(),
+            sender: ReqwestSender,
+        }
+    }
+}
+
+impl<S: HttpSender> Cache<S> {
+    pub fn with_sender(sender: S, url: &str, app_token: &str, bot_token: &str) -> Cache<S> {
+        Cache {
+            url: url.to_string(),
+            user_cache: Arc::new(DashMap::new()),
+            app_token: app_token.to_string(),
+            bot_token: bot_token.to_string(),
+            client: reqwest::Client::new(),
+            sender: sender,
         }
     }
 
-    pub async fn socket_connect(&self, debug: bool) -> Result<String, String> {
-        let url = get_slack_url_for_method("apps.connections.open");
-        let res = self.slack_client.post(url)
-            .header("Content-type", "application/x-www-form-urlencoded")
-            .header("Authorization", format!("Bearer {}", self.app_token))
-            .send()
-            .await.map_err(
-                |x| format!("{:?}", x)
-            )?.text()
-            .await.map_err(
-                |x| format!("{:?}", x)
-            )?;
+    fn get_slack_url_for_method(&self, method: &str) -> String {
+        format!("{}/{}", self.url, method)
+    }
 
-        let conn = serde_json::from_str::<Conn>(
-            &res
-        ).map_err(
-            |x| format!("{:?}", x)
-        )?;
+    pub async fn socket_connect(&self, debug: bool) -> AResult<String> {
+        let url = self.get_slack_url_for_method("apps.connections.open");
+        let conn = self.sender.send(
+            self.client.post(url)
+                .header("Content-type", "application/x-www-form-urlencoded")
+                .header("Authorization", format!("Bearer {}", self.app_token))
+            ).await?.json::<Conn>().await?;
 
         println!("Socket Url: {:?}", conn);
 
@@ -116,65 +139,48 @@ impl Cache {
         })
     }
 
-    pub async fn post_message(&self, message: Message) -> Result<reqwest::Response, String> {
-        let url = get_slack_url_for_method("chat.postMessage");
-        self.slack_client.post(url)
-            .header("Content-type", "application/json")
-            .header("Authorization", format!("Bearer {}", self.bot_token))
-            // TODO: remove the unwrap here
-            .body(serde_json::to_string(&message).unwrap())
-            .send()
-            .await.map_err(
-                |x| format!("{:?}", x)
-            )
+    pub async fn post_message(&self, message: Message) -> AResult<reqwest::Response> {
+        let url = self.get_slack_url_for_method("chat.postMessage");
+        Ok(self.sender.send(
+            self.client.post(url)
+                .header("Content-type", "application/json")
+                .header("Authorization", format!("Bearer {}", self.bot_token))
+                .body(serde_json::to_string(&message).unwrap())
+            ).await?)
     }
 
     pub async fn is_user_bot(&self, user_id: &str) -> Option<bool> {
         let user = self.get_user(user_id).await;
-        user.map(|u| u.is_bot)
+        user.unwrap().map(|u| u.is_bot)
     }
 
     pub async fn get_user_real_name(&self, user_id: &str) -> Option<String> {
         let user = self.get_user(user_id).await;
-        user.map(|u| u.real_name.clone())
+        user.unwrap().map(|u| u.real_name.clone())
     }
 
     pub async fn get_username(&self, user_id: &str) -> Option<String> {
         let user = self.get_user(user_id).await;
-        user.map(|u| u.display_name.clone())
+        user.unwrap().map(|u| u.display_name.clone())
     }
 
     pub async fn get_user_tz(&self, user_id: &str) -> Option<Timezone> {
         let user = self.get_user(user_id).await;
-        user.map(|u| u.timezone.clone())
+        user.unwrap().map(|u| u.timezone.clone())
     }
 
-    async fn get_user(&self, user_id: &str) -> Option<User> {
+    async fn get_user(&self, user_id: &str) -> AResult<Option<User>> {
         let ud = self.user_cache.get(user_id);
         match ud {
-            Some(ud) => Some(ud.clone()),
+            Some(ud) => Ok(Some(ud.clone())),
             None     => {
-                let url = get_slack_url_for_method("users.info");
-                let res = self.slack_client.get(url)
-                    .header("Content-type", "application/json")
-                    .header("Authorization", format!("Bearer {}", self.bot_token))
-                    .query(&vec![("user", &user_id)])
-                    .send()
-                    .await.map_err(
-                        |x| format!("{:?}", x)
-                    ).ok()?
-                    .text()
-                    .await.map_err(
-                        |x| format!("{:?}", x)
-                    ).ok()?;
-
-                let user = serde_json::from_str::<UserWrap>(
-                    &res
-                ).map(
-                    |uw| uw.user
-                ).map_err(
-                    |x| format!("{:?}", x)
-                ).ok()?;
+                let url = self.get_slack_url_for_method("users.info");
+                let user = self.sender.send(
+                    self.client.get(url)
+                        .header("Content-type", "application/json")
+                        .header("Authorization", format!("Bearer {}", self.bot_token))
+                        .query(&vec![("user", &user_id)])
+                    ).await?.json::<UserWrap>().await.map(|uw| uw.user)?;
 
                 let user = User {
                     display_name: user.name,
@@ -188,58 +194,70 @@ impl Cache {
                 };
 
                 self.user_cache.insert(user_id.to_string(), user.clone());
-                Some(user)
+                Ok(Some(user))
             },
         }
     }
 
     // TODO: find a better location for this, this is an abuse of the cache
-    pub async fn get_message(&self, channel_id: &str, message_ts: &str) -> Option<ConversationHistoryMessage> {
-        let url = get_slack_url_for_method("conversations.history");
+    pub async fn get_message(
+        &self,
+        channel_id: &str,
+        message_ts: &str,
+    ) -> AResult<Option<ConversationHistoryMessage>> {
+        let url = self.get_slack_url_for_method("conversations.history");
         let params = vec![
             Some(("channel", channel_id.to_string())),
             Some(("latest", message_ts.to_string())),
             Some(("inclusive", "true".to_string())),
             Some(("limit", "1".to_string())),
         ];
-        let res = self.slack_client.get(url)
-            .header("Content-type", "application/json")
-            .header("Authorization", format!("Bearer {}", self.bot_token))
-            .query(&params)
-            .send()
-            .await.map_err(
-                |x| format!("{:?}", x)
-            ).ok()?
-            .text()
-            .await.map_err(
-                |x| format!("{:?}", x)
-            ).ok()?;
+        let mess = self.sender.send(
+            self.client.get(url)
+                .header("Content-type", "application/json")
+                .header("Authorization", format!("Bearer {}", self.bot_token))
+                .query(&params)
+            ).await?.json::<ConversationHistoryResult>().await.map(|mw| mw.messages)?;
 
-        let mess = serde_json::from_str::<ConversationHistoryResult>(
-            &res
-        ).map(
-            |mw| mw.messages
-        ).map_err(
-            |x| format!("{:?}", x)
-        ).ok()?;
-
-        let res = if mess.len() != 1 {
-            Err(format!("Malformed messages: {:?}", mess))
+        if mess.len() != 1 {
+            Err(anyhow!("Malformed messages: {:?}", mess).into())
         } else {
-            mess.first().ok_or("Shouldn't happen".to_string())
-        };
-
-        match res {
-            Ok(msg) => Some(msg.clone()),
-            Err(x) => {
-                eprintln!("ERROR [Cache]: {}", x);
-                None
-            },
+            mess.first().ok_or(anyhow!("Shouldn't happen")).map(|m| Some(m.clone()))
         }
     }
 }
 
+#[cfg(test)]
+mod test_cache {
+    use serde_json::json;
 
-fn get_slack_url_for_method(method: &str) -> String {
-    format!("https://slack.com/api/{}", method)
+    use http::response;
+    use tokio::sync::RwLock;
+    use super::*;
+
+    struct FakeSender(u16, &'static str);
+    impl HttpSender for FakeSender {
+        async fn send(&self, request: reqwest::RequestBuilder) -> AResult<reqwest::Response> {
+            let mut builder = response::Builder::new().status(self.0);
+            let response = builder.body(self.1)?;
+            let response = response.into();
+            Ok(response)
+        }
+    }
+
+    fn cache_response(status: u16, body: &'static str) -> Cache<FakeSender> {
+        let sender = FakeSender(status, body);
+        Cache::with_sender(sender, "http://localhost/api", "app_token", "bot_token")
+    }
+
+    #[tokio::test]
+    async fn test_socket_connect() {
+        let cache = cache_response(200, r#"{
+            "ok": true,
+            "url": "http://localhost/websocket"
+        }"#);
+        let result = cache.socket_connect(false).await;
+
+        assert_eq!(result.unwrap(), "http://localhost/websocket");
+    }
 }

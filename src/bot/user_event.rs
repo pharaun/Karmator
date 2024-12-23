@@ -89,11 +89,11 @@ impl Event {
             None => Err("No timestamp set for reacji event!".to_string()),
             Some(ts) => {
                 match self.cache.get_message(&self.channel_id, &ts).await {
-                    Some(cache::ConversationHistoryMessage::Message { text, user_id: Some(user_id) }) => {
+                    Ok(Some(cache::ConversationHistoryMessage::Message { text, user_id: Some(user_id) })) => {
                         self.text = Some(text);
                         Ok(user_id)
                     },
-                    Some(cache::ConversationHistoryMessage::Message { text: _, user_id: None }) => {
+                    Ok(Some(cache::ConversationHistoryMessage::Message { text: _, user_id: None })) => {
                         Err("Slack failed to give a owner for this message".to_string())
                     },
                     e => Err(format!("ERROR: [User Event] IDK here: {:?}", e)),

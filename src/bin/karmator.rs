@@ -14,6 +14,15 @@ use karmator_rust::core::signal;
 use karmator_rust::core::bot;
 use karmator_rust::bot::user_event;
 
+// TODO:
+// 1. update println + eprintln to use logging
+// 2. update postgres pem to be optional (for talking to a local test database)
+// 3. figure out how to intercept the slack api calls (maybe pass in optional slack url)
+// 4. Migrate from batch over to stored procedure for cleaning out votes run (ie repeated votes for
+//    same item by the same person - default is max of 20 in one run) - You select the whole votes
+//    table, iterate it row by row and compare current row with previous, and increment the run
+//    count if its repeated, otherwise reset and make a new run-record. then scan through the run
+//    record and prune anything more than say 20 items
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -28,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start_time: DateTime<Utc> = Utc::now();
 
     // System Cache manager
-    let cache = cache::Cache::new(&app_token, &bot_token);
+    let cache = cache::Cache::new("https://slack.com/api", &app_token, &bot_token);
 
     // Shutdown Signal
     let (sql_shutdown_tx, signal) = signal::Signal::new();
@@ -63,12 +72,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     //*******************
-    // Setting up backup
-    // TODO: figure out backups
-    //*******************
-    let backup_callback: Box<dyn Fn()> = Box::new(move || {});
-
-    //*******************
     // Core bot eventloop
     //*******************
     bot::default_event_loop(
@@ -89,7 +92,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ).await;
             });
         },
-        backup_callback,
     ).await?;
 
     Ok(())
