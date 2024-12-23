@@ -35,7 +35,7 @@ pub struct Cache<S: HttpSender=ReqwestSender> {
     sender: S,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 struct User {
     display_name: String,
     real_name: String,
@@ -43,7 +43,7 @@ struct User {
     timezone: Timezone,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Timezone {
     pub label: String,
     pub tz: String,
@@ -82,7 +82,7 @@ struct ConversationHistoryResult {
     messages: Vec<ConversationHistoryMessage>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum ConversationHistoryMessage {
@@ -139,14 +139,16 @@ impl<S: HttpSender> Cache<S> {
         })
     }
 
+    // TODO: slack will return a {ok: false} on failure versus {ok: true} on success, add
+    // error handling for this
     pub async fn post_message(&self, message: Message) -> AResult<reqwest::Response> {
         let url = self.get_slack_url_for_method("chat.postMessage");
-        Ok(self.sender.send(
+        self.sender.send(
             self.client.post(url)
                 .header("Content-type", "application/json")
                 .header("Authorization", format!("Bearer {}", self.bot_token))
                 .body(serde_json::to_string(&message).unwrap())
-            ).await?)
+            ).await
     }
 
     pub async fn is_user_bot(&self, user_id: &str) -> Option<bool> {
@@ -199,7 +201,6 @@ impl<S: HttpSender> Cache<S> {
         }
     }
 
-    // TODO: find a better location for this, this is an abuse of the cache
     pub async fn get_message(
         &self,
         channel_id: &str,
@@ -229,25 +230,30 @@ impl<S: HttpSender> Cache<S> {
 
 #[cfg(test)]
 mod test_cache {
-    use serde_json::json;
-
     use http::response;
-    use tokio::sync::RwLock;
     use super::*;
 
     struct FakeSender(u16, &'static str);
     impl HttpSender for FakeSender {
-        async fn send(&self, request: reqwest::RequestBuilder) -> AResult<reqwest::Response> {
-            let mut builder = response::Builder::new().status(self.0);
-            let response = builder.body(self.1)?;
-            let response = response.into();
-            Ok(response)
+        async fn send(&self, _request: reqwest::RequestBuilder) -> AResult<reqwest::Response> {
+            Ok(response::Builder::new().status(self.0).body(self.1)?.into())
         }
     }
 
     fn cache_response(status: u16, body: &'static str) -> Cache<FakeSender> {
         let sender = FakeSender(status, body);
         Cache::with_sender(sender, "http://localhost/api", "app_token", "bot_token")
+    }
+
+    struct PanicSender;
+    impl HttpSender for PanicSender {
+        async fn send(&self, _request: reqwest::RequestBuilder) -> AResult<reqwest::Response> {
+            panic!("Shouldn't hit http");
+        }
+    }
+
+    fn panic_response() -> Cache<PanicSender> {
+        Cache::with_sender(PanicSender, "http://localhost/api", "app_token", "bot_token")
     }
 
     #[tokio::test]
@@ -259,5 +265,100 @@ mod test_cache {
         let result = cache.socket_connect(false).await;
 
         assert_eq!(result.unwrap(), "http://localhost/websocket");
+    }
+
+    #[tokio::test]
+    async fn test_one_message() {
+        let cache = cache_response(200, r#"{
+            "ok": true,
+            "messages": [{
+                "type": "message",
+                "text": "Asdf",
+                "user": "userId"
+            }]
+        }"#);
+        let result = cache.get_message("whatever", "whenever").await;
+
+        assert_eq!(
+            result.unwrap(),
+            Some(ConversationHistoryMessage::Message { text: "Asdf".into(), user_id: Some("userId".into()) })
+        );
+    }
+
+    #[tokio::test]
+    async fn test_two_message() {
+        let cache = cache_response(200, r#"{
+            "ok": true,
+            "messages": [{
+                "type": "message",
+                "text": "Asdf",
+                "user": "userId"
+            }, {
+                "type": "message",
+                "text": "Two"
+            }]
+        }"#);
+        let result = cache.get_message("whatever", "whenever").await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn test_get_user_verify_panic() {
+        let cache = panic_response();
+        let _ = cache.get_user("whoever").await;
+    }
+
+    #[tokio::test]
+    async fn test_get_user_in_cache() {
+        let cache = panic_response();
+
+        // Insert user into cache
+        let user = User {
+            display_name: "dn".into(),
+            real_name: "rn".into(),
+            is_bot: false,
+            timezone: Timezone { label: "Den".into(), tz: "MST".into(), offset: 1234 }
+        };
+        cache.user_cache.insert("whoever".into(), user.clone());
+
+        let result = cache.get_user("whoever").await;
+
+        assert_eq!(
+            result.unwrap(),
+            Some(user)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_user_not_in_cache() {
+        let cache = cache_response(200, r#"{
+            "ok": true,
+            "user": {
+                "name": "dn",
+                "real_name": "rn",
+                "is_bot": false,
+                "tz_label": "Den",
+                "tz": "MST",
+                "tz_offset": 1234
+            }
+        }"#);
+        let result = cache.get_user("whoever").await;
+
+        let user = User {
+            display_name: "dn".into(),
+            real_name: "rn".into(),
+            is_bot: false,
+            timezone: Timezone { label: "Den".into(), tz: "MST".into(), offset: 1234 }
+        };
+
+        assert_eq!(result.unwrap(), Some(user.clone()));
+
+        let ud = cache.user_cache.get("whoever");
+        match ud {
+            Some(ud) => assert_eq!(ud.clone(), user),
+            None => panic!("Should have been in the cache"),
+        };
     }
 }
