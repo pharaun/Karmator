@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Instant;
 
-use log::{trace, debug, info, warn, error};
+use log::{info, error};
 
 use tokio::sync::mpsc;
 
@@ -35,7 +35,8 @@ enum Event {
         reason: String,
     },
 
-    // For now messages too
+    // TODO: Find any other types that we need to be aware of so that we can
+    // acknowledge them then forward it to the library user's code
     EventsApi {
         envelope_id: String,
         accepts_response_payload: bool,
@@ -48,68 +49,9 @@ enum Event {
 #[serde(rename_all = "snake_case")]
 enum Payload {
     EventCallback {
-        // https://docs.rs/serde_json/1.0.116/serde_json/fn.from_value.html
-        // Convert this into value so that i can still process an event and reply
-        // ack to slack while still failing to parse the nested user-event, could
-        // even then be able to shuffle these events out of the bot core into the
-        // actual bot itself
-        event: UserEvent,
-    },
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-pub enum UserEvent {
-    // These events are what plugins will care for:
-    //
-    // Slack messages
-    // TODO: more involved here for now basics
-    Message {
-        subtype: Option<String>,
-        hidden: Option<bool>,
-        #[serde(rename = "channel")]
-        channel_id: Option<String>,
-        #[serde(rename = "user")]
-        user_id: Option<String>,
-        text: Option<String>,
-        ts: String,
-        thread_ts: Option<String>,
-    },
-    ReactionAdded {
-        #[serde(rename = "user")]
-        user_id: String,
-        reaction: String,
-        item_user: Option<String>,
-        item: ReactionItem,
-        event_ts: String,
-    },
-    ReactionRemoved {
-        #[serde(rename = "user")]
-        user_id: String,
-        reaction: String,
-        item_user: Option<String>,
-        item: ReactionItem,
-        event_ts: String,
-    },
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-pub enum ReactionItem {
-    Message {
-        // I think this is mandatory?
-        #[serde(rename = "channel")]
-        channel_id: String,
-        ts: String,
-    },
-    File {
-        file: String,
-    },
-    FileComment {
-        file: String,
-        file_comment: String,
+        // This is converted into a json value, since we don't care about the content
+        // of this payload, but we do need to know the envelope id for acknowledging
+        event: serde_json::Value,
     },
 }
 
@@ -142,7 +84,7 @@ fn parse_event(s: String) -> Option<Event> {
     );
 
     if res.is_err() {
-        println!("Error: {:?}\n{:?}\n", res, s);
+        error!("parse_event - Error: {:?}\n{:?}\n", res, s);
     }
     res.ok()
 }
@@ -190,7 +132,7 @@ pub async fn process_control_message(
     reconnect_count: Arc<RelaxedCounter>,
     last_message_received: Arc<RwLock<Instant>>,
     msg: tungstenite::Message,
-) -> Result<Option<UserEvent>, Box<dyn std::error::Error>>
+) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>>
 {
     // Parse incoming message
     let raw_msg = match msg {
@@ -213,7 +155,7 @@ pub async fn process_control_message(
         },
 
         tungstenite::Message::Close(reason) => {
-            println!("SYSTEM [Inbound]: Close: {:?}", reason);
+            info!("Slack Websocket - Close reason: {:?}", reason);
 
             reconnect.store(true, Ordering::Relaxed);
             can_send.store(false, Ordering::Relaxed);
@@ -221,7 +163,7 @@ pub async fn process_control_message(
         },
 
         _ => {
-            eprintln!("SYSTEM [Inbound]: Unsupported websocket type: {:?}", msg);
+            error!("Slack Websocket - Unsupported websocket type: {:?}", msg);
             None
         },
     };
@@ -240,7 +182,7 @@ pub async fn process_control_message(
                 reconnect.store(true, Ordering::Relaxed);
                 can_send.store(false, Ordering::Relaxed);
 
-                println!("System [Event]: Disconnect - Reason: {:?}", r);
+                info!("Slack Websocket - Disconnect reason: {:?}", r);
 
                 Ok(None)
             },

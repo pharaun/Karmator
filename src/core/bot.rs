@@ -34,7 +34,7 @@ pub async fn default_event_loop<F1>(
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     F1: Fn(
-        event::UserEvent,
+        serde_json::Value,
         mpsc::Sender<event::Reply>
     ) -> (),
 {

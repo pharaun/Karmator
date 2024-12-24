@@ -6,6 +6,10 @@ use std::result::Result;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use log::error;
+
+use serde::Deserialize;
+
 use crate::bot::build_info;
 use crate::bot::query::santizer;
 
@@ -20,8 +24,6 @@ use crate::bot::tz::timezone;
 use crate::core::slack;
 use crate::core::command;
 
-use crate::core::event::ReactionItem;
-use crate::core::event::UserEvent;
 use crate::core::event::Reply;
 use crate::core::event::send_simple_message;
 
@@ -121,16 +123,81 @@ impl Event {
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum UserEvent {
+    Message {
+        subtype: Option<String>,
+        hidden: Option<bool>,
+        #[serde(rename = "channel")]
+        channel_id: Option<String>,
+        #[serde(rename = "user")]
+        user_id: Option<String>,
+        text: Option<String>,
+        ts: String,
+        thread_ts: Option<String>,
+    },
+    ReactionAdded {
+        #[serde(rename = "user")]
+        user_id: String,
+        reaction: String,
+        item_user: Option<String>,
+        item: ReactionItem,
+        event_ts: String,
+    },
+    ReactionRemoved {
+        #[serde(rename = "user")]
+        user_id: String,
+        reaction: String,
+        item_user: Option<String>,
+        item: ReactionItem,
+        event_ts: String,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum ReactionItem {
+    Message {
+        // I think this is mandatory?
+        #[serde(rename = "channel")]
+        channel_id: String,
+        ts: String,
+    },
+    File {
+        file: String,
+    },
+    FileComment {
+        file: String,
+        file_comment: String,
+    },
+}
+
+fn parse_user_event(s: serde_json::Value) -> Option<UserEvent> {
+    let res = serde_json::from_value::<UserEvent>(
+        s.clone()
+    ).map_err(
+        |x| format!("{:?}", x)
+    );
+
+    if res.is_err() {
+        error!("parse_event - Error: {:?}\n{:?}\n", res, s);
+    }
+    res.ok()
+}
+
 
 pub async fn process_user_message(
-    msg: UserEvent,
+    msg: serde_json::Value,
     tx: mpsc::Sender<Reply>,
     client: Arc<Client>,
     slack: slack::Client,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Check if its a message/certain string, if so, reply
-    match msg {
-        UserEvent::Message {
+    match parse_user_event(msg) {
+        Some(UserEvent::Message {
             channel_id: Some(channel_id),
             subtype: None,
             text: Some(text),
@@ -138,7 +205,7 @@ pub async fn process_user_message(
             thread_ts,
             hidden: _,
             ts: _,
-        } => {
+        }) => {
             let mut event = Event {
                 // Bot data
                 slack, tx,
@@ -416,7 +483,7 @@ pub async fn process_user_message(
             }
         },
 
-        UserEvent::ReactionAdded {
+        Some(UserEvent::ReactionAdded {
             user_id, /* who performed this */
             reaction,
             item_user: _,
@@ -425,7 +492,7 @@ pub async fn process_user_message(
                 ts,
             },
             event_ts: _,
-        } => {
+        }) => {
             let mut event = Event {
                 // Bot data
                 slack, tx,
@@ -441,7 +508,7 @@ pub async fn process_user_message(
             ).await;
         },
 
-        UserEvent::ReactionRemoved {
+        Some(UserEvent::ReactionRemoved {
             user_id, /* who performed this */
             reaction,
             item_user: _,
@@ -450,7 +517,7 @@ pub async fn process_user_message(
                 ts,
             },
             event_ts: _,
-        } => {
+        }) => {
             let mut event = Event {
                 // Bot data
                 slack, tx,
