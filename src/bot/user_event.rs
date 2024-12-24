@@ -21,11 +21,10 @@ use crate::bot::query::top_n::top_n;
 use crate::bot::query::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
 use crate::bot::tz::timezone;
 
-use crate::core::slack;
-use crate::core::command;
-
-use crate::core::event::Reply;
-use crate::core::event::send_simple_message;
+use kcore::slack;
+use kcore::command;
+use kcore::event::Reply;
+use kcore::event::send_simple_message;
 
 
 #[derive(Clone)]

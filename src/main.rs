@@ -9,10 +9,10 @@ use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig as RustlsClientConfig;
 use tokio_postgres_rustls::MakeRustlsConnect;
 
-use karmator_rust::core::slack;
-use karmator_rust::core::signal;
-use karmator_rust::core::bot;
-use karmator_rust::bot::user_event;
+use kcore::slack;
+use kcore::signal;
+use kcore::bot;
+use karmator::bot::user_event;
 
 // TODO:
 // 1. update println + eprintln to use logging

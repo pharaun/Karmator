@@ -22,9 +22,9 @@ use std::sync::RwLock;
 use std::time::Duration;
 use std::time::Instant;
 
-use crate::core::slack;
-use crate::core::event;
-use crate::core::signal;
+use crate::slack;
+use crate::event;
+use crate::signal;
 
 
 pub async fn default_event_loop<F1>(

@@ -9,7 +9,7 @@ use anyhow::Result as AResult;
 
 use quick_cache::sync::Cache;
 
-use crate::core::event::Message;
+use crate::event::Message;
 
 
 pub trait HttpSender {

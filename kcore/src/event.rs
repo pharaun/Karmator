@@ -17,7 +17,7 @@ use log::{info, error};
 
 use tokio::sync::mpsc;
 
-use crate::core::santizer;
+use crate::santizer;
 
 
 #[derive(Debug, Deserialize)]

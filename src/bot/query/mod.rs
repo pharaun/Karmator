@@ -20,8 +20,8 @@ use std::sync::Arc;
 use unicode_normalization::{UnicodeNormalization, is_nfc_quick, IsNormalized};
 
 use crate::bot::parser::karma::Karma;
-use crate::core::slack;
-use crate::core::santizer;
+use kcore::slack;
+use kcore::santizer;
 
 
 // Normalize any incoming string to be stored in the database
