@@ -3,6 +3,7 @@ use tokio_postgres::Client;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::error::Error;
+use log::error;
 
 use futures_util::{pin_mut, TryStreamExt};
 
@@ -33,7 +34,7 @@ pub async fn partial(
     let _ = match res {
         Ok(x) => event.send_reply(&x).await,
         e => {
-            eprintln!("partial something went wrong - {:?}", e);
+            error!("partial - Error: {:?}", e);
             event.send_reply("Something went wrong").await
         },
     };

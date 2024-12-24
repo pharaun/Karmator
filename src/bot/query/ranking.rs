@@ -1,6 +1,7 @@
 use tokio_postgres::Client;
 use std::sync::Arc;
 use std::error::Error;
+use log::error;
 
 use crate::bot::query::{KarmaCol, KarmaTyp, KarmaName};
 use crate::bot::user_event::Event;
@@ -42,16 +43,15 @@ pub async fn ranking(
     let receiving = match (target_received, total_received) {
         (Ok(Some(r)), Ok(tr)) => Some(format!("{} rank is {} of {} in receiving", label, r, tr)),
         (Err(a), Err(b)) => {
-            eprintln!("ERROR: [Ranking]: target received - database error {:?}", a);
-            eprintln!("ERROR: [Ranking]: total received - database error {:?}", b);
+            error!("Database Error - target: {:?} total: {:?}", a, b);
             None
         },
         (Err(a), _) => {
-            eprintln!("ERROR: [Ranking]: target received - database error {:?}", a);
+            error!("Database Error - target: {:?}", a);
             None
         },
         (_, Err(b)) => {
-            eprintln!("ERROR: [Ranking]: total received - database error {:?}", b);
+            error!("Database Error - total: {:?}", b);
             None
         },
         _ => None,
@@ -60,16 +60,15 @@ pub async fn ranking(
     let giving = match (target_given, total_given) {
         (Ok(Some(g)), Ok(tg)) => Some(format!("{} rank is {} of {} in giving", label, g, tg)),
         (Err(a), Err(b)) => {
-            eprintln!("ERROR: [Ranking]: target given - database error {:?}", a);
-            eprintln!("ERROR: [Ranking]: total given - database error {:?}", b);
+            error!("Database Error - target: {:?} total: {:?}", a, b);
             None
         },
         (Err(a), _) => {
-            eprintln!("ERROR: [Ranking]: target given - database error {:?}", a);
+            error!("Database Error - target: {:?}", a);
             None
         },
         (_, Err(b)) => {
-            eprintln!("ERROR: [Ranking]: total given - database error {:?}", b);
+            error!("Database Error - total: {:?}", b);
             None
         },
         _ => None,

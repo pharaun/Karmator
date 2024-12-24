@@ -3,6 +3,7 @@ use chrono::prelude::{Utc, DateTime};
 use tokio_postgres::Client;
 use std::sync::Arc;
 use std::error::Error;
+use log::{info, error};
 
 use crate::bot::parser::karma::KST;
 use crate::bot::parser::karma;
@@ -21,7 +22,7 @@ pub async fn add_karma(
 ) {
     match karma::parse(&event.santize().await) {
         Ok(mut karma) if !karma.is_empty() => {
-            println!("INFO [User Event]: Parsed Karma: {:?}", karma);
+            info!("Parsed Karma: {:?}", karma);
             let username = event.get_username().await;
             let user_real_name = event.get_user_real_name().await;
 
@@ -38,7 +39,7 @@ pub async fn add_karma(
             let after = karma.len();
 
             if before != after {
-                println!("INFO [User Event]: User self-voted: {:?}", username);
+                info!("User self-voted: {:?}", username);
             }
 
             if !karma.is_empty() {
@@ -56,10 +57,10 @@ pub async fn add_karma(
 
                         match res {
                             Ok(_) => (),
-                            Err(x) => eprintln!("ERROR: [User Event] database error - {:?}", x),
+                            Err(x) => error!("Database Error: {:?}", x),
                         }
                     },
-                    _ => eprintln!("ERROR: [User Event] Wasn't able to get a username/real_name from slack"),
+                    _ => error!("Wasn't able to get a username/real_name from slack"),
                 }
             }
         },
@@ -69,7 +70,7 @@ pub async fn add_karma(
         Err(e) => {
             // The parse should return empty if its valid, something
             // broke, should log it here
-            eprintln!("ERROR [User Event]: Failed to parse karma: {:?}", e);
+            error!("Failed to parse karma: {:?}", e);
         },
     }
 }

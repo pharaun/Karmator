@@ -10,6 +10,8 @@ use tokio_postgres::types::Type;
 use tokio_postgres::types::IsNull;
 use tokio_postgres::Client;
 
+use log::error;
+
 use bytes::BytesMut;
 
 use unicase::UniCase;
@@ -133,7 +135,7 @@ pub async fn santizer(
 ) -> String {
     match santizer::parse(input).ok() {
         None      => {
-            eprintln!("ERROR [Santizer]: Failed to santize: {:?}", input);
+            error!("Failed to santize: {:?}", input);
             input.to_string()
         },
 

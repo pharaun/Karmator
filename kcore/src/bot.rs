@@ -196,7 +196,7 @@ where
             let count = reconnect_count.clone().inc();
 
             if count <= 10 {
-                info!("Slack websocket - Reconnecting, try: {:?}", count);
+                info!("Slack Websocket - Reconnecting, try: {:?}", count);
                 time::sleep(Duration::from_secs(20)).await;
             } else {
                 error!("Slack Websocket - Exceeded 10 retries, shutting down");

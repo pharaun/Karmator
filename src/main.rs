@@ -2,7 +2,7 @@ use std::env;
 use std::result::Result;
 use std::sync::Arc;
 
-use log::{trace, debug, info, warn, error};
+use log::error;
 
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::CertificateDer;
@@ -15,9 +15,7 @@ use kcore::bot;
 use karmator::bot::user_event;
 
 // TODO:
-// 1. update println + eprintln to use logging
 // 2. update postgres pem to be optional (for talking to a local test database)
-// 4. separate bot core event from bot events via from_value parsing for serde_json
 // 5. Migrate from batch over to stored procedure for cleaning out votes run (ie repeated votes for
 //    same item by the same person - default is max of 20 in one run) - You select the whole votes
 //    table, iterate it row by row and compare current row with previous, and increment the run

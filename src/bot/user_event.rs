@@ -6,7 +6,7 @@ use std::result::Result;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use log::error;
+use log::{info, error};
 
 use serde::Deserialize;
 
@@ -44,7 +44,7 @@ impl Event {
     async fn is_user_bot(&self) -> bool {
         match self.slack.is_user_bot(&self.user_id).await {
             None => {
-                eprintln!("ERROR [User Event]: No info on user: {:?}", &self.user_id);
+                error!("No info on user: {:?}", &self.user_id);
 
                 // Bail out
                 true
@@ -476,7 +476,7 @@ pub async fn process_user_message(
                     }
                 },
 
-                Ok(command::Command(x, _)) => println!("INFO [User Event]: No handler: {:?}", x),
+                Ok(command::Command(x, _)) => info!("No handler: {:?}", x),
 
                 Err(_) => add_karma(client.clone(), &event).await,
             }

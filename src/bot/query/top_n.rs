@@ -1,6 +1,7 @@
 use tokio_postgres::Client;
 use std::sync::Arc;
 use std::error::Error;
+use log::error;
 
 use crate::bot::query::{KarmaCol, KarmaTyp, OrdQuery};
 use crate::bot::user_event::Event;
@@ -45,7 +46,7 @@ pub async fn top_n(
     let _ = match (high, low) {
         (Ok(h), Ok(l)) => event.send_reply(&format!("{}: {}. {}: {}.", label.0, h, label.1, l)).await,
         e => {
-            eprintln!("Top-n something went wrong - {:?}", e);
+            error!("Top-n something went wrong - {:?}", e);
             event.send_reply("Something went wrong").await
         },
     };

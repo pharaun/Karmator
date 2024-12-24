@@ -4,6 +4,8 @@ use tokio_postgres::Client;
 use std::sync::Arc;
 use std::error::Error;
 
+use log::error;
+
 use crate::bot::parser::karma::Karma;
 use crate::bot::parser::reacji_to_karma;
 
@@ -64,8 +66,7 @@ pub async fn add_reacji(
 
             match message_id {
                 Err(e) => {
-                    eprintln!("ERROR: [Reacji] Wasn't able to get/store an reactji message, vote isn't recorded");
-                    eprintln!("ERROR: [Reacji] Returned error: {:?}", e);
+                    error!("Failed to get reacji message - Error: {:?}", e);
                 },
                 Ok(None) => (), // These are expected error, drop
                 Ok(Some(mid)) => {
@@ -86,10 +87,10 @@ pub async fn add_reacji(
                             ).await;
 
                             if e.is_err() {
-                                eprintln!("ERROR: [Reacji] Query failed: {:?}", e);
+                                error!("Query failed: {:?}", e);
                             }
                         },
-                        e => eprintln!("ERROR: [Reacji] Querying for user/name failed: {:?}", e),
+                        e => error!("Querying for user/name failed: {:?}", e),
                     }
                 },
             }
@@ -151,11 +152,7 @@ async fn add_reacji_message(
 
         // Compare
         if sql_nick != nick_id || sql_message != message {
-            eprintln!("ERROR: [Reacji Message] duplicate channel + ts");
-            eprintln!("ERROR: [Reacji Message] \tSlack Nick: {}", nick_id);
-            eprintln!("ERROR: [Reacji Message] \tSql Nick:   {}", sql_nick);
-            eprintln!("ERROR: [Reacji Message] \tSlack Msg:  {}", message);
-            eprintln!("ERROR: [Reacji Message] \tSql Msg:    {}", sql_message);
+            error!("Duplicate Channel+TS - Slack/Sql - Nick {} / {} - Msg: {} / {}", nick_id, sql_nick, message, sql_message);
         }
 
         // Return one anyway for now

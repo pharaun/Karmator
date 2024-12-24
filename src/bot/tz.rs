@@ -5,6 +5,8 @@ use chrono::NaiveDateTime;
 use chrono::TimeZone;
 use chrono::Timelike;
 
+use log::error;
+
 use crate::bot::user_event::Event;
 
 use nom::{
@@ -52,7 +54,7 @@ pub async fn timezone(
         let input = input.join(" ");
         match parse(&input) {
             Err(e) => {
-                eprintln!("ERROR [TZ]: {:?}", e);
+                error!("ERROR [TZ]: {:?}", e);
 
                 let message =
                     "Usage: `!tz TIME [TZ]`
@@ -156,8 +158,8 @@ fn validate_offset(tz: &Tz, offset: i64) {
     let tz_offset = tz_time.offset().base_utc_offset() + tz_time.offset().dst_offset();
 
     if tz_offset.num_seconds() != offset {
-        eprintln!(
-            "ERROR [TZ]: Slack offset {}, parsed offset {} does not match!",
+        error!(
+            "[TZ]: Slack offset {}, parsed offset {} does not match!",
             offset,
             tz_offset.num_seconds(),
         );
