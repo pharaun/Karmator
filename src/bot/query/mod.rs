@@ -12,6 +12,8 @@ use tokio_postgres::Client;
 
 use log::error;
 
+use anyhow::Result as AResult;
+
 use bytes::BytesMut;
 
 use unicase::UniCase;
@@ -176,7 +178,7 @@ pub async fn add_nick(
     user_id: String,
     username: KarmaName,
     real_name: KarmaName,
-) -> Result<i64, Box<dyn Error + Send + Sync>> {
+) -> AResult<i64> {
     let row = client.query_opt("SELECT id FROM nick_metadata WHERE username = $1", &[&user_id]).await?;
 
     match row {
@@ -194,7 +196,7 @@ pub async fn add_nick(
 pub async fn add_channel(
     client: Arc<Client>,
     channel_id: String,
-) -> Result<i64, Box<dyn Error + Send + Sync>> {
+) -> AResult<i64> {
     let row = client.query_opt("SELECT id FROM chan_metadata WHERE channel = $1", &[&channel_id]).await?;
     match row {
         Some(r) => Ok(r.try_get(0)?),

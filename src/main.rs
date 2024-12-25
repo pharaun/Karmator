@@ -1,8 +1,10 @@
 use std::env;
-use std::result::Result;
 use std::sync::Arc;
 
 use log::error;
+
+use anyhow::anyhow;
+use anyhow::Result as AResult;
 
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::CertificateDer;
@@ -21,16 +23,15 @@ use karmator::bot::user_event;
 //    table, iterate it row by row and compare current row with previous, and increment the run
 //    count if its repeated, otherwise reset and make a new run-record. then scan through the run
 //    record and prune anything more than say 20 items
-// 6. switch to AResult (from anyway) for handling error
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> AResult<()> {
     env_logger::init();
 
-    let postgres_pem = env::var("POSTGRES_PEM").map_err(|_| "POSTGRES_PEM env var must be set")?;
-    let postgres_url = env::var("POSTGRES_URL").map_err(|_| "POSTGRES_URL env var must be set")?;
-    let app_token = env::var("SLACK_APP_TOKEN").map_err(|_| "SLACK_APP_TOKEN env var must be set")?;
-    let bot_token = env::var("SLACK_BOT_TOKEN").map_err(|_| "SLACK_BOT_TOKEN env var must be set")?;
+    let postgres_pem = env::var("POSTGRES_PEM").map_err(|_| anyhow!("POSTGRES_PEM env var must be set"))?;
+    let postgres_url = env::var("POSTGRES_URL").map_err(|_| anyhow!("POSTGRES_URL env var must be set"))?;
+    let app_token = env::var("SLACK_APP_TOKEN").map_err(|_| anyhow!("SLACK_APP_TOKEN env var must be set"))?;
+    let bot_token = env::var("SLACK_BOT_TOKEN").map_err(|_| anyhow!("SLACK_BOT_TOKEN env var must be set"))?;
 
     // System slack client manager
     let slack = slack::Client::new("https://slack.com/api", &app_token, &bot_token, 50);

@@ -1,7 +1,8 @@
 use tokio_postgres::Client;
 use std::sync::Arc;
-use std::error::Error;
 use log::error;
+
+use anyhow::Result as AResult;
 
 use crate::bot::query::{KarmaCol, KarmaTyp, KarmaName};
 use crate::bot::user_event::Event;
@@ -89,7 +90,7 @@ async fn ranking_denormalized(
     karma_col: KarmaCol,
     karma_typ: KarmaTyp,
     user: KarmaName
-) -> Result<Option<i64>, Box<dyn Error + Send + Sync>> {
+) -> AResult<Option<i64>> {
     // Default won't work here, override
     let t_col2 = match karma_typ {
         KarmaTyp::Total => "kcol2.up - kcol2.down",
@@ -113,7 +114,7 @@ async fn ranking_denormalized(
 async fn count(
     client: Arc<Client>,
     karma_col: KarmaCol,
-) -> Result<i64, Box<dyn Error + Send + Sync>> {
+) -> AResult<i64> {
     Ok(client.query_one(&format!(
         "SELECT COUNT(name) FROM {table}",
         table=karma_col), &[]).await?.try_get(0)?

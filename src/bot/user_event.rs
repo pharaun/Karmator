@@ -6,6 +6,8 @@ use std::result::Result;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use anyhow::Result as AResult;
+
 use log::{info, error};
 
 use serde::Deserialize;
@@ -193,7 +195,7 @@ pub async fn process_user_message(
     tx: mpsc::Sender<Reply>,
     client: Arc<Client>,
     slack: slack::Client,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> AResult<()> {
     // Check if its a message/certain string, if so, reply
     match parse_user_event(msg) {
         Some(UserEvent::Message {

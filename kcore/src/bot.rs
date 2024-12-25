@@ -16,11 +16,12 @@ use atomic_counter::RelaxedCounter;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
-use std::result::Result;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Duration;
 use std::time::Instant;
+
+use anyhow::Result as AResult;
 
 use crate::slack;
 use crate::event;
@@ -31,7 +32,7 @@ pub async fn default_event_loop<F1>(
     slack: slack::Client,
     mut signal: signal::Signal,
     user_event_listener: F1,
-) -> Result<(), Box<dyn std::error::Error>>
+) -> AResult<()>
 where
     F1: Fn(
         serde_json::Value,

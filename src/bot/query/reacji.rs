@@ -2,7 +2,8 @@ use chrono::prelude::{Utc, DateTime};
 
 use tokio_postgres::Client;
 use std::sync::Arc;
-use std::error::Error;
+
+use anyhow::Result as AResult;
 
 use log::error;
 
@@ -104,7 +105,7 @@ async fn query_reacji_message(
     client: Arc<Client>,
     channel_id: String,
     message_ts: String,
-) -> Result<Option<i64>, Box<dyn Error + Send + Sync>> {
+) -> AResult<Option<i64>> {
     let row = client.query_opt(
         "SELECT id FROM chan_metadata WHERE channel = $1",
         &[&channel_id]
@@ -135,7 +136,7 @@ async fn add_reacji_message(
     channel_id: String,
     message_ts: String,
     message: String,
-) -> Result<Option<i64>, Box<dyn Error + Send + Sync>> {
+) -> AResult<Option<i64>> {
     let nick_id: i64 = add_nick(client.clone(), user_id, username.clone(), real_name).await?;
     let channel_id: i64 = add_channel(client.clone(), channel_id).await?;
 
@@ -175,7 +176,7 @@ async fn add_reacji_query(
     action: ReacjiAction,
     message_id: i64,
     amount: Karma,
-) -> Result<Option<i64>, Box<dyn Error + Send + Sync>> {
+) -> AResult<Option<i64>> {
     let nick_id: i64 = add_nick(client.clone(), user_id, username.clone(), real_name).await?;
 
     // Insert the reacji into the database

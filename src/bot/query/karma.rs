@@ -2,8 +2,9 @@ use chrono::prelude::{Utc, DateTime};
 
 use tokio_postgres::Client;
 use std::sync::Arc;
-use std::error::Error;
 use log::{info, error};
+
+use anyhow::Result as AResult;
 
 use crate::bot::parser::karma::KST;
 use crate::bot::parser::karma;
@@ -84,7 +85,7 @@ async fn add_karma_query(
     real_name: KarmaName,
     channel_id: Option<String>,
     karma: Vec<KST>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> AResult<()> {
     let nick_id: i64 = add_nick(client.clone(), user_id, username.clone(), real_name).await?;
     let channel_id: Option<i64> = match channel_id {
         Some(cid) => Some(add_channel(client.clone(), cid).await?),

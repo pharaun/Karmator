@@ -2,8 +2,9 @@ use tokio_postgres::Client;
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::error::Error;
 use log::error;
+
+use anyhow::Result as AResult;
 
 use futures_util::{pin_mut, TryStreamExt};
 
@@ -45,7 +46,7 @@ async fn partial_query(
     client: Arc<Client>,
     karma_col: KarmaCol,
     users: HashSet<KarmaName>,
-) -> Result<Vec<(String, i64, i64, i64)>, Box<dyn Error + Send + Sync>> {
+) -> AResult<Vec<(String, i64, i64, i64)>> {
     // Hack to insert enough parameterizers into the query
     let p_user = {
         let mut p_user: String = "md5(lower($1))".to_string();

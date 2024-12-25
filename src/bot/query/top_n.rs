@@ -1,7 +1,8 @@
 use tokio_postgres::Client;
 use std::sync::Arc;
-use std::error::Error;
 use log::error;
+
+use anyhow::Result as AResult;
 
 use crate::bot::query::{KarmaCol, KarmaTyp, OrdQuery};
 use crate::bot::user_event::Event;
@@ -59,7 +60,7 @@ async fn top_n_denormalized(
     karma_typ: KarmaTyp,
     limit: u32,
     ord: OrdQuery
-) -> Result<Vec<(String, i64)>, Box<dyn Error + Send + Sync>> {
+) -> AResult<Vec<(String, i64)>> {
     let rows = client.query(&format!(
         "SELECT name, {t_col} as total FROM {table} ORDER BY total {q_ord} LIMIT {limit}",
         t_col=karma_typ,
