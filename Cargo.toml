@@ -11,7 +11,7 @@ lto = "thin"
 [workspace]
 
 [build-dependencies]
-built = { version = "0.6", features = ["chrono", "git2"] }
+built = { version = "0.7", features = ["chrono", "git2"] }
 
 [dependencies]
 # Core library for the bot
@@ -24,18 +24,18 @@ futures-util = "0.3"
 
 # For timezone + postgresql
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-chrono-tz = "0.8"
+chrono-tz = "0.10"
 
 # Postgresql
-tokio-postgres = { version = "0.7.12", features = ["with-chrono-0_4"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 tokio-postgres-rustls = "0.13"
 rustls = "0.23"
-bytes = "1.8.0"
+bytes = "1.9"
 
 # For karma parsing
 nom = "7"
 unicode-normalization = "0.1"
-unicase = "2.6"
+unicase = "2.8"
 
 # For karma fuzzing
 arbitrary = { version = "1.4", optional = true, features = ["derive"] }

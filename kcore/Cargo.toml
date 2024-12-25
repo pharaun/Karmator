@@ -5,7 +5,7 @@ authors = ["Anja Berens <pharaun666@gmail.com>"]
 edition = "2021"
 
 [dev-dependencies]
-http = "0.2"
+http = "1.2"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -17,7 +17,7 @@ futures-util = "0.3"
 tokio-tungstenite = { version = "0.13", features = ["connect", "tls", "stream"] }
 
 # Slack web api
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.12", features = ["json"] }
 quick_cache = { version = "0.6", default-features = false, features = ["ahash"] }
 
 # Message Ids
@@ -30,4 +30,4 @@ log = "0.4"
 nom = "7"
 
 # Error handling
-anyhow = "1.0"
+anyhow = "1"
