@@ -38,7 +38,7 @@ unicode-normalization = "0.1"
 unicase = "2.6"
 
 # For karma fuzzing
-arbitrary = { version = "1.3", optional = true, features = ["derive"] }
+arbitrary = { version = "1.4", optional = true, features = ["derive"] }
 
 # Logging
 env_logger = "0.11"

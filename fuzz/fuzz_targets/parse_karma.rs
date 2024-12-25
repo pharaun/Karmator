@@ -2,7 +2,7 @@
 use libfuzzer_sys::fuzz_target;
 use arbitrary::{Arbitrary, Unstructured};
 
-extern crate karmator_rust;
+extern crate karmator;
 
 // Dummy struct to get a string
 #[derive(Arbitrary)]
@@ -17,6 +17,6 @@ fuzz_target!(|data: &[u8]| {
         let cmd = value.dat;
 
         // TODO: for now focus on just crashes
-        karmator_rust::bot::parser::karma::parse(&cmd).unwrap();
+        karmator::bot::parser::karma::parse(&cmd).unwrap();
     }
 });

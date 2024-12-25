@@ -1,6 +1,6 @@
 
 [package]
-name = "karmator-rust-fuzz"
+name = "karmator-fuzz"
 version = "0.0.0"
 authors = ["Automatically generated"]
 publish = false
@@ -11,11 +11,14 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.3"
-arbitrary = { version = "0.4", features = ["derive"] }
+arbitrary = { version = "1.4", features = ["derive"] }
 
-[dependencies.karmator-rust]
+[dependencies.karmator]
 path = ".."
 features = ["arbitrary"]
+
+[dependencies.kcore]
+path = "../kcore"
 
 # Prevent this from interfering with workspaces
 [workspace]
