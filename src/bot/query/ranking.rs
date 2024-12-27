@@ -4,17 +4,22 @@ use log::error;
 
 use anyhow::Result as AResult;
 
+use kcore::slack;
+
 use crate::bot::query::{KarmaCol, KarmaTyp, KarmaName};
 use crate::bot::user_event::Event;
 
 
-pub async fn ranking(
-    event: &mut Event,
+pub async fn ranking<S>(
+    event: &mut Event<S>,
     client: Arc<Client>,
     ktyp: KarmaTyp,
     target: &str,
     label: &str,
-) {
+)
+where
+    S: slack::HttpSender + Clone + Send + Sync + Sized,
+{
     let target_received = ranking_denormalized(
         client.clone(),
         KarmaCol::Received,

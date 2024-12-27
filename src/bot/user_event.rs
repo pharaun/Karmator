@@ -30,9 +30,12 @@ use kcore::event::send_simple_message;
 
 
 #[derive(Clone)]
-pub struct Event {
+pub struct Event<S>
+where
+    S: slack::HttpSender + Clone + Send + Sync + Sized,
+{
     // Bot Data
-    slack: slack::Client,
+    slack: slack::Client<S>,
     tx: mpsc::Sender<Reply>,
 
     // User Data
@@ -42,7 +45,10 @@ pub struct Event {
     text: Option<String>,
 }
 
-impl Event {
+impl <S> Event<S>
+where
+    S: slack::HttpSender + Clone + Send + Sync + Sized,
+{
     async fn is_user_bot(&self) -> bool {
         match self.slack.is_user_bot(&self.user_id).await {
             None => {
@@ -190,12 +196,15 @@ fn parse_user_event(s: serde_json::Value) -> Option<UserEvent> {
 }
 
 
-pub async fn process_user_message(
+pub async fn process_user_message<S>(
     msg: serde_json::Value,
     tx: mpsc::Sender<Reply>,
     client: Arc<Client>,
-    slack: slack::Client,
-) -> AResult<()> {
+    slack: slack::Client<S>,
+) -> AResult<()>
+where
+    S: slack::HttpSender + Clone + Send + Sync + Sized,
+{
     // Check if its a message/certain string, if so, reply
     match parse_user_event(msg) {
         Some(UserEvent::Message {

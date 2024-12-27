@@ -131,10 +131,13 @@ impl fmt::Display for KarmaTyp {
     }
 }
 
-pub async fn santizer(
+pub async fn santizer<S>(
     input: &str,
-    slack: &slack::Client,
-) -> String {
+    slack: &slack::Client<S>,
+) -> String
+where
+    S: slack::HttpSender + Clone + Send + Sync + Sized,
+{
     match santizer::parse(input).ok() {
         None      => {
             error!("Failed to santize: {:?}", input);

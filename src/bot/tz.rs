@@ -7,6 +7,8 @@ use chrono::Timelike;
 
 use log::error;
 
+use kcore::slack;
+
 use crate::bot::user_event::Event;
 
 use nom::{
@@ -41,10 +43,13 @@ use nom::{
 const TIME_FORMAT: &str = "%-l:%M%P";
 
 
-pub async fn timezone(
-    event: &mut Event,
+pub async fn timezone<S>(
+    event: &mut Event<S>,
     input: Vec<&str>,
-) {
+)
+where
+    S: slack::HttpSender + Clone + Send + Sync + Sized,
+{
     if input.is_empty() {
         // !tz --> utc current time + 3 tz (pacific, eastern, uk)
         let utc_time: DateTime<Utc> = Utc::now();

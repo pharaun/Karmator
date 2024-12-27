@@ -7,6 +7,8 @@ use anyhow::Result as AResult;
 
 use log::error;
 
+use kcore::slack;
+
 use crate::bot::parser::karma::Karma;
 use crate::bot::parser::reacji_to_karma;
 
@@ -17,12 +19,15 @@ use crate::bot::query::add_nick;
 use crate::bot::query::add_channel;
 
 
-pub async fn add_reacji(
+pub async fn add_reacji<S>(
     client: Arc<Client>,
-    event: &mut Event,
+    event: &mut Event<S>,
     input: &str,
     action: ReacjiAction,
-) {
+)
+where
+    S: slack::HttpSender + Clone + Send + Sync + Sized,
+{
     match reacji_to_karma(input) {
         Some(karma) => {
             let message_id = query_reacji_message(

@@ -6,6 +6,8 @@ use log::{info, error};
 
 use anyhow::Result as AResult;
 
+use kcore::slack;
+
 use crate::bot::parser::karma::KST;
 use crate::bot::parser::karma;
 
@@ -17,10 +19,13 @@ use crate::bot::query::add_nick;
 use crate::bot::query::add_channel;
 
 
-pub async fn add_karma(
+pub async fn add_karma<S>(
     client: Arc<Client>,
-    event: &Event,
-) {
+    event: &Event<S>,
+)
+where
+    S: slack::HttpSender + Clone + Send + Sync + Sized,
+{
     match karma::parse(&event.santize().await) {
         Ok(mut karma) if !karma.is_empty() => {
             info!("Parsed Karma: {:?}", karma);

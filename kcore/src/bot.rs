@@ -28,12 +28,13 @@ use crate::event;
 use crate::signal;
 
 
-pub async fn default_event_loop<F1>(
-    slack: slack::Client,
+pub async fn default_event_loop<S, F1>(
+    slack: slack::Client<S>,
     mut signal: signal::Signal,
     user_event_listener: F1,
 ) -> AResult<()>
 where
+    S: slack::HttpSender + Clone + Send + Sync + Sized,
     F1: Fn(
         serde_json::Value,
         mpsc::Sender<event::Reply>

@@ -17,13 +17,11 @@ use kcore::bot;
 use karmator::bot::user_event;
 
 // TODO:
-// 2. update postgres pem to be optional (for talking to a local test database)
 // 5. Migrate from batch over to stored procedure for cleaning out votes run (ie repeated votes for
 //    same item by the same person - default is max of 20 in one run) - You select the whole votes
 //    table, iterate it row by row and compare current row with previous, and increment the run
 //    count if its repeated, otherwise reset and make a new run-record. then scan through the run
 //    record and prune anything more than say 20 items
-
 #[tokio::main]
 async fn main() -> AResult<()> {
     env_logger::init();

@@ -8,16 +8,21 @@ use anyhow::Result as AResult;
 
 use futures_util::{pin_mut, TryStreamExt};
 
+use kcore::slack;
+
 use crate::bot::query::{KarmaCol, KarmaName};
 use crate::bot::user_event::Event;
 
 
-pub async fn partial(
-    event: &mut Event,
+pub async fn partial<S>(
+    event: &mut Event<S>,
     client: Arc<Client>,
     kcol: KarmaCol,
     arg: Vec<&str>,
-) {
+)
+where
+    S: slack::HttpSender + Clone + Send + Sync + Sized,
+{
     let res = partial_query(
         client.clone(),
         kcol,
