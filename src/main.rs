@@ -1,7 +1,7 @@
 use std::env;
 use std::sync::Arc;
 
-use log::error;
+use log::{info, error};
 
 use anyhow::anyhow;
 use anyhow::Result as AResult;
@@ -34,8 +34,17 @@ async fn main() -> AResult<()> {
     // System slack client manager
     let slack = slack::Client::new("https://slack.com/api", &app_token, &bot_token, 50);
 
-    // Shutdown Signal
+    //*******************
+    // Signals bits
+    //*******************
     let (sql_shutdown_tx, signal) = signal::Signal::new();
+
+    let mut signal2 = signal.clone();
+    tokio::spawn(async move {
+        // If this exits, then shutdown got invoked and this is no longer needed
+        signal2.shutdown_daemon().await;
+        info!("Shutdown listener exited, shutdown is invoked");
+    });
 
     //*******************
     // Postgres bits

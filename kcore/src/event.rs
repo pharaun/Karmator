@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Instant;
 
-use log::{info, error};
+use log::{debug, info, error};
 
 use tokio::sync::mpsc;
 
@@ -82,6 +82,8 @@ fn parse_event(s: String) -> Option<Event> {
     ).map_err(
         |x| format!("{:?}", x)
     );
+
+    debug!("Parsed Event: {:?}", res);
 
     if res.is_err() {
         error!("parse_event - Error: {:?}\n{:?}\n", res, s);

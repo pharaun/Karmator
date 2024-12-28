@@ -6,6 +6,7 @@ use log::{debug, info, warn, error};
 use anyhow::anyhow;
 use anyhow::Result as AResult;
 
+use tokio::time;
 use tokio::net::TcpListener;
 use tokio_postgres::NoTls;
 use tokio::sync::oneshot;
@@ -37,6 +38,8 @@ impl HttpSender for FakeSender {
                     Ok(response::Builder::new().status(200).body(response)?.into())
                 },
                 "/chat.postMessage" => {
+                    info!("postMessage body: {:?}", request.body());
+
                     let response = r#"{"ok": true}"#;
                     Ok(response::Builder::new().status(200).body(response)?.into())
                 },
@@ -82,14 +85,20 @@ enum ServerState {
 }
 
 // Fake Websocket server for sending the bot "messages" from slack
-async fn websocket_server(tx: oneshot::Sender<()>) -> AResult<()> {
+async fn websocket_server(
+    readyness: oneshot::Sender<()>,
+    mut signal: signal::Signal,
+) -> AResult<()> {
     // Socket + event loop for listening to connection attempts
     let socket = TcpListener::bind("127.0.0.1:8080").await.unwrap();
-    let _ = tx.send(());
+    let _ = readyness.send(());
+
+    // Interval timers for routine disconnect
+    let mut disbeat = time::interval(time::Duration::from_secs(240));
+    disbeat.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
+    disbeat.tick().await;
 
     let mut state = ServerState::Hello;
-
-    // For now only support one connection
     while let Ok((stream, addr)) = socket.accept().await {
         let ws_stream = tokio_tungstenite::accept_async(stream).await.unwrap();
         let (mut ws_write, mut ws_read) = ws_stream.split();
@@ -97,7 +106,7 @@ async fn websocket_server(tx: oneshot::Sender<()>) -> AResult<()> {
         state = ServerState::Hello;
         info!("Slack Websocket - server established");
 
-        while state != ServerState::Exit {
+        while state != ServerState::Exit && !signal.should_shutdown() {
             debug!("Current Server State: {:?}", state);
             match state {
                 ServerState::Hello => {
@@ -114,11 +123,12 @@ async fn websocket_server(tx: oneshot::Sender<()>) -> AResult<()> {
                     // in the bot)
                     //
                     // TODO: talk to the repl to get stuff to then send to the bot
-                    //
-                    // Either transition into Ack or Disconnect, for now Ack
-                    // TODO: do some sort of heartbeat to keep the client happy
-                    // state = ServerState::Ack;
                     tokio::select! {
+                        _ = signal.shutdown() => {
+                            info!("Shutdown signal received");
+                            state = ServerState::Exit;
+                        },
+
                         ws_msg = ws_read.next() => {
                             match ws_msg {
                                 Some(Ok(tungstenite::Message::Text(msg))) => {
@@ -157,17 +167,20 @@ async fn websocket_server(tx: oneshot::Sender<()>) -> AResult<()> {
                                 },
                             }
                         },
-                        // TODO: deal with shutdowning
-                        // TODO: deal have a timer that after enough time has passed enter disconnect
-                        // state
+
+                        // This is woken up peroidically to force a reconnection
+                        _ = disbeat.tick() => {
+                            info!("Perodic Reconnect tester");
+                            state = ServerState::Disconnect;
+                        }
                     }
                 },
                 ServerState::Disconnect => {
-                    // After sufficient time has passed the other events will send us here, so send
-                    // a disconnect, wait a couple of second then close socket
-                    //
-                    // then - perodically a
-                    // {"type" : "disconnect", "reason": "refresh_requested"}
+                    let response = r#"{"type": "disconnect", "reason": "refresh_requested"}"#;
+                    ws_write.send(tungstenite::Message::from(response)).await;
+
+                    // Sleep for a second then exit
+                    time::sleep(time::Duration::from_secs(1)).await;
                     state = ServerState::Exit;
                 },
 
@@ -188,17 +201,27 @@ async fn main() -> AResult<()> {
     // Do postgres bits later
     //let postgres_url = env::var("POSTGRES_URL").map_err(|_| anyhow!("POSTGRES_URL env var must be set"))?;
 
-    // Shutdown Signal
+    //*******************
+    // Signals bits
+    //*******************
     let (sql_shutdown_tx, signal) = signal::Signal::new();
+
+    let mut signal2 = signal.clone();
+    tokio::spawn(async move {
+        // If this exits, then shutdown got invoked and this is no longer needed
+        signal2.shutdown_daemon().await;
+        info!("Shutdown listener exited, shutdown is invoked");
+    });
 
     // Block till server is ready
     let (tx, rx) = oneshot::channel();
 
-    // Launch the websocket
+    // Launch the websocket server
+    let signal3 = signal.clone();
     tokio::spawn(async move {
         // If this exits something went wrong
         // TODO: wire it up to repl
-        if let Err(e) = websocket_server(tx).await {error!("Websocket Error: {:?}", e);}
+        if let Err(e) = websocket_server(tx, signal3).await {error!("Websocket Error: {:?}", e);}
     });
     let _ = rx.await;
 

@@ -9,57 +9,62 @@ use tokio::signal;
 use tokio::signal::unix;
 
 
+#[derive(Clone)]
 pub struct Signal {
-    shutdown: bool,
-
+    shutdown: (watch::Sender<bool>, watch::Receiver<bool>),
     external_shutdown: watch::Receiver<bool>,
-
-    #[cfg(unix)]
-    sig_int: unix::Signal,
-
-    #[cfg(unix)]
-    sig_term: unix::Signal,
 }
 
 impl Signal {
     pub fn new() -> (watch::Sender<bool>, Signal) {
-        info!("Signal installed");
         let (tx, rx) = watch::channel(false);
+        info!("Signal installed");
 
         (tx, Signal {
-            shutdown: false,
+            shutdown: watch::channel(false),
             external_shutdown: rx,
-
-            #[cfg(unix)]
-            sig_int: unix::signal(unix::SignalKind::interrupt()).unwrap(),
-
-            #[cfg(unix)]
-            sig_term: unix::signal(unix::SignalKind::terminate()).unwrap(),
         })
     }
 
     #[cfg(unix)]
-    pub async fn shutdown(&mut self) {
-        self.shutdown = tokio::select! {
-            _ = self.external_shutdown.changed() => *self.external_shutdown.borrow(),
-            _ = self.sig_int.recv() => true,
-            _ = self.sig_term.recv() => true,
-        }
+    pub async fn shutdown_daemon(&mut self) {
+        let mut sig_int = unix::signal(unix::SignalKind::interrupt()).unwrap();
+        let mut sig_term = unix::signal(unix::SignalKind::terminate()).unwrap();
+
+        // This will never exit till shutdown is true
+        tokio::select! {
+            _ = self.external_shutdown.wait_for(|v| *v == true) => (),
+            _ = self.shutdown.1.wait_for(|v| *v == true) => (),
+            _ = sig_int.recv() => (),
+            _ = sig_term.recv() => (),
+        };
+
+        // We returned from the select, shutdown has been invoked.
+        let _ = self.shutdown.0.send(true);
     }
 
     #[cfg(windows)]
+    pub async fn shutdown_daemon(&mut self) {
+        // This will never exit till shutdown is true
+        tokio::select! {
+            _ = self.external_shutdown.wait_for(|v| *v == true) => (),
+            _ = self.shutdown.1.wait_for(|v| *v == true) => (),
+            _ = signal::ctrl_c() => (),
+        };
+
+        // We returned from the select, shutdown has been invoked.
+        let _ = self.shutdown.0.send(true);
+    }
+
     pub async fn shutdown(&mut self) {
-        self.shutdown = tokio::select! {
-            _ = self.external_shutdown.changed() => *self.external_shutdown.borrow(),
-            _ = signal::ctrl_c() => true,
-        }
+        let _ = self.shutdown.1.wait_for(|v| *v == true).await;
     }
 
     pub fn should_shutdown(&self) -> bool {
-        self.shutdown
+        *self.shutdown.1.borrow()
     }
 
     pub fn shutdown_now(&mut self) {
-        self.shutdown = true;
+        let _ = self.shutdown.0.send(true);
     }
 }
