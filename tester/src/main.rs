@@ -1,5 +1,6 @@
 use std::env;
 use std::sync::Arc;
+use std::io::Write;
 
 use log::{debug, info, warn, error};
 
@@ -10,10 +11,15 @@ use tokio::time;
 use tokio::net::TcpListener;
 use tokio_postgres::NoTls;
 use tokio::sync::oneshot;
+use tokio::sync::watch;
 use tokio_tungstenite::tungstenite;
+
+use rustyline_async::Readline;
+use rustyline_async::ReadlineEvent;
 
 use futures_util::StreamExt;
 use futures_util::SinkExt;
+use futures_util::FutureExt;
 
 use http::response;
 
@@ -21,6 +27,7 @@ use kcore::slack;
 use kcore::slack::HttpSender;
 use kcore::signal;
 use kcore::bot;
+use kcore::command::Command;
 use karmator::bot::user_event;
 
 
@@ -98,8 +105,8 @@ async fn websocket_server(
     disbeat.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
     disbeat.tick().await;
 
-    let mut state = ServerState::Hello;
-    while let Ok((stream, addr)) = socket.accept().await {
+    let mut state;
+    while let Ok((stream, _)) = socket.accept().await {
         let ws_stream = tokio_tungstenite::accept_async(stream).await.unwrap();
         let (mut ws_write, mut ws_read) = ws_stream.split();
 
@@ -111,7 +118,7 @@ async fn websocket_server(
             match state {
                 ServerState::Hello => {
                     let response = r#"{"type": "hello", "num_connections": 1}"#;
-                    ws_write.send(tungstenite::Message::from(response)).await;
+                    let _ = ws_write.send(tungstenite::Message::from(response)).await;
 
                     state = ServerState::Event;
                 }
@@ -144,12 +151,11 @@ async fn websocket_server(
                                 },
                                 Some(Ok(tungstenite::Message::Ping(x))) => {
                                     debug!("Client Ping: {:?}", x);
-                                    ws_write.send(tungstenite::Message::Pong(x)).await;
+                                    let _ = ws_write.send(tungstenite::Message::Pong(x)).await;
                                 },
                                 Some(Ok(tungstenite::Message::Pong(x))) => {
                                     debug!("Client Pong: {:?}", x);
                                 },
-                                // Client closed, exit loop
                                 Some(Ok(tungstenite::Message::Close(reason))) => {
                                     info!("Client close reason: {:?}", reason);
                                     state = ServerState::Exit;
@@ -177,7 +183,7 @@ async fn websocket_server(
                 },
                 ServerState::Disconnect => {
                     let response = r#"{"type": "disconnect", "reason": "refresh_requested"}"#;
-                    ws_write.send(tungstenite::Message::from(response)).await;
+                    let _ = ws_write.send(tungstenite::Message::from(response)).await;
 
                     // Sleep for a second then exit
                     time::sleep(time::Duration::from_secs(1)).await;
@@ -192,14 +198,68 @@ async fn websocket_server(
     Ok(())
 }
 
+async fn terminal_readline(
+    mut rl: rustyline_async::Readline,
+    mut stdout: rustyline_async::SharedWriter,
+    mut signal: signal::Signal,
+    shutdown: watch::Sender<bool>,
+) -> AResult<()> {
+    while !signal.should_shutdown() {
+	    let _ = rl.flush();
+        tokio::select! {
+            _ = signal.shutdown() => info!("Shutdown signal received"),
+
+			command = rl.readline().fuse() => match command {
+				Ok(ReadlineEvent::Line(line)) => {
+					let mut line = line.trim().to_string();
+                    line.insert_str(0, "!");
+					rl.add_history_entry(line.clone());
+
+					match kcore::command::parse(&line) {
+                        Ok(Command("send", arg)) => {
+                            let _ = writeln!(stdout, "Send: {:?}", arg);
+                        },
+						_ => {
+                            let _ = writeln!(stdout, "Command not found: \"{}\"", line);
+                        },
+                    }
+                },
+				Ok(ReadlineEvent::Eof) => {
+                    let _ = shutdown.send(true);
+                    let _ = writeln!(stdout, "Exiting...");
+                },
+				Ok(ReadlineEvent::Interrupted) => {
+                    let _ = shutdown.send(true);
+                    let _ = writeln!(stdout, "^C");
+                },
+				Err(err) => {
+                    let _ = shutdown.send(true);
+					let _ = writeln!(stdout, "Received err: {:?}", err);
+					let _ = writeln!(stdout, "Exiting...");
+				},
+            }
+        }
+    }
+    Ok(())
+
+}
 
 #[tokio::main]
 async fn main() -> AResult<()> {
-    // TODO: integrate logger into REPL and remove env_logger
-    env_logger::init();
-
-    // Do postgres bits later
     //let postgres_url = env::var("POSTGRES_URL").map_err(|_| anyhow!("POSTGRES_URL env var must be set"))?;
+
+    // Initial terminal setup
+    let (rl, stdout) = Readline::new("> ".to_string()).unwrap();
+
+    // Logging
+    simplelog::WriteLogger::init(
+		log::LevelFilter::Debug,
+		simplelog::Config::default(),
+		stdout.clone(),
+	).unwrap();
+
+    // Block till server is ready
+    let (tx, rx) = oneshot::channel();
 
     //*******************
     // Signals bits
@@ -213,28 +273,54 @@ async fn main() -> AResult<()> {
         info!("Shutdown listener exited, shutdown is invoked");
     });
 
-    // Block till server is ready
-    let (tx, rx) = oneshot::channel();
+    //*******************
+    // Terminal bits
+    //*******************
+    let signal4 = signal.clone();
+    let sql_shutdown_tx3 = sql_shutdown_tx.clone();
+    tokio::spawn(async move {
+        // If this exits, something went wrong
+        if let Err(e) = terminal_readline(rl, stdout, signal4, sql_shutdown_tx3.clone()).await {
+            error!("Websocket Error: {:?}", e);
+        }
+        if let Err(e) = sql_shutdown_tx3.send(true) {error!("Shutdown Signal Error: {:?}", e);}
+    });
 
+    //*******************
+    // Websocket bits
+    //*******************
     // Launch the websocket server
     let signal3 = signal.clone();
+    let sql_shutdown_tx2 = sql_shutdown_tx.clone();
     tokio::spawn(async move {
         // If this exits something went wrong
-        // TODO: wire it up to repl
         if let Err(e) = websocket_server(tx, signal3).await {error!("Websocket Error: {:?}", e);}
+        if let Err(e) = sql_shutdown_tx2.send(true) {error!("Shutdown Signal Error: {:?}", e);}
     });
-    let _ = rx.await;
 
-    // System slack client manager
+    //*******************
+    // Slack Client bits
+    //*******************
     let slack_fake = FakeSender;
     let slack = slack::Client::with_sender(slack_fake, "http://localhost", "app-token", "bot-token", 10);
 
+    //*******************
+    // Postgres bits
+    //*******************
     //let (client, connection) = tokio_postgres::connect(&postgres_url, NoTls).await?;
     //let client = Arc::new(client);
     //tokio::spawn(async move {
     //    if let Err(e) = connection.await {error!("Database Error: {:?}", e);}
     //    if let Err(e) = sql_shutdown_tx.send(true) {error!("Shutdown Signal Error: {:?}", e);}
     //});
+
+    //*******************
+    // Bot bits
+    //*******************
+    // Wait till the server and all of the other daemons are ready
+    // TODO: have it be a more sophsicated readyness check that makes sure sql, terminal,
+    // websockets are all ready to go?
+    let _ = rx.await;
 
     bot::default_event_loop(
         slack.clone(),

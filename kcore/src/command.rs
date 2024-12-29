@@ -159,4 +159,20 @@ mod test_command {
             Ok(("", Command("karma", vec![":yey: dod"])))
         );
     }
+
+    #[test]
+    fn test_nested_command() {
+        assert_eq!(
+            command("!karma !karma asdf"),
+            Ok(("", Command("karma", vec!["!karma", "asdf"])))
+        );
+    }
+
+    #[test]
+    fn test_nested_quoted_command() {
+        assert_eq!(
+            command("!karma \"!karma asdf\""),
+            Ok(("", Command("karma", vec!["!karma asdf"])))
+        );
+    }
 }
