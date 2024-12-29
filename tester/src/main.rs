@@ -48,7 +48,10 @@ impl HttpSender for FakeSender {
                     Ok(response::Builder::new().status(200).body(response)?.into())
                 },
                 "/chat.postMessage" => {
-                    info!("postMessage body: {:?}", request.body());
+                    info!(
+                        "postMessage body: {:?}",
+                        request.body().map(|x| x.as_bytes()).flatten().map(|x| std::str::from_utf8(x))
+                    );
 
                     let response = r#"{"ok": true}"#;
                     Ok(response::Builder::new().status(200).body(response)?.into())
@@ -182,8 +185,9 @@ async fn websocket_server(
                                     "payload": {
                                         "type": "event_callback",
                                         "event": {
-                                            "channel_id": "testchan",
-                                            "user_id": "testname",
+                                            "type": "message",
+                                            "channel": "testchan",
+                                            "user": "testname",
                                             "text": msg,
                                             "ts": "testts",
                                         },
@@ -225,39 +229,39 @@ async fn terminal_readline(
     websocket: mpsc::Sender<String>,
 ) -> AResult<()> {
     while !signal.should_shutdown() {
-	    let _ = rl.flush();
+        let _ = rl.flush();
         tokio::select! {
             _ = signal.shutdown() => info!("Shutdown signal received"),
 
-			command = rl.readline().fuse() => match command {
-				Ok(ReadlineEvent::Line(line)) => {
-					let mut line = line.trim().to_string();
+            command = rl.readline().fuse() => match command {
+                Ok(ReadlineEvent::Line(line)) => {
+                    let mut line = line.trim().to_string();
+                    rl.add_history_entry(line.clone());
                     line.insert_str(0, "!");
-					rl.add_history_entry(line.clone());
 
-					match kcore::command::parse(&line) {
+                    match kcore::command::parse(&line) {
                         // Send string as it is to the bot via websocket
                         Ok(Command("send", arg)) => {
                             let _ = websocket.send(arg.join(" ")).await;
                         },
-						_ => {
+                        _ => {
                             let _ = writeln!(stdout, "Command not found: \"{}\"", line);
                         },
                     }
                 },
-				Ok(ReadlineEvent::Eof) => {
+                Ok(ReadlineEvent::Eof) => {
                     let _ = shutdown.send(true);
                     let _ = writeln!(stdout, "Exiting...");
                 },
-				Ok(ReadlineEvent::Interrupted) => {
+                Ok(ReadlineEvent::Interrupted) => {
                     let _ = shutdown.send(true);
                     let _ = writeln!(stdout, "^C");
                 },
-				Err(err) => {
+                Err(err) => {
                     let _ = shutdown.send(true);
-					let _ = writeln!(stdout, "Received err: {:?}", err);
-					let _ = writeln!(stdout, "Exiting...");
-				},
+                    let _ = writeln!(stdout, "Received err: {:?}", err);
+                    let _ = writeln!(stdout, "Exiting...");
+                },
             }
         }
     }
@@ -274,10 +278,10 @@ async fn main() -> AResult<()> {
 
     // Logging
     simplelog::WriteLogger::init(
-		log::LevelFilter::Debug,
-		simplelog::Config::default(),
-		stdout.clone(),
-	).unwrap();
+        log::LevelFilter::Debug,
+        simplelog::Config::default(),
+        stdout.clone(),
+    ).unwrap();
 
     // Block till server is ready
     let (tx, rx) = oneshot::channel();
@@ -329,6 +333,7 @@ async fn main() -> AResult<()> {
     //*******************
     // Postgres bits
     //*******************
+    // TODO: Do some setup/initalization stuff to automatically setup/configure the database
     let (client, connection) = tokio_postgres::connect(&postgres_url, NoTls).await?;
     let client = Arc::new(client);
     tokio::spawn(async move {
