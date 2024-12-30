@@ -69,8 +69,6 @@ async fn partial_query(
     // Maxmium Pain here we go!
     let it = client.query_raw(&query, params).await?;
 
-    // TODO: figure out how to debug this one
-
     // A bit more additional work than usual
     let mut ret: Vec<(String, i64, i64, i64)> = vec![];
     let mut has: HashSet<KarmaName> = HashSet::new();

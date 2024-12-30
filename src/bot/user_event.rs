@@ -401,7 +401,7 @@ where
 
                 Ok(command::Command(x, _)) => info!("No handler: {:?}", x),
 
-                Err(_) => add_karma(client.clone(), &event).await,
+                Err(_) => add_karma(&event, client.clone()).await,
             }
         },
 

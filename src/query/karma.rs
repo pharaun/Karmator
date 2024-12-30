@@ -4,6 +4,8 @@ use tokio_postgres::Client;
 use std::sync::Arc;
 use log::{info, error};
 
+use futures_util::future;
+
 use anyhow::Result as AResult;
 
 use kcore::slack;
@@ -14,14 +16,14 @@ use crate::parser::karma;
 use crate::query::KarmaName;
 use crate::query::normalize;
 use crate::query::add_nick;
-use crate::query::add_channel;
+use crate::query::add_channel_opt;
 
 use crate::bot::user_event::Event;
 
 
 pub async fn add_karma<S>(
-    client: Arc<Client>,
     event: &Event<S>,
+    client: Arc<Client>,
 )
 where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
@@ -91,11 +93,10 @@ async fn add_karma_query(
     channel_id: Option<String>,
     karma: Vec<KST>,
 ) -> AResult<()> {
-    let nick_id: i64 = add_nick(client.clone(), user_id, username.clone(), real_name).await?;
-    let channel_id: Option<i64> = match channel_id {
-        Some(cid) => Some(add_channel(client.clone(), cid).await?),
-        None => None,
-    };
+    let (nick_id, channel_id) = future::try_join(
+        add_nick(client.clone(), user_id, username.clone(), real_name),
+        add_channel_opt(client.clone(), channel_id),
+    ).await?;
 
     // Shove the karma into the db now
     for KST(karma_text, amount) in karma.iter() {

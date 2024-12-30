@@ -2,6 +2,7 @@ use chrono::prelude::{Utc, DateTime};
 
 use tokio_postgres::Client;
 use std::sync::Arc;
+use futures_util::future;
 
 use anyhow::Result as AResult;
 
@@ -28,80 +29,69 @@ pub async fn add_reacji<S>(
 where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
-    match reacji_to_karma(input) {
-        Some(karma) => {
-            let message_id = query_reacji_message(
-                client.clone(),
-                event.channel_id.clone(),
-                event.thread_ts.clone().unwrap()
-            ).await.map_or_else(
-                |e| Err(e.to_string()),
-                |v| v.ok_or("NONE".to_string())
-            );
-
-            let message_id = match message_id {
-                Ok(message_id) => Ok(Some(message_id)),
-                Err(_) => match event.get_message().await {
-                    Ok(message_user_id) => {
-                        // We have the message content, insert it into the table and
-                        // get its row id
-                        let santized_text = event.santize().await;
-
-                        match (
-                            event.get_other_username(&message_user_id).await,
-                            event.get_other_user_real_name(&message_user_id).await,
-                        ) {
-                            (Some(ud), Some(rn)) => {
-                                add_reacji_message(
-                                    client.clone(),
-                                    message_user_id,
-                                    KarmaName::new(&ud),
-                                    KarmaName::new(&rn),
-                                    event.channel_id.clone(),
-                                    // TODO: should add error check here
-                                    event.thread_ts.clone().unwrap(),
-                                    santized_text
-                                ).await.map_err(|x| x.to_string())
-                            },
-                            e => Err(format!("ERROR: [Reacji] Querying for user/name failed: {:?}", e)),
-                        }
-                    },
-                    e => Err(format!("ERROR: [Reacji] Querying for message failed: {:?}", e)),
-                },
-            };
-
-            match message_id {
-                Err(e) => {
-                    error!("Failed to get reacji message - Error: {:?}", e);
-                },
-                Ok(None) => (), // These are expected error, drop
-                Ok(Some(mid)) => {
-                    match (
-                        event.get_username().await,
-                        event.get_user_real_name().await,
-                    ) {
-                        (Some(ud), Some(rn)) => {
-                            let e = add_reacji_query(
+    if let Some(karma) = reacji_to_karma(input) {
+        let message_id = match query_reacji_message(
+            client.clone(),
+            event.channel_id.clone(),
+            event.thread_ts.clone().unwrap()
+        ).await {
+            Ok(Some(message_id)) => Ok(Some(message_id)),
+            Ok(None) => match event.get_message().await {
+                // We have the message content, insert it into the table and get its row id
+                Ok(message_user_id) => {
+                    match future::join3(
+                        event.santize(),
+                        event.get_other_username(&message_user_id),
+                        event.get_other_user_real_name(&message_user_id),
+                    ).await {
+                        (santized_text, Some(ud), Some(rn)) => {
+                            add_reacji_message(
                                 client.clone(),
-                                Utc::now(),
-                                event.user_id.clone(),
+                                message_user_id,
                                 KarmaName::new(&ud),
                                 KarmaName::new(&rn),
-                                action,
-                                mid,
-                                karma,
-                            ).await;
-
-                            if e.is_err() {
-                                error!("Query failed: {:?}", e);
-                            }
+                                event.channel_id.clone(),
+                                // TODO: should add error check here
+                                event.thread_ts.clone().unwrap(),
+                                santized_text
+                            ).await.map_err(|x| x.to_string())
                         },
-                        e => error!("Querying for user/name failed: {:?}", e),
+                        (_, ud, rn) => Err(format!("Querying for user/name failed: {:?}", (ud, rn))),
                     }
                 },
-            }
-        },
-        None => (),
+                e => Err(format!("ERROR: [Reacji] Querying for message failed: {:?}", e)),
+            },
+            Err(e) => Err(format!("Database error: {:?}", e)),
+        };
+
+        match message_id {
+            Err(e) => {
+                error!("Failed to get reacji message - Error: {:?}", e);
+            },
+            Ok(None) => (), // These are expected error, drop
+            Ok(Some(mid)) => {
+                match future::join(
+                    event.get_username(),
+                    event.get_user_real_name(),
+                ).await {
+                    (Some(ud), Some(rn)) => {
+                        if let Err(e) = add_reacji_query(
+                            client.clone(),
+                            Utc::now(),
+                            event.user_id.clone(),
+                            KarmaName::new(&ud),
+                            KarmaName::new(&rn),
+                            action,
+                            mid,
+                            karma,
+                        ).await {
+                            error!("Query failed: {:?}", e);
+                        }
+                    },
+                    e => error!("Querying for user/name failed: {:?}", e),
+                }
+            },
+        }
     }
 }
 
@@ -111,25 +101,16 @@ async fn query_reacji_message(
     channel_id: String,
     message_ts: String,
 ) -> AResult<Option<i64>> {
-    let row = client.query_opt(
-        "SELECT id FROM chan_metadata WHERE channel = $1",
-        &[&channel_id]
-    ).await?;
-
-    if let Some(r) = row {
-        let cid: i64 = r.try_get(0)?;
-
-        let row = client.query_opt(
-            "SELECT id FROM reacji_message WHERE ts = ? AND chan_id = ?",
-            &[&message_ts, &cid]
-        ).await?;
-
-        if let Some(r) = row {
-            return Ok(r.try_get(0)?);
-        }
+    if let Some(row) = client.query_opt(
+        "SELECT id FROM reacji_message AS rm
+            JOIN chan_metadata AS cm ON rm.chan_id = cm.id
+            WHERE rm.ts = $1 AND cm.channel = $2",
+        &[&message_ts, &channel_id]
+    ).await? {
+        Ok(row.try_get(0)?)
+    } else {
+        Ok(None)
     }
-
-    Ok(None)
 }
 
 
@@ -142,8 +123,10 @@ async fn add_reacji_message(
     message_ts: String,
     message: String,
 ) -> AResult<Option<i64>> {
-    let nick_id: i64 = add_nick(client.clone(), user_id, username.clone(), real_name).await?;
-    let channel_id: i64 = add_channel(client.clone(), channel_id).await?;
+    let (nick_id, channel_id) = future::try_join(
+        add_nick(client.clone(), user_id, username.clone(), real_name),
+        add_channel(client.clone(), channel_id),
+    ).await?;
 
     // Insert the reacji_message content now
     let rows = client.query_opt(

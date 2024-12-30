@@ -2,6 +2,8 @@ use tokio_postgres::Client;
 use std::sync::Arc;
 use log::error;
 
+use futures_util::future;
+
 use anyhow::Result as AResult;
 
 use kcore::slack;
@@ -20,74 +22,40 @@ pub async fn ranking<S>(
 where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
-    let target_received = ranking_denormalized(
-        client.clone(),
-        KarmaCol::Received,
-        ktyp,
-        KarmaName::new(target),
-    ).await.map(|e| e.map(|c| format!("{}", c)));
+    let query = future::try_join4(
+        ranking_denormalized(client.clone(), KarmaCol::Received, ktyp, KarmaName::new(target)),
+        count(client.clone(), KarmaCol::Received),
+        ranking_denormalized(client.clone(), KarmaCol::Given, ktyp, KarmaName::new(target)),
+        count(client.clone(), KarmaCol::Given),
+    );
 
+    match query.await {
+        Ok((target_received, total_received, target_given, total_given)) => {
+            // Formatting the ranks
+            let receiving = match (target_received, total_received) {
+                (Some(r), tr) => Some(format!("{} rank is {} of {} in receiving", label, r, tr)),
+                (None, _) => None,
+            };
 
-    let total_received = count(
-        client.clone(),
-        KarmaCol::Received,
-    ).await.map(|e| format!("{}", e));
+            let giving = match (target_given, total_given) {
+                (Some(g), tg) => Some(format!("{} rank is {} of {} in giving", label, g, tg)),
+                (None, _) => None,
+            };
 
-    let target_given = ranking_denormalized(
-        client.clone(),
-        KarmaCol::Given,
-        ktyp,
-        KarmaName::new(target),
-    ).await.map(|e| e.map(|c| format!("{}", c)));
+            let rank = match (receiving, giving) {
+                (Some(r), Some(g)) => format!("{} and {}.", r, g),
+                (Some(r), None)    => format!("{}.", r),
+                (None, Some(g))    => format!("{}.", g),
+                (None, None)       => format!("No ranking available"),
+            };
 
-    let total_given = count(
-        client.clone(),
-        KarmaCol::Given,
-    ).await.map(|e| format!("{}", e));
-
-    // Formatting the ranks
-    let receiving = match (target_received, total_received) {
-        (Ok(Some(r)), Ok(tr)) => Some(format!("{} rank is {} of {} in receiving", label, r, tr)),
-        (Err(a), Err(b)) => {
-            error!("Database Error - target: {:?} total: {:?}", a, b);
-            None
+            event.send_reply(&rank).await;
         },
-        (Err(a), _) => {
-            error!("Database Error - target: {:?}", a);
-            None
+        Err(e) => {
+            error!("Ranking something went wrong - {:?}", e);
+            event.send_reply("Something went wrong").await
         },
-        (_, Err(b)) => {
-            error!("Database Error - total: {:?}", b);
-            None
-        },
-        _ => None,
-    };
-
-    let giving = match (target_given, total_given) {
-        (Ok(Some(g)), Ok(tg)) => Some(format!("{} rank is {} of {} in giving", label, g, tg)),
-        (Err(a), Err(b)) => {
-            error!("Database Error - target: {:?} total: {:?}", a, b);
-            None
-        },
-        (Err(a), _) => {
-            error!("Database Error - target: {:?}", a);
-            None
-        },
-        (_, Err(b)) => {
-            error!("Database Error - total: {:?}", b);
-            None
-        },
-        _ => None,
-    };
-
-    let rank = match (receiving, giving) {
-        (Some(r), Some(g)) => format!("{} and {}.", r, g),
-        (Some(r), None)    => format!("{}.", r),
-        (None, Some(g))    => format!("{}.", g),
-        (None, None)       => format!("No ranking available"),
-    };
-
-    event.send_reply(&rank).await;
+    }
 }
 
 async fn ranking_denormalized(

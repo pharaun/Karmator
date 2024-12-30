@@ -1,6 +1,7 @@
 use tokio_postgres::Client;
 use std::sync::Arc;
 use log::error;
+use futures_util::future;
 
 use anyhow::Result as AResult;
 
@@ -13,10 +14,8 @@ use crate::bot::user_event::Event;
 pub async fn top_n<S>(
     event: &mut Event<S>,
     client: Arc<Client>,
-    kcol1: KarmaCol,
-    kord1: OrdQuery,
-    kcol2: KarmaCol,
-    kord2: OrdQuery,
+    kcol1: KarmaCol, kord1: OrdQuery,
+    kcol2: KarmaCol, kord2: OrdQuery,
     ktyp: KarmaTyp,
     label: (&str, &str),
     limit: u32,
@@ -24,34 +23,18 @@ pub async fn top_n<S>(
 where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
-    let high = top_n_denormalized(
-        client.clone(),
-        kcol1,
-        ktyp,
-        limit,
-        kord1,
-    ).await.map(|e| {
-        e.iter().map(
-            |(e, c)| format!("{}, ({})", e, c)
-        ).collect::<Vec<String>>().join("; ")
-    });
+    let query = future::try_join(
+        top_n_denormalized(client.clone(), kcol1, ktyp, limit, kord1),
+        top_n_denormalized(client.clone(), kcol2, ktyp, limit, kord2)
+    );
 
-    let low = top_n_denormalized(
-        client.clone(),
-        kcol2,
-        ktyp,
-        limit,
-        kord2,
-    ).await.map(|e| {
-        e.iter().map(
-            |(e, c)| format!("{}, ({})", e, c)
-        ).collect::<Vec<String>>().join("; ")
-    });
-
-    // TODO: do something about this
-    let _ = match (high, low) {
-        (Ok(h), Ok(l)) => event.send_reply(&format!("{}: {}. {}: {}.", label.0, h, label.1, l)).await,
-        e => {
+    match query.await {
+        Ok((high, low)) => event.send_reply(&format!(
+            "{}: {}. {}: {}.",
+            label.0, high.iter().map(|(e, c)| format!("{}, ({})", e, c)).collect::<Vec<String>>().join("; "),
+            label.1, low.iter().map(|(e, c)| format!("{}, ({})", e, c)).collect::<Vec<String>>().join("; "),
+        )).await,
+        Err(e) => {
             error!("Top-n something went wrong - {:?}", e);
             event.send_reply("Something went wrong").await
         },

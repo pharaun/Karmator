@@ -139,7 +139,7 @@ where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
     match santizer::parse(input).ok() {
-        None      => {
+        None => {
             error!("Failed to santize: {:?}", input);
             input.to_string()
         },
@@ -183,7 +183,6 @@ pub async fn add_nick(
     real_name: KarmaName,
 ) -> AResult<i64> {
     let row = client.query_opt("SELECT id FROM nick_metadata WHERE username = $1", &[&user_id]).await?;
-
     match row {
         Some(r) => Ok(r.try_get(0)?),
         None => {
@@ -194,6 +193,16 @@ pub async fn add_nick(
             Ok(row.try_get(0)?)
         },
     }
+}
+
+pub async fn add_channel_opt(
+    client: Arc<Client>,
+    channel_id: Option<String>,
+) -> AResult<Option<i64>> {
+    Ok(match channel_id {
+        Some(cid) => Some(add_channel(client, cid).await?),
+        None => None,
+    })
 }
 
 pub async fn add_channel(
