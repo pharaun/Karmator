@@ -10,7 +10,7 @@ use futures_util::{pin_mut, TryStreamExt};
 
 use kcore::slack;
 
-use crate::bot::query::{KarmaCol, KarmaName};
+use crate::query::{KarmaCol, KarmaName};
 use crate::bot::user_event::Event;
 
 

@@ -9,14 +9,14 @@ use log::error;
 
 use kcore::slack;
 
-use crate::bot::parser::karma::Karma;
-use crate::bot::parser::reacji_to_karma;
+use crate::parser::karma::Karma;
+use crate::parser::reacji_to_karma;
 
-use crate::bot::query::{KarmaName, ReacjiAction};
+use crate::query::{KarmaName, ReacjiAction};
+use crate::query::add_nick;
+use crate::query::add_channel;
+
 use crate::bot::user_event::Event;
-
-use crate::bot::query::add_nick;
-use crate::bot::query::add_channel;
 
 
 pub async fn add_reacji<S>(

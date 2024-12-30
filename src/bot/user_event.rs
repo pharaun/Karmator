@@ -13,14 +13,14 @@ use log::{info, error};
 use serde::Deserialize;
 
 use crate::bot::build_info;
-use crate::bot::query::santizer;
+use crate::query::santizer;
 
-use crate::bot::query::karma::add_karma;
-use crate::bot::query::partial::partial;
-use crate::bot::query::ranking::ranking;
-use crate::bot::query::reacji::add_reacji;
-use crate::bot::query::top_n::top_n;
-use crate::bot::query::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
+use crate::query::karma::add_karma;
+use crate::query::partial::partial;
+use crate::query::ranking::ranking;
+use crate::query::reacji::add_reacji;
+use crate::query::top_n::top_n;
+use crate::query::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
 use crate::bot::tz::timezone;
 
 use kcore::slack;

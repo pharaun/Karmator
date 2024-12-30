@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use unicode_normalization::{UnicodeNormalization, is_nfc_quick, IsNormalized};
 
-use crate::bot::parser::karma::Karma;
+use crate::parser::karma::Karma;
 use kcore::slack;
 use kcore::santizer;
 

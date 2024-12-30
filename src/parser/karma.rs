@@ -27,10 +27,10 @@ use nom::{
 };
 use std::matches;
 
-use crate::bot::parser::karma_def::str_to_karma;
-use crate::bot::parser::karma_token::KarmaToken;
-use crate::bot::parser::karma_token::all_token;
-use crate::bot::parser::tokenizer::Tokens;
+use crate::parser::karma_def::str_to_karma;
+use crate::parser::karma_token::KarmaToken;
+use crate::parser::karma_token::all_token;
+use crate::parser::tokenizer::Tokens;
 
 
 // Now here begins the actual structural karma parser (Karma Structure Tree (KST))

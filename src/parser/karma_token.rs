@@ -20,8 +20,8 @@ use nom::{
 };
 use std::fmt;
 
-use crate::bot::parser::karma_def::KARMA_LIST;
-use crate::bot::parser::karma_def::karma_tags;
+use crate::parser::karma_def::KARMA_LIST;
+use crate::parser::karma_def::karma_tags;
 
 
 // This starts karma tokenizer stream

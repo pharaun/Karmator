@@ -6,7 +6,7 @@ use anyhow::Result as AResult;
 
 use kcore::slack;
 
-use crate::bot::query::{KarmaCol, KarmaTyp, KarmaName};
+use crate::query::{KarmaCol, KarmaTyp, KarmaName};
 use crate::bot::user_event::Event;
 
 

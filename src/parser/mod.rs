@@ -6,10 +6,10 @@ mod tokenizer;
 #[cfg(feature = "arbitrary")]
 pub mod test_all_token {
     use nom::IResult;
-    pub use crate::bot::parser::karma_token::KarmaToken;
+    pub use crate::parser::karma_token::KarmaToken;
 
     pub fn all_token(input: &str) -> IResult<&str, Vec<KarmaToken>> {
-        crate::bot::parser::karma_token::all_token(input)
+        crate::parser::karma_token::all_token(input)
     }
 }
 

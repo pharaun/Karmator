@@ -8,15 +8,15 @@ use anyhow::Result as AResult;
 
 use kcore::slack;
 
-use crate::bot::parser::karma::KST;
-use crate::bot::parser::karma;
+use crate::parser::karma::KST;
+use crate::parser::karma;
 
-use crate::bot::query::KarmaName;
-use crate::bot::query::normalize;
+use crate::query::KarmaName;
+use crate::query::normalize;
+use crate::query::add_nick;
+use crate::query::add_channel;
+
 use crate::bot::user_event::Event;
-
-use crate::bot::query::add_nick;
-use crate::bot::query::add_channel;
 
 
 pub async fn add_karma<S>(

@@ -17,6 +17,6 @@ fuzz_target!(|data: &[u8]| {
         let cmd = value.dat;
 
         // TODO: for now focus on just crashes
-        kcore::command::parse(&cmd);
+        let _ = kcore::command::parse(&cmd);
     }
 });
