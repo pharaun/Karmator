@@ -20,8 +20,8 @@ use crate::bot::user_event::Event;
 
 
 pub async fn add_reacji<S>(
-    client: Arc<Client>,
     event: &mut Event<S>,
+    client: Arc<Client>,
     input: &str,
     action: ReacjiAction,
 )

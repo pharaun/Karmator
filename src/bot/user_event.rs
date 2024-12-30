@@ -12,7 +12,6 @@ use log::{info, error};
 
 use serde::Deserialize;
 
-use crate::bot::build_info;
 use crate::query::santizer;
 
 use crate::query::karma::add_karma;
@@ -146,6 +145,7 @@ pub enum UserEvent {
         thread_ts: Option<String>,
     },
     ReactionAdded {
+        /* who performed this */
         #[serde(rename = "user")]
         user_id: String,
         reaction: String,
@@ -154,6 +154,7 @@ pub enum UserEvent {
         event_ts: String,
     },
     ReactionRemoved {
+        /* who performed this */
         #[serde(rename = "user")]
         user_id: String,
         reaction: String,
@@ -236,9 +237,9 @@ where
             // Parse string to see if its a command one
             match event.parse_command() {
                 Ok(command::Command("version", _)) => {
-                    let ver = build_info::PKG_VERSION;
-                    let dat = build_info::BUILT_TIME_UTC;
-                    let sha = build_info::GIT_COMMIT_HASH.unwrap_or("Unknown");
+                    let ver = crate::bot::PKG_VERSION;
+                    let dat = crate::bot::BUILT_TIME_UTC;
+                    let sha = crate::bot::GIT_COMMIT_HASH.unwrap_or("Unknown");
 
                     event.send_reply(
                         &format!("Cargo Version: {} - Build Date: {}, - Build SHA: {}", ver, dat, sha)
@@ -250,7 +251,7 @@ where
                 },
 
                 Ok(command::Command("help", _)) => {
-                    let help = "Available commands: !uptime !version !github !sidevotes !karma !givers !rank !ranksidevote !topkarma !topgivers !topsidevotes !tz";
+                    let help = "Available commands: !version !github !sidevotes !karma !givers !rank !ranksidevote !topkarma !topgivers !topsidevotes !tz";
                     event.send_reply(help).await;
                 },
 
@@ -263,34 +264,62 @@ where
                     timezone(&mut event.clone(), arg).await;
                 },
 
-                Ok(command::Command("karma", arg)) => {
-                    // asdf「asdf」asdf
-                    // TODO: Implement a 'slack id' to unix name mapper
-                    //  - for now can probs query it as needed, but should
-                    //      be cached
+                // asdf「asdf」asdf
+                // TODO: Implement a 'slack id' to unix name mapper
+                //  - for now can probs query it as needed, but should
+                //      be cached
+                Ok(command::Command(c@"karma", arg)) |
+                Ok(command::Command(c@"givers", arg)) |
+                Ok(command::Command(c@"sidevotes", arg)) => {
                     if arg.is_empty() {
-                        top_n(
-                            &mut event.clone(),
-                            client.clone(),
-                            KarmaCol::Received,
-                            OrdQuery::Desc,
-                            KarmaCol::Received,
-                            OrdQuery::Asc,
-                            KarmaTyp::Total,
-                            ("highest karma", "lowest karma"),
-                            3u32,
-                        ).await;
+                        match c {
+                            "karma" => top_n(
+                                &mut event.clone(), client.clone(),
+                                KarmaCol::Received, OrdQuery::Desc,
+                                KarmaCol::Received, OrdQuery::Asc,
+                                KarmaTyp::Total,
+                                ("highest karma", "lowest karma"),
+                                3u32,
+                            ).await,
+                            "givers" => top_n(
+                                &mut event.clone(), client.clone(),
+                                KarmaCol::Given, OrdQuery::Desc,
+                                KarmaCol::Given, OrdQuery::Asc,
+                                KarmaTyp::Total,
+                                ("most positive", "most negative"),
+                                3u32,
+                            ).await,
+                            "sidevotes" => top_n(
+                                &mut event.clone(), client.clone(),
+                                KarmaCol::Received, OrdQuery::Desc,
+                                KarmaCol::Given, OrdQuery::Desc,
+                                KarmaTyp::Side,
+                                ("most sidevotes received", "most sidevotes given"),
+                                3u32,
+                            ).await,
+                            _ => (),
+                        }
                     } else {
-                        partial(
-                            &mut event.clone(),
-                            client.clone(),
-                            KarmaCol::Received,
-                            arg,
-                        ).await;
+                        match c {
+                            "karma" => partial(
+                                &mut event.clone(), client.clone(),
+                                KarmaCol::Received,
+                                arg,
+                            ).await,
+                            "givers" => partial(
+                                &mut event.clone(), client.clone(),
+                                KarmaCol::Given,
+                                arg,
+                            ).await,
+                            "sidevotes" => event.send_reply("Not supported!").await,
+                            _ => (),
+                        }
                     }
                 },
 
-                Ok(command::Command("topkarma", arg)) => {
+                Ok(command::Command(c@"topkarma", arg)) |
+                Ok(command::Command(c@"topgivers", arg)) |
+                Ok(command::Command(c@"topsidevotes", arg)) => {
                     if arg.is_empty() {
                         event.send_reply("Please specify a positive integer between 1 and 25.").await;
                     } else if arg.len() != 1 {
@@ -299,116 +328,32 @@ where
                         // Parse the argument
                         let limit = u32::from_str(arg.get(0).unwrap_or(&"1"));
 
-                        match limit {
-                            Ok(lim@1..=25) => {
+                        match (c, limit) {
+                            ("topkarma", Ok(lim@1..=25)) => {
                                 top_n(
-                                    &mut event.clone(),
-                                    client.clone(),
-                                    KarmaCol::Received,
-                                    OrdQuery::Desc,
-                                    KarmaCol::Received,
-                                    OrdQuery::Asc,
+                                    &mut event.clone(), client.clone(),
+                                    KarmaCol::Received, OrdQuery::Desc,
+                                    KarmaCol::Received, OrdQuery::Asc,
                                     KarmaTyp::Total,
                                     ("\nhighest karma", "\nlowest karma"),
                                     lim,
                                 ).await;
                             },
-                            _ => {
-                                event.send_reply("Please specify a positive integer between 1 and 25.").await;
-                            },
-                        }
-                    }
-                },
-
-                Ok(command::Command("givers", arg)) => {
-                    if arg.is_empty() {
-                        top_n(
-                            &mut event.clone(),
-                            client.clone(),
-                            KarmaCol::Given,
-                            OrdQuery::Desc,
-                            KarmaCol::Given,
-                            OrdQuery::Asc,
-                            KarmaTyp::Total,
-                            ("most positive", "most negative"),
-                            3u32,
-                        ).await;
-                    } else {
-                        partial(
-                            &mut event.clone(),
-                            client.clone(),
-                            KarmaCol::Given,
-                            arg,
-                        ).await;
-                    }
-                },
-
-                Ok(command::Command("topgivers", arg)) => {
-                    if arg.is_empty() {
-                        event.send_reply("Please specify a positive integer between 1 and 25.").await;
-                    } else if arg.len() != 1 {
-                        event.send_reply("Please specify a positive integer between 1 and 25.").await;
-                    } else {
-                        // Parse the argument
-                        let limit = u32::from_str(arg.get(0).unwrap_or(&"1"));
-
-                        match limit {
-                            Ok(lim@1..=25) => {
+                            ("topgivers", Ok(lim@1..=25)) => {
                                 top_n(
-                                    &mut event.clone(),
-                                    client.clone(),
-                                    KarmaCol::Given,
-                                    OrdQuery::Desc,
-                                    KarmaCol::Given,
-                                    OrdQuery::Asc,
+                                    &mut event.clone(), client.clone(),
+                                    KarmaCol::Given, OrdQuery::Desc,
+                                    KarmaCol::Given, OrdQuery::Asc,
                                     KarmaTyp::Total,
                                     ("\nmost positive", "\nmost negative"),
                                     lim,
                                 ).await;
                             },
-                            _ => {
-                                event.send_reply("Please specify a positive integer between 1 and 25.").await;
-                            },
-                        }
-                    }
-                },
-
-                Ok(command::Command("sidevotes", arg)) => {
-                    if arg.is_empty() {
-                        top_n(
-                            &mut event.clone(),
-                            client.clone(),
-                            KarmaCol::Received,
-                            OrdQuery::Desc,
-                            KarmaCol::Given,
-                            OrdQuery::Desc,
-                            KarmaTyp::Side,
-                            ("most sidevotes received", "most sidevotes given"),
-                            3u32,
-                        ).await;
-                    } else {
-                        event.send_reply("Not supported!").await;
-                    }
-                },
-
-                Ok(command::Command("topsidevotes", arg)) => {
-                    if arg.is_empty() {
-                        event.send_reply("Please specify a positive integer between 1 and 25.").await;
-                    } else if arg.len() != 1 {
-                        event.send_reply("Please specify a positive integer between 1 and 25.").await;
-                    } else {
-                        // Parse the argument
-                        let limit = u32::from_str(arg.get(0).unwrap_or(&"1"));
-
-                        match limit {
-                            Ok(lim@1..=25) => {
+                            ("topsidevotes", Ok(lim@1..=25)) => {
                                 top_n(
-                                    &mut event.clone(),
-                                    client.clone(),
-                                    KarmaCol::Received,
-                                    OrdQuery::Desc,
-                                    KarmaCol::Given,
-                                    OrdQuery::Desc,
+                                    &mut event.clone(), client.clone(),
+                                    KarmaCol::Received, OrdQuery::Desc,
+                                    KarmaCol::Given, OrdQuery::Desc,
                                     KarmaTyp::Side,
                                     ("\nmost sidevotes received", "\nmost sidevotes given"),
                                     lim,
@@ -421,15 +366,16 @@ where
                     }
                 },
 
-                Ok(command::Command("rank", arg)) => {
+                Ok(command::Command(c@"rank", arg)) |
+                Ok(command::Command(c@"ranksidevote", arg)) => {
+                    let t_typ = if c == "rank" {KarmaTyp::Total} else {KarmaTyp::Side};
                     if arg.is_empty() {
                         // Rank with yourself
                         match event.get_username().await {
                             Some(ud) => {
                                 ranking(
-                                    &mut event.clone(),
-                                    client.clone(),
-                                    KarmaTyp::Total,
+                                    &mut event.clone(), client.clone(),
+                                    t_typ,
                                     &ud,
                                     "Your",
                                 ).await;
@@ -443,42 +389,8 @@ where
                         let target = arg.get(0).unwrap_or(&"INVALID");
 
                         ranking(
-                            &mut event.clone(),
-                            client.clone(),
-                            KarmaTyp::Total,
-                            target,
-                            &format!("{}", target),
-                        ).await;
-                    } else {
-                        event.send_reply("Can only rank one karma entry at a time!").await;
-                    }
-                },
-
-                Ok(command::Command("ranksidevote", arg)) => {
-                    if arg.is_empty() {
-                        // Rank with yourself
-                        match event.get_username().await {
-                            Some(ud) => {
-                                ranking(
-                                    &mut event.clone(),
-                                    client.clone(),
-                                    KarmaTyp::Side,
-                                    &ud,
-                                    "Your",
-                                ).await;
-                            },
-                            _ => {
-                                event.send_reply("Cant find your display name, thanks slack").await;
-                            },
-                        }
-                    } else if arg.len() == 1 {
-                        // Rank up with one target
-                        let target = arg.get(0).unwrap_or(&"INVALID");
-
-                        ranking(
-                            &mut event.clone(),
-                            client.clone(),
-                            KarmaTyp::Side,
+                            &mut event.clone(), client.clone(),
+                            t_typ,
                             target,
                             &format!("{}", target),
                         ).await;
@@ -493,16 +405,7 @@ where
             }
         },
 
-        Some(UserEvent::ReactionAdded {
-            user_id, /* who performed this */
-            reaction,
-            item_user: _,
-            item: ReactionItem::Message {
-                channel_id,
-                ts,
-            },
-            event_ts: _,
-        }) => {
+        Some(UserEvent::ReactionAdded {user_id, reaction, item: ReactionItem::Message {channel_id, ts}, ..}) => {
             let mut event = Event {
                 // Bot data
                 slack, tx,
@@ -511,23 +414,13 @@ where
             };
 
             add_reacji(
-                client.clone(),
-                &mut event,
+                &mut event, client.clone(),
                 &reaction,
                 ReacjiAction::Add,
             ).await;
         },
 
-        Some(UserEvent::ReactionRemoved {
-            user_id, /* who performed this */
-            reaction,
-            item_user: _,
-            item: ReactionItem::Message {
-                channel_id,
-                ts,
-            },
-            event_ts: _,
-        }) => {
+        Some(UserEvent::ReactionRemoved {user_id, reaction, item: ReactionItem::Message {channel_id, ts}, ..}) => {
             let mut event = Event {
                 // Bot data
                 slack, tx,
@@ -536,8 +429,7 @@ where
             };
 
             add_reacji(
-                client.clone(),
-                &mut event,
+                &mut event, client.clone(),
                 &reaction,
                 ReacjiAction::Del,
             ).await;
