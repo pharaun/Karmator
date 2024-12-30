@@ -543,6 +543,7 @@ where
             ).await;
         },
 
+        // TODO: improve error logging to log unhandled events or errors in parsing here
         _ => (),
     }
     Ok(())
