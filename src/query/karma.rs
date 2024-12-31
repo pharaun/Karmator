@@ -1,5 +1,6 @@
 use chrono::prelude::{Utc, DateTime};
 
+use tokio::sync::RwLock;
 use tokio_postgres::Client;
 use std::sync::Arc;
 use log::{info, error};
@@ -23,7 +24,7 @@ use crate::bot::user_event::Event;
 
 pub async fn add_karma<S>(
     event: &Event<S>,
-    client: Arc<Client>,
+    client: Arc<RwLock<Client>>,
 )
 where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
@@ -85,7 +86,7 @@ where
 
 
 async fn add_karma_query(
-    client: Arc<Client>,
+    client: Arc<RwLock<Client>>,
     timestamp: DateTime<Utc>,
     user_id: String,
     username: KarmaName,
@@ -94,8 +95,8 @@ async fn add_karma_query(
     karma: Vec<KST>,
 ) -> AResult<()> {
     let (nick_id, channel_id) = future::try_join(
-        add_nick(client.as_ref(), user_id, username.clone(), real_name),
-        add_channel_opt(client.as_ref(), channel_id),
+        add_nick(&*client.read().await, user_id, username.clone(), real_name),
+        add_channel_opt(&*client.read().await, channel_id),
     ).await?;
 
     // Shove the karma into the db now
@@ -103,7 +104,7 @@ async fn add_karma_query(
         let karma_text = normalize(karma_text);
 
         // TODO: better handle failure of username, maybe we should make username mandatory before inserting?
-        client.execute(
+        (*client.read().await).execute(
             "INSERT INTO votes
                 (voted_at, by_whom_name, for_what_name, amount, nick_id, chan_id)
             VALUES

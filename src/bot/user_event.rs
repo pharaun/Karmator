@@ -1,4 +1,5 @@
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 
 use tokio_postgres::Client;
 
@@ -200,7 +201,7 @@ fn parse_user_event(s: serde_json::Value) -> Option<UserEvent> {
 pub async fn process_user_message<S>(
     msg: serde_json::Value,
     tx: mpsc::Sender<Reply>,
-    client: Arc<Client>,
+    client: Arc<RwLock<Client>>,
     slack: slack::Client<S>,
 ) -> AResult<()>
 where
@@ -271,10 +272,11 @@ where
                 Ok(command::Command(c@"karma", arg)) |
                 Ok(command::Command(c@"givers", arg)) |
                 Ok(command::Command(c@"sidevotes", arg)) => {
+                    let client = client.read().await;
                     if arg.is_empty() {
                         match c {
                             "karma" => top_n(
-                                &mut event.clone(), client.as_ref(),
+                                &mut event.clone(), &*client,
                                 KarmaCol::Received, OrdQuery::Desc,
                                 KarmaCol::Received, OrdQuery::Asc,
                                 KarmaTyp::Total,
@@ -282,7 +284,7 @@ where
                                 3u32,
                             ).await,
                             "givers" => top_n(
-                                &mut event.clone(), client.as_ref(),
+                                &mut event.clone(), &*client,
                                 KarmaCol::Given, OrdQuery::Desc,
                                 KarmaCol::Given, OrdQuery::Asc,
                                 KarmaTyp::Total,
@@ -290,7 +292,7 @@ where
                                 3u32,
                             ).await,
                             "sidevotes" => top_n(
-                                &mut event.clone(), client.as_ref(),
+                                &mut event.clone(), &*client,
                                 KarmaCol::Received, OrdQuery::Desc,
                                 KarmaCol::Given, OrdQuery::Desc,
                                 KarmaTyp::Side,
@@ -302,12 +304,12 @@ where
                     } else {
                         match c {
                             "karma" => partial(
-                                &mut event.clone(), client.as_ref(),
+                                &mut event.clone(), &*client,
                                 KarmaCol::Received,
                                 arg,
                             ).await,
                             "givers" => partial(
-                                &mut event.clone(), client.as_ref(),
+                                &mut event.clone(), &*client,
                                 KarmaCol::Given,
                                 arg,
                             ).await,
@@ -328,10 +330,11 @@ where
                         // Parse the argument
                         let limit = u32::from_str(arg.get(0).unwrap_or(&"1"));
 
+                        let client = client.read().await;
                         match (c, limit) {
                             ("topkarma", Ok(lim@1..=25)) => {
                                 top_n(
-                                    &mut event.clone(), client.as_ref(),
+                                    &mut event.clone(), &*client,
                                     KarmaCol::Received, OrdQuery::Desc,
                                     KarmaCol::Received, OrdQuery::Asc,
                                     KarmaTyp::Total,
@@ -341,7 +344,7 @@ where
                             },
                             ("topgivers", Ok(lim@1..=25)) => {
                                 top_n(
-                                    &mut event.clone(), client.as_ref(),
+                                    &mut event.clone(), &*client,
                                     KarmaCol::Given, OrdQuery::Desc,
                                     KarmaCol::Given, OrdQuery::Asc,
                                     KarmaTyp::Total,
@@ -351,7 +354,7 @@ where
                             },
                             ("topsidevotes", Ok(lim@1..=25)) => {
                                 top_n(
-                                    &mut event.clone(), client.as_ref(),
+                                    &mut event.clone(), &*client,
                                     KarmaCol::Received, OrdQuery::Desc,
                                     KarmaCol::Given, OrdQuery::Desc,
                                     KarmaTyp::Side,
@@ -371,10 +374,11 @@ where
                     let t_typ = if c == "rank" {KarmaTyp::Total} else {KarmaTyp::Side};
                     if arg.is_empty() {
                         // Rank with yourself
+                        let client = client.read().await;
                         match event.get_username().await {
                             Some(ud) => {
                                 ranking(
-                                    &mut event.clone(), client.as_ref(),
+                                    &mut event.clone(), &*client,
                                     t_typ,
                                     &ud,
                                     "Your",
@@ -387,9 +391,10 @@ where
                     } else if arg.len() == 1 {
                         // Rank up with one target
                         let target = arg.get(0).unwrap_or(&"INVALID");
+                        let client = client.read().await;
 
                         ranking(
-                            &mut event.clone(), client.as_ref(),
+                            &mut event.clone(), &*client,
                             t_typ,
                             target,
                             &format!("{}", target),

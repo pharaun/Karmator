@@ -10,6 +10,7 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig as RustlsClientConfig;
 use tokio_postgres_rustls::MakeRustlsConnect;
+use tokio::sync::RwLock;
 
 use kcore::slack;
 use kcore::signal;
@@ -64,7 +65,7 @@ async fn main() -> AResult<()> {
     };
 
     let (client, connection) = tokio_postgres::connect(&postgres_url, tls).await?;
-    let client = Arc::new(client);
+    let client = Arc::new(RwLock::new(client));
 
     tokio::spawn(async move {
         // If the connection exits its for one of the 2 reasons:

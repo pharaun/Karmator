@@ -1,5 +1,6 @@
 use chrono::prelude::{Utc, DateTime};
 
+use tokio::sync::RwLock;
 use tokio_postgres::Client;
 use std::sync::Arc;
 use futures_util::future;
@@ -22,7 +23,7 @@ use crate::bot::user_event::Event;
 
 pub async fn add_reacji<S>(
     event: &mut Event<S>,
-    client: Arc<Client>,
+    client: Arc<RwLock<Client>>,
     input: &str,
     action: ReacjiAction,
 )
@@ -97,11 +98,11 @@ where
 
 
 async fn query_reacji_message(
-    client: Arc<Client>,
+    client: Arc<RwLock<Client>>,
     channel_id: String,
     message_ts: String,
 ) -> AResult<Option<i64>> {
-    if let Some(row) = client.query_opt(
+    if let Some(row) = (*client.read().await).query_opt(
         "SELECT id FROM reacji_message AS rm
             JOIN chan_metadata AS cm ON rm.chan_id = cm.id
             WHERE rm.ts = $1 AND cm.channel = $2",
@@ -115,7 +116,7 @@ async fn query_reacji_message(
 
 
 async fn add_reacji_message(
-    client: Arc<Client>,
+    client: Arc<RwLock<Client>>,
     user_id: String,
     username: KarmaName,
     real_name: KarmaName,
@@ -124,12 +125,12 @@ async fn add_reacji_message(
     message: String,
 ) -> AResult<Option<i64>> {
     let (nick_id, channel_id) = future::try_join(
-        add_nick(client.as_ref(), user_id, username.clone(), real_name),
-        add_channel(client.as_ref(), channel_id),
+        add_nick(&*client.read().await, user_id, username.clone(), real_name),
+        add_channel(&*client.read().await, channel_id),
     ).await?;
 
     // Insert the reacji_message content now
-    let rows = client.query_opt(
+    let rows = (*client.read().await).query_opt(
         "SELECT id, nick_id, message FROM reacji_message WHERE ts = $1 AND chan_id = $2",
         &[&message_ts, &channel_id]).await;
 
@@ -147,7 +148,7 @@ async fn add_reacji_message(
         // Return one anyway for now
         Ok(Some(id))
     } else {
-        Ok(Some(client.query_one(
+        Ok(Some((*client.read().await).query_one(
             "INSERT INTO reacji_message (ts, chan_id, nick_id, message) VALUES ($1, $2, $3, $4) RETURNING id",
             &[&message_ts, &channel_id, &nick_id, &message]
         ).await?.try_get(0)?))
@@ -156,7 +157,7 @@ async fn add_reacji_message(
 
 
 async fn add_reacji_query(
-    client: Arc<Client>,
+    client: Arc<RwLock<Client>>,
     timestamp: DateTime<Utc>,
     user_id: String,
     username: KarmaName,
@@ -165,10 +166,10 @@ async fn add_reacji_query(
     message_id: i64,
     amount: Karma,
 ) -> AResult<Option<i64>> {
-    let nick_id: i64 = add_nick(client.as_ref(), user_id, username.clone(), real_name).await?;
+    let nick_id: i64 = add_nick(&*client.read().await, user_id, username.clone(), real_name).await?;
 
     // Insert the reacji into the database
-    Ok(Some(client.query_one(
+    Ok(Some((*client.read().await).query_one(
         "INSERT INTO reacji_votes
             (voted_at, by_whom_name, action, reacji_message_id, amount, nick_id)
         VALUES
