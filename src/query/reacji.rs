@@ -124,8 +124,8 @@ async fn add_reacji_message(
     message: String,
 ) -> AResult<Option<i64>> {
     let (nick_id, channel_id) = future::try_join(
-        add_nick(client.clone(), user_id, username.clone(), real_name),
-        add_channel(client.clone(), channel_id),
+        add_nick(client.as_ref(), user_id, username.clone(), real_name),
+        add_channel(client.as_ref(), channel_id),
     ).await?;
 
     // Insert the reacji_message content now
@@ -165,7 +165,7 @@ async fn add_reacji_query(
     message_id: i64,
     amount: Karma,
 ) -> AResult<Option<i64>> {
-    let nick_id: i64 = add_nick(client.clone(), user_id, username.clone(), real_name).await?;
+    let nick_id: i64 = add_nick(client.as_ref(), user_id, username.clone(), real_name).await?;
 
     // Insert the reacji into the database
     Ok(Some(client.query_one(

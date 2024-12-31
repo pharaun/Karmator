@@ -1,5 +1,4 @@
-use tokio_postgres::Client;
-use std::sync::Arc;
+use tokio_postgres::GenericClient;
 use log::error;
 
 use futures_util::future;
@@ -12,9 +11,9 @@ use crate::query::{KarmaCol, KarmaTyp, KarmaName};
 use crate::bot::user_event::Event;
 
 
-pub async fn ranking<S>(
+pub async fn ranking<S, C: GenericClient>(
     event: &mut Event<S>,
-    client: Arc<Client>,
+    client: &C,
     ktyp: KarmaTyp,
     target: &str,
     label: &str,
@@ -23,10 +22,10 @@ where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
     let query = future::try_join4(
-        ranking_denormalized(client.clone(), KarmaCol::Received, ktyp, KarmaName::new(target)),
-        count(client.clone(), KarmaCol::Received),
-        ranking_denormalized(client.clone(), KarmaCol::Given, ktyp, KarmaName::new(target)),
-        count(client.clone(), KarmaCol::Given),
+        ranking_denormalized(client, KarmaCol::Received, ktyp, KarmaName::new(target)),
+        count(client, KarmaCol::Received),
+        ranking_denormalized(client, KarmaCol::Given, ktyp, KarmaName::new(target)),
+        count(client, KarmaCol::Given),
     );
 
     match query.await {
@@ -58,8 +57,8 @@ where
     }
 }
 
-async fn ranking_denormalized(
-    client: Arc<Client>,
+async fn ranking_denormalized<C: GenericClient>(
+    client: &C,
     karma_col: KarmaCol,
     karma_typ: KarmaTyp,
     user: KarmaName
@@ -84,8 +83,8 @@ async fn ranking_denormalized(
     )
 }
 
-async fn count(
-    client: Arc<Client>,
+async fn count<C: GenericClient>(
+    client: &C,
     karma_col: KarmaCol,
 ) -> AResult<i64> {
     Ok(client.query_one(&format!(

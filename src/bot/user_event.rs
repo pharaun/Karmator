@@ -274,7 +274,7 @@ where
                     if arg.is_empty() {
                         match c {
                             "karma" => top_n(
-                                &mut event.clone(), client.clone(),
+                                &mut event.clone(), client.as_ref(),
                                 KarmaCol::Received, OrdQuery::Desc,
                                 KarmaCol::Received, OrdQuery::Asc,
                                 KarmaTyp::Total,
@@ -282,7 +282,7 @@ where
                                 3u32,
                             ).await,
                             "givers" => top_n(
-                                &mut event.clone(), client.clone(),
+                                &mut event.clone(), client.as_ref(),
                                 KarmaCol::Given, OrdQuery::Desc,
                                 KarmaCol::Given, OrdQuery::Asc,
                                 KarmaTyp::Total,
@@ -290,7 +290,7 @@ where
                                 3u32,
                             ).await,
                             "sidevotes" => top_n(
-                                &mut event.clone(), client.clone(),
+                                &mut event.clone(), client.as_ref(),
                                 KarmaCol::Received, OrdQuery::Desc,
                                 KarmaCol::Given, OrdQuery::Desc,
                                 KarmaTyp::Side,
@@ -302,12 +302,12 @@ where
                     } else {
                         match c {
                             "karma" => partial(
-                                &mut event.clone(), client.clone(),
+                                &mut event.clone(), client.as_ref(),
                                 KarmaCol::Received,
                                 arg,
                             ).await,
                             "givers" => partial(
-                                &mut event.clone(), client.clone(),
+                                &mut event.clone(), client.as_ref(),
                                 KarmaCol::Given,
                                 arg,
                             ).await,
@@ -331,7 +331,7 @@ where
                         match (c, limit) {
                             ("topkarma", Ok(lim@1..=25)) => {
                                 top_n(
-                                    &mut event.clone(), client.clone(),
+                                    &mut event.clone(), client.as_ref(),
                                     KarmaCol::Received, OrdQuery::Desc,
                                     KarmaCol::Received, OrdQuery::Asc,
                                     KarmaTyp::Total,
@@ -341,7 +341,7 @@ where
                             },
                             ("topgivers", Ok(lim@1..=25)) => {
                                 top_n(
-                                    &mut event.clone(), client.clone(),
+                                    &mut event.clone(), client.as_ref(),
                                     KarmaCol::Given, OrdQuery::Desc,
                                     KarmaCol::Given, OrdQuery::Asc,
                                     KarmaTyp::Total,
@@ -351,7 +351,7 @@ where
                             },
                             ("topsidevotes", Ok(lim@1..=25)) => {
                                 top_n(
-                                    &mut event.clone(), client.clone(),
+                                    &mut event.clone(), client.as_ref(),
                                     KarmaCol::Received, OrdQuery::Desc,
                                     KarmaCol::Given, OrdQuery::Desc,
                                     KarmaTyp::Side,
@@ -374,7 +374,7 @@ where
                         match event.get_username().await {
                             Some(ud) => {
                                 ranking(
-                                    &mut event.clone(), client.clone(),
+                                    &mut event.clone(), client.as_ref(),
                                     t_typ,
                                     &ud,
                                     "Your",
@@ -389,7 +389,7 @@ where
                         let target = arg.get(0).unwrap_or(&"INVALID");
 
                         ranking(
-                            &mut event.clone(), client.clone(),
+                            &mut event.clone(), client.as_ref(),
                             t_typ,
                             target,
                             &format!("{}", target),

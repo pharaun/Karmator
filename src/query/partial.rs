@@ -1,7 +1,6 @@
-use tokio_postgres::Client;
+use tokio_postgres::GenericClient;
 
 use std::collections::HashSet;
-use std::sync::Arc;
 use log::error;
 
 use anyhow::Result as AResult;
@@ -14,9 +13,9 @@ use crate::query::{KarmaCol, KarmaName};
 use crate::bot::user_event::Event;
 
 
-pub async fn partial<S>(
+pub async fn partial<S, C: GenericClient>(
     event: &mut Event<S>,
-    client: Arc<Client>,
+    client: &C,
     kcol: KarmaCol,
     arg: Vec<&str>,
 )
@@ -24,7 +23,7 @@ where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
     let res = partial_query(
-        client.clone(),
+        client,
         kcol,
         arg.into_iter().map(|i| KarmaName::new(i)).collect(),
     ).await.map(|e| {
@@ -47,8 +46,8 @@ where
 }
 
 
-async fn partial_query(
-    client: Arc<Client>,
+async fn partial_query<C: GenericClient>(
+    client: &C,
     karma_col: KarmaCol,
     users: HashSet<KarmaName>,
 ) -> AResult<Vec<(String, i64, i64, i64)>> {

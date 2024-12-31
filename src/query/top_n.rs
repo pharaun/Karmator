@@ -1,5 +1,4 @@
-use tokio_postgres::Client;
-use std::sync::Arc;
+use tokio_postgres::GenericClient;
 use log::error;
 use futures_util::future;
 
@@ -11,9 +10,9 @@ use crate::query::{KarmaCol, KarmaTyp, OrdQuery};
 use crate::bot::user_event::Event;
 
 
-pub async fn top_n<S>(
+pub async fn top_n<S, C: GenericClient>(
     event: &mut Event<S>,
-    client: Arc<Client>,
+    client: &C,
     kcol1: KarmaCol, kord1: OrdQuery,
     kcol2: KarmaCol, kord2: OrdQuery,
     ktyp: KarmaTyp,
@@ -24,8 +23,8 @@ where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
     let query = future::try_join(
-        top_n_denormalized(client.clone(), kcol1, ktyp, limit, kord1),
-        top_n_denormalized(client.clone(), kcol2, ktyp, limit, kord2)
+        top_n_denormalized(client, kcol1, ktyp, limit, kord1),
+        top_n_denormalized(client, kcol2, ktyp, limit, kord2)
     );
 
     match query.await {
@@ -42,8 +41,8 @@ where
 }
 
 
-async fn top_n_denormalized(
-    client: Arc<Client>,
+async fn top_n_denormalized<C: GenericClient>(
+    client: &C,
     karma_col: KarmaCol,
     karma_typ: KarmaTyp,
     limit: u32,

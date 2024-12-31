@@ -4,11 +4,11 @@ pub mod ranking;
 pub mod reacji;
 pub mod top_n;
 
+use tokio_postgres::GenericClient;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::types::to_sql_checked;
 use tokio_postgres::types::Type;
 use tokio_postgres::types::IsNull;
-use tokio_postgres::Client;
 
 use log::error;
 
@@ -19,7 +19,6 @@ use bytes::BytesMut;
 use unicase::UniCase;
 use std::fmt;
 use std::error::Error;
-use std::sync::Arc;
 
 use unicode_normalization::{UnicodeNormalization, is_nfc_quick, IsNormalized};
 
@@ -176,8 +175,8 @@ where
     }
 }
 
-pub async fn add_nick(
-    client: Arc<Client>,
+pub async fn add_nick<C: GenericClient>(
+    client: &C,
     user_id: String,
     username: KarmaName,
     real_name: KarmaName,
@@ -195,8 +194,8 @@ pub async fn add_nick(
     }
 }
 
-pub async fn add_channel_opt(
-    client: Arc<Client>,
+pub async fn add_channel_opt<C: GenericClient>(
+    client: &C,
     channel_id: Option<String>,
 ) -> AResult<Option<i64>> {
     Ok(match channel_id {
@@ -205,8 +204,8 @@ pub async fn add_channel_opt(
     })
 }
 
-pub async fn add_channel(
-    client: Arc<Client>,
+pub async fn add_channel<C: GenericClient>(
+    client: &C,
     channel_id: String,
 ) -> AResult<i64> {
     let row = client.query_opt("SELECT id FROM chan_metadata WHERE channel = $1", &[&channel_id]).await?;

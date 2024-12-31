@@ -94,8 +94,8 @@ async fn add_karma_query(
     karma: Vec<KST>,
 ) -> AResult<()> {
     let (nick_id, channel_id) = future::try_join(
-        add_nick(client.clone(), user_id, username.clone(), real_name),
-        add_channel_opt(client.clone(), channel_id),
+        add_nick(client.as_ref(), user_id, username.clone(), real_name),
+        add_channel_opt(client.as_ref(), channel_id),
     ).await?;
 
     // Shove the karma into the db now
