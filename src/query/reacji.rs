@@ -103,7 +103,7 @@ async fn query_reacji_message(
     message_ts: String,
 ) -> AResult<Option<i64>> {
     if let Some(row) = (*client.read().await).query_opt(
-        "SELECT id FROM reacji_message AS rm
+        "SELECT rm.id FROM reacji_message AS rm
             JOIN chan_metadata AS cm ON rm.chan_id = cm.id
             WHERE rm.ts = $1 AND cm.channel = $2",
         &[&message_ts, &channel_id]
@@ -124,17 +124,20 @@ async fn add_reacji_message(
     message_ts: String,
     message: String,
 ) -> AResult<Option<i64>> {
+    let mut client = client.write().await;
+    let txn = client.transaction().await?;
+
     let (nick_id, channel_id) = future::try_join(
-        add_nick(&*client.read().await, user_id, username.clone(), real_name),
-        add_channel(&*client.read().await, channel_id),
+        add_nick(&txn, user_id, username.clone(), real_name),
+        add_channel(&txn, channel_id),
     ).await?;
 
     // Insert the reacji_message content now
-    let rows = (*client.read().await).query_opt(
+    let rows = txn.query_opt(
         "SELECT id, nick_id, message FROM reacji_message WHERE ts = $1 AND chan_id = $2",
         &[&message_ts, &channel_id]).await;
 
-    if let Ok(Some(row)) = rows {
+    let ret = if let Ok(Some(row)) = rows {
         // Compare the 2 and if its not the same, warn in log, otherwise return
         let id = row.get(0);
         let sql_nick: i64 = row.get(1);
@@ -148,11 +151,13 @@ async fn add_reacji_message(
         // Return one anyway for now
         Ok(Some(id))
     } else {
-        Ok(Some((*client.read().await).query_one(
+        Ok(Some(txn.query_one(
             "INSERT INTO reacji_message (ts, chan_id, nick_id, message) VALUES ($1, $2, $3, $4) RETURNING id",
             &[&message_ts, &channel_id, &nick_id, &message]
         ).await?.try_get(0)?))
-    }
+    };
+    txn.commit().await?;
+    ret
 }
 
 
@@ -166,15 +171,20 @@ async fn add_reacji_query(
     message_id: i64,
     amount: Karma,
 ) -> AResult<Option<i64>> {
-    let nick_id: i64 = add_nick(&*client.read().await, user_id, username.clone(), real_name).await?;
+    let mut client = client.write().await;
+    let txn = client.transaction().await?;
+
+    let nick_id: i64 = add_nick(&txn, user_id, username.clone(), real_name).await?;
 
     // Insert the reacji into the database
-    Ok(Some((*client.read().await).query_one(
+    let ret = Ok(Some(txn.query_one(
         "INSERT INTO reacji_votes
             (voted_at, by_whom_name, action, reacji_message_id, amount, nick_id)
         VALUES
             ($1, $2, $3, $4, $5, $6)
         RETURNING id",
         &[&timestamp, &username, &action, &message_id, &amount, &nick_id]
-    ).await?.try_get(0)?))
+    ).await?.try_get(0)?));
+    txn.commit().await?;
+    ret
 }

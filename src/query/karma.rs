@@ -94,9 +94,12 @@ async fn add_karma_query(
     channel_id: Option<String>,
     karma: Vec<KST>,
 ) -> AResult<()> {
+    let mut client = client.write().await;
+    let txn = client.transaction().await?;
+
     let (nick_id, channel_id) = future::try_join(
-        add_nick(&*client.read().await, user_id, username.clone(), real_name),
-        add_channel_opt(&*client.read().await, channel_id),
+        add_nick(&txn, user_id, username.clone(), real_name),
+        add_channel_opt(&txn, channel_id),
     ).await?;
 
     // Shove the karma into the db now
@@ -104,12 +107,13 @@ async fn add_karma_query(
         let karma_text = normalize(karma_text);
 
         // TODO: better handle failure of username, maybe we should make username mandatory before inserting?
-        (*client.read().await).execute(
+        txn.execute(
             "INSERT INTO votes
                 (voted_at, by_whom_name, for_what_name, amount, nick_id, chan_id)
             VALUES
                 ($1, $2, $3, $4, $5, $6)"
             , &[&timestamp, &username, &karma_text, &amount, &nick_id, &channel_id]).await?;
     }
+    txn.commit().await?;
     Ok(())
 }

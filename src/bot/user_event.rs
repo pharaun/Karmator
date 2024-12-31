@@ -392,7 +392,6 @@ where
                         // Rank up with one target
                         let target = arg.get(0).unwrap_or(&"INVALID");
                         let client = client.read().await;
-
                         ranking(
                             &mut event.clone(), &*client,
                             t_typ,
