@@ -4,6 +4,7 @@ use tokio_tungstenite::tungstenite;
 use futures_util::{SinkExt, StreamExt};
 
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tokio::time;
 use tokio::time::MissedTickBehavior;
 
@@ -17,7 +18,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -127,9 +127,10 @@ where
                             }).to_string())
                         ).await,
                         event::Reply::Message(msg) => {
-                            // Need to post to the web api
-                            // TODO: improve error handling here
-                            let _ = slack.post_message(msg).await;
+                            if let Err(e) = slack.post_message(msg).await {
+                                // Don't propagage error to websocket cuz this is via web api
+                                error!("Slack Http - Post message error: {:?}", e);
+                            }
                             Ok(())
                         },
                     } {
@@ -144,12 +145,12 @@ where
                     let now = Instant::now();
 
                     let last_message_delta = {
-                        let timer = last_message_received.read().unwrap();
+                        let timer = last_message_received.read().await;
                         now.checked_duration_since(*timer)
                     };
 
                     let last_ping_delta = {
-                        let timer = last_ping_sent.read().unwrap();
+                        let timer = last_ping_sent.read().await;
                         now.checked_duration_since(*timer)
                     };
 

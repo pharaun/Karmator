@@ -1,6 +1,8 @@
 use tokio::sync::watch;
 
-use log::info;
+use log::{info, error};
+
+use anyhow::Result as AResult;
 
 #[cfg(windows)]
 use tokio::signal;
@@ -27,9 +29,9 @@ impl Signal {
     }
 
     #[cfg(unix)]
-    pub async fn shutdown_daemon(&mut self) {
-        let mut sig_int = unix::signal(unix::SignalKind::interrupt()).unwrap();
-        let mut sig_term = unix::signal(unix::SignalKind::terminate()).unwrap();
+    pub async fn shutdown_daemon(&mut self) -> AResult<()> {
+        let mut sig_int = unix::signal(unix::SignalKind::interrupt())?;
+        let mut sig_term = unix::signal(unix::SignalKind::terminate())?;
 
         // This will never exit till shutdown is true
         tokio::select! {
@@ -40,11 +42,12 @@ impl Signal {
         };
 
         // We returned from the select, shutdown has been invoked.
-        let _ = self.shutdown.0.send(true);
+        self.shutdown.0.send(true)?;
+        Ok(())
     }
 
     #[cfg(windows)]
-    pub async fn shutdown_daemon(&mut self) {
+    pub async fn shutdown_daemon(&mut self) -> AResult<()> {
         // This will never exit till shutdown is true
         tokio::select! {
             _ = self.external_shutdown.wait_for(|v| *v == true) => (),
@@ -53,11 +56,14 @@ impl Signal {
         };
 
         // We returned from the select, shutdown has been invoked.
-        let _ = self.shutdown.0.send(true);
+        self.shutdown.0.send(true)?;
+        Ok(())
     }
 
     pub async fn shutdown(&mut self) {
-        let _ = self.shutdown.1.wait_for(|v| *v == true).await;
+        if let Err(e) = self.shutdown.1.wait_for(|v| *v == true).await {
+            error!("Signal shutdown error: {:?}", e);
+        }
     }
 
     pub fn should_shutdown(&self) -> bool {
@@ -65,6 +71,8 @@ impl Signal {
     }
 
     pub fn shutdown_now(&mut self) {
-        let _ = self.shutdown.0.send(true);
+        if let Err(e) = self.shutdown.0.send(true) {
+            error!("Signal shutdown error: {:?}", e);
+        }
     }
 }

@@ -144,11 +144,12 @@ impl<S: HttpSender> Client<S> {
             self.client.post(url)
                 .header("Content-type", "application/json")
                 .header("Authorization", format!("Bearer {}", self.bot_token))
-                .body(serde_json::to_string(&message).unwrap())
+                .body(serde_json::to_string(&message)?)
             ).await
     }
 
     // TODO: improve the error handling of these, since the api call can fail
+    // Improve the retry strat instead of straight up failing.
     pub async fn is_user_bot(&self, user_id: &str) -> Option<bool> {
         let user = self.get_user(user_id).await;
         user.unwrap().map(|u| u.is_bot)

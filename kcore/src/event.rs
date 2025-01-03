@@ -10,12 +10,12 @@ use serde::Serialize;
 
 use std::result::Result;
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::time::Instant;
 
 use log::{debug, info, error};
 
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 
 use crate::santizer;
 
@@ -118,7 +118,7 @@ pub async fn send_slack_ping(
     last_ping_sent: Arc<RwLock<Instant>>,
 ) -> Result<(), &'static str> {
     {
-        let mut timer = last_ping_sent.write().unwrap();
+        let mut timer = last_ping_sent.write().await;
         *timer = Instant::now();
     }
     tx.send(
@@ -140,14 +140,14 @@ pub async fn process_control_message(
     let raw_msg = match msg {
         tungstenite::Message::Text(x) => {
             {
-                let mut timer = last_message_received.write().unwrap();
+                let mut timer = last_message_received.write().await;
                 *timer = Instant::now();
             }
             Some(x)
         },
 
         tungstenite::Message::Ping(x) => {
-            let _ = tx.send(Reply::Pong(x)).await;
+            tx.send(Reply::Pong(x)).await?;
             None
         },
 
@@ -189,7 +189,7 @@ pub async fn process_control_message(
                 Ok(None)
             },
             Event::EventsApi {envelope_id: ei, accepts_response_payload: _, payload: pay} => {
-                let _ = tx.send(Reply::Acknowledge(ei)).await;
+                tx.send(Reply::Acknowledge(ei)).await?;
 
                 match pay {
                     Payload::EventCallback {event: e} => Ok(Some(e)),

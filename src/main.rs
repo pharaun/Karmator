@@ -43,7 +43,7 @@ async fn main() -> AResult<()> {
     let mut signal2 = signal.clone();
     tokio::spawn(async move {
         // If this exits, then shutdown got invoked and this is no longer needed
-        signal2.shutdown_daemon().await;
+        if let Err(e) = signal2.shutdown_daemon().await {error!("Signal Error: {:?}", e);}
         info!("Shutdown listener exited, shutdown is invoked");
     });
 
