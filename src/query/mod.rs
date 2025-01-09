@@ -181,7 +181,7 @@ pub async fn add_nick<C: GenericClient>(
     username: KarmaName,
     real_name: KarmaName,
 ) -> AResult<i64> {
-    let row = client.query_opt("SELECT id FROM nick_metadata WHERE username = $1", &[&user_id]).await?;
+    let row = client.query_opt("SELECT id FROM nick_metadata WHERE username = $1 ORDER BY id DESC LIMIT 1", &[&user_id]).await?;
     match row {
         Some(r) => Ok(r.try_get(0)?),
         None => {
