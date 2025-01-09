@@ -155,8 +155,8 @@ where
                         let username = slack.get_username(&uid).await;
 
                         match username {
-                            Some(name) => safe_text.push(name),
-                            None => {
+                            Ok(Some(name)) => safe_text.push(name),
+                            _ => {
                                 // TODO: Log this, but for now fallback to
                                 // just rendering it straight into the db
                                 safe_text.push(

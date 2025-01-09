@@ -6,7 +6,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use serde::Deserialize;
-use serde::Serialize;
 
 use std::result::Result;
 use std::sync::Arc;
@@ -18,6 +17,7 @@ use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 
 use crate::santizer;
+use crate::slack::Message;
 
 
 #[derive(Debug, Deserialize)]
@@ -65,14 +65,6 @@ pub enum Reply {
     // Control
     Ping(Vec<u8>),
     Pong(Vec<u8>),
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub struct Message {
-    channel: String,
-    text: String,
-    thread_ts: Option<String>,
 }
 
 

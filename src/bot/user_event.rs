@@ -51,13 +51,19 @@ where
 {
     async fn is_user_bot(&self) -> bool {
         match self.slack.is_user_bot(&self.user_id).await {
-            None => {
+            Ok(Some(is_bot)) => is_bot,
+            Ok(None) => {
                 error!("No info on user: {:?}", &self.user_id);
 
                 // Bail out
                 true
             },
-            Some(is_bot) => is_bot,
+            Err(e) => {
+                error!("Api error when querying for user: {:?} - {:?}", &self.user_id, e);
+
+                // Bail out
+                true
+            },
         }
     }
 
@@ -69,7 +75,15 @@ where
     }
 
     pub async fn get_user_tz(&self) -> Option<slack::Timezone> {
-        self.slack.get_user_tz(&self.user_id).await
+        match self.slack.get_user_tz(&self.user_id).await {
+            Ok(tz) => tz,
+            Err(e) => {
+                error!("Api error when querying for user: {:?} - {:?}", &self.user_id, e);
+
+                // Bail out
+                None
+            },
+        }
     }
 
     pub async fn get_username(&self) -> Option<String> {
@@ -77,7 +91,15 @@ where
     }
 
     pub async fn get_other_username(&self, user_id: &str) -> Option<String> {
-        self.slack.get_username(user_id).await
+        match self.slack.get_username(user_id).await {
+            Ok(un) => un,
+            Err(e) => {
+                error!("Api error when querying for user: {:?} - {:?}", user_id, e);
+
+                // Bail out
+                None
+            },
+        }
     }
 
     pub async fn get_user_real_name(&self) -> Option<String> {
@@ -85,7 +107,15 @@ where
     }
 
     pub async fn get_other_user_real_name(&self, user_id: &str) -> Option<String> {
-        self.slack.get_user_real_name(user_id).await
+        match self.slack.get_user_real_name(user_id).await {
+            Ok(rn) => rn,
+            Err(e) => {
+                error!("Api error when querying for user: {:?} - {:?}", user_id, e);
+
+                // Bail out
+                None
+            },
+        }
     }
 
     // TODO: to support an existing bug, this will return the message's owner user_id
