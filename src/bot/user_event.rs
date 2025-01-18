@@ -230,9 +230,9 @@ fn parse_user_event(s: serde_json::Value) -> Option<UserEvent> {
 
 pub async fn process_user_message<S>(
     msg: serde_json::Value,
+    slack: slack::Client<S>,
     tx: mpsc::Sender<Reply>,
     client: Arc<RwLock<Client>>,
-    slack: slack::Client<S>,
 ) -> AResult<()>
 where
     S: slack::HttpSender + Clone + Send + Sync + Sized,

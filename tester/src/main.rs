@@ -389,11 +389,6 @@ async fn main() -> AResult<()> {
     }
 
     //*******************
-    // Slack Client bits
-    //*******************
-    let slack = slack::Client::with_sender(FakeSender, "http://localhost", "app-token", "bot-token", 10);
-
-    //*******************
     // Websocket bits
     //*******************
     {
@@ -415,16 +410,12 @@ async fn main() -> AResult<()> {
     let _ = rx.await;
 
     bot::default_event_loop(
-        slack.clone(),
+        slack::Client::with_sender(FakeSender, "http://localhost", "app-token", "bot-token", 10),
         signal,
-        |event, tx| {
+        |event, slack, tx| {
             let client = client.clone();
-            let slack = slack.clone();
-
             tokio::spawn(async move {
-                if let Err(e) = user_event::process_user_message(
-                    event, tx, client, slack,
-                ).await {
+                if let Err(e) = user_event::process_user_message(event, slack, tx, client).await {
                     error!("user_event::process_user_message error: {:?}", e);
                 };
             });

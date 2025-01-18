@@ -37,6 +37,7 @@ where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
     F1: Fn(
         serde_json::Value,
+        slack::Client<S>,
         mpsc::Sender<event::Reply>
     ) -> (),
 {
@@ -92,7 +93,7 @@ where
                                 ws_msg,
                             ).await {
                                 // If there's an user event returned spawn off the user event processor
-                                Ok(Some(event)) => user_event_listener(event, tx.clone()),
+                                Ok(Some(event)) => user_event_listener(event, slack.clone(), tx.clone()),
                                 Err(e) => error!("process_control_message error: {:?}", e),
                                 _ => (),
                             }

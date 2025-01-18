@@ -32,20 +32,18 @@ async fn main() -> AResult<()> {
     let app_token = env::var("SLACK_APP_TOKEN").map_err(|_| anyhow!("SLACK_APP_TOKEN env var must be set"))?;
     let bot_token = env::var("SLACK_BOT_TOKEN").map_err(|_| anyhow!("SLACK_BOT_TOKEN env var must be set"))?;
 
-    // System slack client manager
-    let slack = slack::Client::new("https://slack.com/api", &app_token, &bot_token, 50);
-
     //*******************
     // Signals bits
     //*******************
     let (sql_shutdown_tx, signal) = signal::Signal::new();
-
-    let mut signal2 = signal.clone();
-    tokio::spawn(async move {
-        // If this exits, then shutdown got invoked and this is no longer needed
-        if let Err(e) = signal2.shutdown_daemon().await {error!("Signal Error: {:?}", e);}
-        info!("Shutdown listener exited, shutdown is invoked");
-    });
+    {
+        let mut signal = signal.clone();
+        tokio::spawn(async move {
+            // If this exits, then shutdown got invoked and this is no longer needed
+            if let Err(e) = signal.shutdown_daemon().await {error!("Signal Error: {:?}", e);}
+            info!("Shutdown listener exited, shutdown is invoked");
+        });
+    }
 
     //*******************
     // Postgres bits
@@ -79,19 +77,12 @@ async fn main() -> AResult<()> {
     // Core bot eventloop
     //*******************
     bot::default_event_loop(
-        slack.clone(),
+        slack::Client::new("https://slack.com/api", &app_token, &bot_token, 50),
         signal,
-        |event, tx| {
-            let client2 = client.clone();
-            let slack2 = slack.clone();
-
+        |event, slack, tx| {
+            let client = client.clone();
             tokio::spawn(async move {
-                if let Err(e) = user_event::process_user_message(
-                    event,
-                    tx,
-                    client2,
-                    slack2,
-                ).await {
+                if let Err(e) = user_event::process_user_message(event, slack, tx, client).await {
                     error!("user_event::process_user_message error: {:?}", e);
                 };
             });
