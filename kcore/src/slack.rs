@@ -94,6 +94,7 @@ pub enum ConversationHistoryMessage {
         text: String,
         #[serde(rename = "user")]
         user_id: Option<String>,
+        bot_id: Option<String>,
     },
 }
 
@@ -295,7 +296,7 @@ mod test_slack_client {
 
         assert_eq!(
             result.unwrap(),
-            Some(ConversationHistoryMessage::Message { text: "Asdf".into(), user_id: Some("userId".into()) })
+            Some(ConversationHistoryMessage::Message { text: "Asdf".into(), user_id: Some("userId".into()), bot_id: None })
         );
     }
 
@@ -315,6 +316,24 @@ mod test_slack_client {
         let result = client.get_message("whatever", "whenever").await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_bot_message() {
+        let client = client_response(200, r#"{
+            "ok": true,
+            "messages": [{
+                "type": "message",
+                "text": "Asdf",
+                "bot_id": "userId"
+            }]
+        }"#);
+        let result = client.get_message("whatever", "whenever").await;
+
+        assert_eq!(
+            result.unwrap(),
+            Some(ConversationHistoryMessage::Message { text: "Asdf".into(), user_id: None, bot_id: Some("userId".into()) })
+        );
     }
 
     #[tokio::test]

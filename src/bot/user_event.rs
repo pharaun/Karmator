@@ -119,16 +119,20 @@ where
     }
 
     // TODO: to support an existing bug, this will return the message's owner user_id
-    pub async fn get_message(&mut self) -> Result<String, String> {
+    pub async fn get_message(&mut self) -> Result<Option<String>, String> {
         match &self.thread_ts {
             None => Err("No timestamp set for reacji event!".to_string()),
             Some(ts) => {
                 match self.slack.get_message(&self.channel_id, &ts).await {
-                    Ok(Some(slack::ConversationHistoryMessage::Message { text, user_id: Some(user_id) })) => {
+                    Ok(Some(slack::ConversationHistoryMessage::Message { text, user_id: Some(user_id), bot_id: _ })) => {
                         self.text = Some(text);
-                        Ok(user_id)
+                        Ok(Some(user_id))
                     },
-                    Ok(Some(slack::ConversationHistoryMessage::Message { text: _, user_id: None })) => {
+                    Ok(Some(slack::ConversationHistoryMessage::Message { text: _, user_id: None, bot_id: Some(_) })) => {
+                        info!("This message was posted by a bot");
+                        Ok(None)
+                    },
+                    Ok(Some(slack::ConversationHistoryMessage::Message { text: _, user_id: None, bot_id: None })) => {
                         Err("Slack failed to give a owner for this message".to_string())
                     },
                     e => Err(format!("ERROR: [User Event] IDK here: {:?}", e)),

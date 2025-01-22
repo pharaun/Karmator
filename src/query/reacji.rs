@@ -39,7 +39,7 @@ where
             Ok(Some(message_id)) => Ok(Some(message_id)),
             Ok(None) => match event.get_message().await {
                 // We have the message content, insert it into the table and get its row id
-                Ok(message_user_id) => {
+                Ok(Some(message_user_id)) => {
                     match future::join3(
                         event.santize(),
                         event.get_other_username(&message_user_id),
@@ -60,6 +60,8 @@ where
                         (_, ud, rn) => Err(format!("Querying for user/name failed: {:?}", (ud, rn))),
                     }
                 },
+                // This is a bot-owned message so abort out
+                Ok(None) => return,
                 e => Err(format!("ERROR: [Reacji] Querying for message failed: {:?}", e)),
             },
             Err(e) => Err(format!("Database error: {:?}", e)),
