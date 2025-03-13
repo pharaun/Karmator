@@ -4,11 +4,11 @@ pub mod ranking;
 pub mod reacji;
 pub mod top_n;
 
-use tokio_postgres::GenericClient;
-use tokio_postgres::types::ToSql;
 use tokio_postgres::types::to_sql_checked;
-use tokio_postgres::types::Type;
 use tokio_postgres::types::IsNull;
+use tokio_postgres::types::ToSql;
+use tokio_postgres::types::Type;
+use tokio_postgres::GenericClient;
 
 use log::error;
 
@@ -16,16 +16,15 @@ use anyhow::Result as AResult;
 
 use bytes::BytesMut;
 
-use unicase::UniCase;
-use std::fmt;
 use std::error::Error;
+use std::fmt;
+use unicase::UniCase;
 
-use unicode_normalization::{UnicodeNormalization, is_nfc_quick, IsNormalized};
+use unicode_normalization::{is_nfc_quick, IsNormalized, UnicodeNormalization};
 
 use crate::parser::karma::Karma;
-use kcore::slack;
 use kcore::santizer;
-
+use kcore::slack;
 
 // Normalize any incoming string to be stored in the database
 pub fn normalize(input: &str) -> String {
@@ -58,14 +57,16 @@ impl ToSql for KarmaName {
         Ok(IsNull::No)
     }
 
-    fn accepts(ty: &Type) -> bool {matches!(*ty, Type::TEXT | Type::VARCHAR)}
+    fn accepts(ty: &Type) -> bool {
+        matches!(*ty, Type::TEXT | Type::VARCHAR)
+    }
     to_sql_checked!();
 }
 
 impl ToSql for Karma {
     fn to_sql(&self, ty: &Type, w: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let value: i16 = match *self {
-            Karma::Up   => 1,
+            Karma::Up => 1,
             Karma::Down => -1,
             Karma::Side => 0,
         };
@@ -73,12 +74,17 @@ impl ToSql for Karma {
         Ok(IsNull::No)
     }
 
-    fn accepts(ty: &Type) -> bool {matches!(*ty, Type::INT2)}
+    fn accepts(ty: &Type) -> bool {
+        matches!(*ty, Type::INT2)
+    }
     to_sql_checked!();
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum ReacjiAction { Add, Del }
+pub enum ReacjiAction {
+    Add,
+    Del,
+}
 
 impl ToSql for ReacjiAction {
     fn to_sql(&self, ty: &Type, w: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
@@ -90,50 +96,58 @@ impl ToSql for ReacjiAction {
         Ok(IsNull::No)
     }
 
-    fn accepts(ty: &Type) -> bool {matches!(*ty, Type::INT2)}
+    fn accepts(ty: &Type) -> bool {
+        matches!(*ty, Type::INT2)
+    }
     to_sql_checked!();
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum OrdQuery { Asc, Desc }
+pub enum OrdQuery {
+    Asc,
+    Desc,
+}
 
 impl fmt::Display for OrdQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            OrdQuery::Asc  => write!(f, "ASC"),
+            OrdQuery::Asc => write!(f, "ASC"),
             OrdQuery::Desc => write!(f, "DESC"),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum KarmaCol { Given, Received }
+pub enum KarmaCol {
+    Given,
+    Received,
+}
 
 impl fmt::Display for KarmaCol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            KarmaCol::Given    => write!(f, "karma_given_count"),
+            KarmaCol::Given => write!(f, "karma_given_count"),
             KarmaCol::Received => write!(f, "karma_received_count"),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum KarmaTyp { Total, Side }
+pub enum KarmaTyp {
+    Total,
+    Side,
+}
 
 impl fmt::Display for KarmaTyp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             KarmaTyp::Total => write!(f, "up - down"),
-            KarmaTyp::Side  => write!(f, "side"),
+            KarmaTyp::Side => write!(f, "side"),
         }
     }
 }
 
-pub async fn santizer<S>(
-    input: &str,
-    slack: &slack::Client<S>,
-) -> String
+pub async fn santizer<S>(input: &str, slack: &slack::Client<S>) -> String
 where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
@@ -141,7 +155,7 @@ where
         None => {
             error!("Failed to santize: {:?}", input);
             input.to_string()
-        },
+        }
 
         Some(san) => {
             let mut safe_text = vec![];
@@ -159,19 +173,17 @@ where
                             _ => {
                                 // TODO: Log this, but for now fallback to
                                 // just rendering it straight into the db
-                                safe_text.push(
-                                    santizer::Segment::User(uid, l).to_string()
-                                );
-                            },
+                                safe_text.push(santizer::Segment::User(uid, l).to_string());
+                            }
                         }
-                    },
+                    }
                     // Everything else
                     s => safe_text.push(s.to_string()),
                 }
             }
 
             safe_text.join("")
-        },
+        }
     }
 }
 
@@ -181,7 +193,12 @@ pub async fn add_nick<C: GenericClient>(
     username: KarmaName,
     real_name: KarmaName,
 ) -> AResult<i64> {
-    let row = client.query_opt("SELECT id FROM nick_metadata WHERE username = $1 ORDER BY id DESC LIMIT 1", &[&user_id]).await?;
+    let row = client
+        .query_opt(
+            "SELECT id FROM nick_metadata WHERE username = $1 ORDER BY id DESC LIMIT 1",
+            &[&user_id],
+        )
+        .await?;
     match row {
         Some(r) => Ok(r.try_get(0)?),
         None => {
@@ -190,7 +207,7 @@ pub async fn add_nick<C: GenericClient>(
                 &[&username, &real_name, &user_id, &"SlackServer"]
             ).await?;
             Ok(row.try_get(0)?)
-        },
+        }
     }
 }
 
@@ -204,19 +221,23 @@ pub async fn add_channel_opt<C: GenericClient>(
     })
 }
 
-pub async fn add_channel<C: GenericClient>(
-    client: &C,
-    channel_id: String,
-) -> AResult<i64> {
-    let row = client.query_opt("SELECT id FROM chan_metadata WHERE channel = $1", &[&channel_id]).await?;
+pub async fn add_channel<C: GenericClient>(client: &C, channel_id: String) -> AResult<i64> {
+    let row = client
+        .query_opt(
+            "SELECT id FROM chan_metadata WHERE channel = $1",
+            &[&channel_id],
+        )
+        .await?;
     match row {
         Some(r) => Ok(r.try_get(0)?),
         None => {
-            let row = client.query_one(
-                "INSERT INTO chan_metadata (channel) VALUES ($1) RETURNING id",
-                &[&channel_id]
-            ).await?;
+            let row = client
+                .query_one(
+                    "INSERT INTO chan_metadata (channel) VALUES ($1) RETURNING id",
+                    &[&channel_id],
+                )
+                .await?;
             Ok(row.try_get(0)?)
-        },
+        }
     }
 }

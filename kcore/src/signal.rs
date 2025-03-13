@@ -1,6 +1,6 @@
 use tokio::sync::watch;
 
-use log::{info, error};
+use log::{error, info};
 
 use anyhow::Result as AResult;
 
@@ -9,7 +9,6 @@ use tokio::signal;
 
 #[cfg(unix)]
 use tokio::signal::unix;
-
 
 #[derive(Clone)]
 pub struct Signal {
@@ -22,10 +21,13 @@ impl Signal {
         let (tx, rx) = watch::channel(false);
         info!("Signal installed");
 
-        (tx, Signal {
-            shutdown: watch::channel(false),
-            external_shutdown: rx,
-        })
+        (
+            tx,
+            Signal {
+                shutdown: watch::channel(false),
+                external_shutdown: rx,
+            },
+        )
     }
 
     #[cfg(unix)]

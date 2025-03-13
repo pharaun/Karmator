@@ -1,37 +1,18 @@
 use nom::{
-  IResult,
-  bytes::complete::{
-      take_while1,
-      take_till1,
-      take,
-  },
-  multi::{
-      many0,
-  },
-  combinator::{
-      map,
-      eof,
-      peek,
-      complete,
-  },
-  branch::alt,
-  sequence::{
-      delimited,
-      pair,
-      terminated,
-  },
-  error::{
-      Error,
-      ErrorKind,
-  },
+    branch::alt,
+    bytes::complete::{take, take_till1, take_while1},
+    combinator::{complete, eof, map, peek},
+    error::{Error, ErrorKind},
+    multi::many0,
+    sequence::{delimited, pair, terminated},
+    IResult,
 };
 use std::matches;
 
 use crate::parser::karma_def::str_to_karma;
-use crate::parser::karma_token::KarmaToken;
 use crate::parser::karma_token::all_token;
+use crate::parser::karma_token::KarmaToken;
 use crate::parser::tokenizer::Tokens;
-
 
 // Now here begins the actual structural karma parser (Karma Structure Tree (KST))
 #[derive(Debug, PartialEq)]
@@ -41,26 +22,24 @@ pub struct KST(pub String, pub Karma);
 pub enum Karma {
     Up,
     Down,
-    Side
+    Side,
 }
-
 
 pub fn parse(input: &str) -> Result<Vec<KST>, String> {
     let tokens = complete(all_token)(input);
 
     match tokens {
-        Err(x)           => Err(format!("{:?}", x)),
+        Err(x) => Err(format!("{:?}", x)),
         Ok((_, tok)) => {
             let result = complete(multi)(Tokens::new(&tok));
 
             match result {
-                Err(x)       => Err(format!("{:?}", x)),
+                Err(x) => Err(format!("{:?}", x)),
                 Ok((_, res)) => Ok(res),
             }
-        },
+        }
     }
 }
-
 
 fn kkarma(input: Tokens) -> IResult<Tokens, Karma> {
     let (input, tkt) = take(1usize)(input)?;
@@ -113,14 +92,25 @@ fn kclosebrace(input: Tokens) -> IResult<Tokens, String> {
 }
 
 fn kenclosedquote(input: Tokens) -> IResult<Tokens, String> {
-    let (input, tkt) = take_while1(|kt:&KarmaToken|
-        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::Karma(_) | &KarmaToken::Quote | &KarmaToken::KText(_))
-    )(input)?;
+    let (input, tkt) = take_while1(|kt: &KarmaToken| {
+        matches!(
+            kt,
+            &KarmaToken::Space(_)
+                | &KarmaToken::Text(_)
+                | &KarmaToken::Karma(_)
+                | &KarmaToken::Quote
+                | &KarmaToken::KText(_)
+        )
+    })(input)?;
 
     // Collapse the list into string and trim it
-    let temp = tkt.iter().map(
-        |k:&KarmaToken| k.to_string()
-    ).collect::<Vec<String>>().join("").trim().to_string();
+    let temp = tkt
+        .iter()
+        .map(|k: &KarmaToken| k.to_string())
+        .collect::<Vec<String>>()
+        .join("")
+        .trim()
+        .to_string();
 
     if temp.is_empty() {
         Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
@@ -130,14 +120,26 @@ fn kenclosedquote(input: Tokens) -> IResult<Tokens, String> {
 }
 
 fn kenclosedbrace(input: Tokens) -> IResult<Tokens, String> {
-    let (input, tkt) = take_while1(|kt:&KarmaToken|
-        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::Karma(_) | &KarmaToken::OpenBrace | &KarmaToken::CloseBrace | &KarmaToken::KText(_))
-    )(input)?;
+    let (input, tkt) = take_while1(|kt: &KarmaToken| {
+        matches!(
+            kt,
+            &KarmaToken::Space(_)
+                | &KarmaToken::Text(_)
+                | &KarmaToken::Karma(_)
+                | &KarmaToken::OpenBrace
+                | &KarmaToken::CloseBrace
+                | &KarmaToken::KText(_)
+        )
+    })(input)?;
 
     // Collapse the list into string and trim it
-    let temp = tkt.iter().map(
-        |k:&KarmaToken| k.to_string()
-    ).collect::<Vec<String>>().join("").trim().to_string();
+    let temp = tkt
+        .iter()
+        .map(|k: &KarmaToken| k.to_string())
+        .collect::<Vec<String>>()
+        .join("")
+        .trim()
+        .to_string();
 
     if temp.is_empty() {
         Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
@@ -147,39 +149,41 @@ fn kenclosedbrace(input: Tokens) -> IResult<Tokens, String> {
 }
 
 fn kspacetext(input: Tokens) -> IResult<Tokens, String> {
-    let (input, tkt) = take_while1(|kt:&KarmaToken|
-        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::KText(_))
-    )(input)?;
+    let (input, tkt) = take_while1(|kt: &KarmaToken| {
+        matches!(
+            kt,
+            &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::KText(_)
+        )
+    })(input)?;
 
     match (tkt.second_to_last(), tkt.last()) {
         // Validate that last entity isn't a space
         // Text|KText|Space, Text, Karma
-        (_, Some(KarmaToken::Space(_))) => {
-            Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
-        },
+        (_, Some(KarmaToken::Space(_))) => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
 
         // Do additional check, make sure there is not a space before this token
         // Text|KText|Space, Text, KText, Karma
         (Some(KarmaToken::Space(_)), Some(KarmaToken::KText(_))) => {
             Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
-        },
+        }
         (None, Some(KarmaToken::KText(_))) => {
             Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
-        },
+        }
 
         // Collapse the list into string and trim it
         _ => {
-            let temp = tkt.iter().map(
-                |k:&KarmaToken| k.to_string()
-            ).collect::<Vec<String>>().join("").trim_start().to_string();
+            let temp = tkt
+                .iter()
+                .map(|k: &KarmaToken| k.to_string())
+                .collect::<Vec<String>>()
+                .join("")
+                .trim_start()
+                .to_string();
 
             Ok((input, temp))
-        },
+        }
     }
 }
-
-
-
 
 // Simple Karma:
 //  1. a++       -> ("",     Karma("a", "++"))
@@ -201,20 +205,14 @@ fn kspacetext(input: Tokens) -> IResult<Tokens, String> {
 // 3. karma must be followed by space/eol
 // 4. KText must follow a Text
 fn simple(input: Tokens) -> IResult<Tokens, KST> {
-    map(terminated(
-            pair(
-                kspacetext,
-                kkarma
-            ),
-            alt((
-                peek(kspace),
-                map(eof, |_| "".to_string()),
-            )),
+    map(
+        terminated(
+            pair(kspacetext, kkarma),
+            alt((peek(kspace), map(eof, |_| "".to_string()))),
         ),
-        |(t, k)| KST(t, k)
+        |(t, k)| KST(t, k),
     )(input)
 }
-
 
 // Quoted Karma
 //  1. "a"++       -> ("", Karma("a", "++"))
@@ -237,24 +235,14 @@ fn simple(input: Tokens) -> IResult<Tokens, KST> {
 // 5. Karma followed by whitespace/eol
 // 6. KText must not follow Quote
 fn quoted(input: Tokens) -> IResult<Tokens, KST> {
-    map(terminated(
-            pair(
-                delimited(
-                    kquote,
-                    kenclosedbrace,
-                    kquote
-                ),
-                kkarma
-            ),
-            alt((
-                peek(kspace),
-                map(eof, |_| "".to_string())
-            ))
+    map(
+        terminated(
+            pair(delimited(kquote, kenclosedbrace, kquote), kkarma),
+            alt((peek(kspace), map(eof, |_| "".to_string()))),
         ),
-        |(t, k)| KST(t, k)
+        |(t, k)| KST(t, k),
     )(input)
 }
-
 
 // Braced Karma
 // Same outcome as quoted case just with [ ] instead of " "
@@ -278,24 +266,14 @@ fn quoted(input: Tokens) -> IResult<Tokens, KST> {
 // 5. Karma followed by whitespace/eol
 // 6. KText must not follow CloseBrace
 fn braced(input: Tokens) -> IResult<Tokens, KST> {
-    map(terminated(
-            pair(
-                delimited(
-                    kopenbrace,
-                    kenclosedquote,
-                    kclosebrace
-                ),
-                kkarma
-            ),
-            alt((
-                peek(kspace),
-                map(eof, |_| "".to_string())
-            ))
+    map(
+        terminated(
+            pair(delimited(kopenbrace, kenclosedquote, kclosebrace), kkarma),
+            alt((peek(kspace), map(eof, |_| "".to_string()))),
         ),
-        |(t, k)| KST(t, k)
+        |(t, k)| KST(t, k),
     )(input)
 }
-
 
 // TODO: develop invalid cases to test extent of the parser
 // MultiKarma (K(x) == Karma(x, "++"))
@@ -341,11 +319,11 @@ fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
                 Some(KarmaToken::Space(_)) | Some(KarmaToken::Karma(_)) => {
                     let (input, _) = take(1usize)(input)?;
                     cur_input = input;
-                },
+                }
                 _ => {
-                    let (input, _) = take_till1(|kt:&KarmaToken|
+                    let (input, _) = take_till1(|kt: &KarmaToken| {
                         matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Karma(_))
-                    )(input)?;
+                    })(input)?;
                     cur_input = input;
                 }
             }
@@ -359,12 +337,10 @@ fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
     Ok((cur_input, ret))
 }
 
-
-
 // Macro for cleaning up the test cases
 #[cfg(test)]
 macro_rules! success_test {
-    ($name:ident, $parse:ident, $data:expr, $buff:expr, $res:expr) => (
+    ($name:ident, $parse:ident, $data:expr, $buff:expr, $res:expr) => {
         #[test]
         fn $name() {
             let token = all_token($data).unwrap().1;
@@ -374,12 +350,12 @@ macro_rules! success_test {
             let empty = Tokens::new(&empty);
             assert_eq!(parse, Ok((empty, $res)));
         }
-    )
+    };
 }
 
 #[cfg(test)]
 macro_rules! fail_test {
-    ($name:ident, $parse:ident, $data:expr, $buff:expr, $kind:expr) => (
+    ($name:ident, $parse:ident, $data:expr, $buff:expr, $kind:expr) => {
         #[test]
         fn $name() {
             let token = all_token($data).unwrap().1;
@@ -389,35 +365,35 @@ macro_rules! fail_test {
             let empty = Tokens::new(&empty);
             assert_eq!(parse, Err(nom::Err::Error(Error::new(empty, $kind))));
         }
-    )
+    };
 }
 
 #[cfg(test)]
 macro_rules! kst {
     ($data:expr, $karma:expr) => {
         KST($data.to_string(), $karma)
-    }
+    };
 }
 
 #[cfg(test)]
 macro_rules! space {
     ($data:expr) => {
         KarmaToken::Space($data.to_string())
-    }
+    };
 }
 
 #[cfg(test)]
 macro_rules! text {
     ($data:expr) => {
         KarmaToken::Text($data.to_string())
-    }
+    };
 }
 
 #[cfg(test)]
 macro_rules! karma {
     ($data:expr) => {
         KarmaToken::Karma($data.to_string())
-    }
+    };
 }
 
 #[cfg(test)]
@@ -429,7 +405,11 @@ mod test_multi {
         multi,
         "a++ \"b\"++ [c]++",
         vec![],
-        vec![kst!("a", Karma::Up), kst!("b", Karma::Up), kst!("c", Karma::Up)]
+        vec![
+            kst!("a", Karma::Up),
+            kst!("b", Karma::Up),
+            kst!("c", Karma::Up)
+        ]
     );
 
     success_test!(
@@ -461,32 +441,18 @@ mod test_multi {
         multi,
         "[a b]++ c d++ \"e f\"++",
         vec![],
-        vec![kst!("a b", Karma::Up), kst!("c d", Karma::Up), kst!("e f", Karma::Up)]
+        vec![
+            kst!("a b", Karma::Up),
+            kst!("c d", Karma::Up),
+            kst!("e f", Karma::Up)
+        ]
     );
 
-    success_test!(
-        test_case_six,
-        multi,
-        "a\"b[c]d++",
-        vec![],
-        vec![]
-    );
+    success_test!(test_case_six, multi, "a\"b[c]d++", vec![], vec![]);
 
-    success_test!(
-        test_case_seven,
-        multi,
-        "[a]]b[\"++",
-        vec![],
-        vec![]
-    );
+    success_test!(test_case_seven, multi, "[a]]b[\"++", vec![], vec![]);
 
-    success_test!(
-        test_case_eight,
-        multi,
-        "",
-        vec![],
-        vec![]
-    );
+    success_test!(test_case_eight, multi, "", vec![], vec![]);
 
     success_test!(
         test_case_nine,
@@ -497,16 +463,39 @@ mod test_multi {
     );
 }
 
-
 #[cfg(test)]
 mod test_braced {
     use super::*;
 
-    success_test!(test_case_one,   braced, "[a]++",     vec![], kst!("a", Karma::Up));
-    success_test!(test_case_two,   braced, "[a b]++",   vec![], kst!("a b", Karma::Up));
-    success_test!(test_case_three, braced, "[ a b ]++", vec![], kst!("a b", Karma::Up));
-    success_test!(test_case_four,  braced, "[a++]++",   vec![], kst!("a++", Karma::Up));
-    success_test!(test_case_five,  braced, "[++]++",    vec![], kst!("++", Karma::Up));
+    success_test!(test_case_one, braced, "[a]++", vec![], kst!("a", Karma::Up));
+    success_test!(
+        test_case_two,
+        braced,
+        "[a b]++",
+        vec![],
+        kst!("a b", Karma::Up)
+    );
+    success_test!(
+        test_case_three,
+        braced,
+        "[ a b ]++",
+        vec![],
+        kst!("a b", Karma::Up)
+    );
+    success_test!(
+        test_case_four,
+        braced,
+        "[a++]++",
+        vec![],
+        kst!("a++", Karma::Up)
+    );
+    success_test!(
+        test_case_five,
+        braced,
+        "[++]++",
+        vec![],
+        kst!("++", Karma::Up)
+    );
 
     success_test!(
         test_case_six,
@@ -538,8 +527,20 @@ mod test_braced {
         ErrorKind::Tag
     );
 
-    success_test!(test_case_nine, braced, "[\"\"]++", vec![], kst!("\"\"", Karma::Up));
-    success_test!(test_case_ten,  braced, "[--++]++",  vec![], kst!("--++", Karma::Up));
+    success_test!(
+        test_case_nine,
+        braced,
+        "[\"\"]++",
+        vec![],
+        kst!("\"\"", Karma::Up)
+    );
+    success_test!(
+        test_case_ten,
+        braced,
+        "[--++]++",
+        vec![],
+        kst!("--++", Karma::Up)
+    );
 
     fail_test!(
         test_case_eleven,
@@ -550,16 +551,45 @@ mod test_braced {
     );
 }
 
-
 #[cfg(test)]
 mod test_quoted {
     use super::*;
 
-    success_test!(test_case_one,   quoted, "\"a\"++",     vec![], kst!("a", Karma::Up));
-    success_test!(test_case_two,   quoted, "\"a b\"++",   vec![], kst!("a b", Karma::Up));
-    success_test!(test_case_three, quoted, "\" a b \"++", vec![], kst!("a b", Karma::Up));
-    success_test!(test_case_four,  quoted, "\"a++\"++",   vec![], kst!("a++", Karma::Up));
-    success_test!(test_case_five,  quoted, "\"++\"++",    vec![], kst!("++", Karma::Up));
+    success_test!(
+        test_case_one,
+        quoted,
+        "\"a\"++",
+        vec![],
+        kst!("a", Karma::Up)
+    );
+    success_test!(
+        test_case_two,
+        quoted,
+        "\"a b\"++",
+        vec![],
+        kst!("a b", Karma::Up)
+    );
+    success_test!(
+        test_case_three,
+        quoted,
+        "\" a b \"++",
+        vec![],
+        kst!("a b", Karma::Up)
+    );
+    success_test!(
+        test_case_four,
+        quoted,
+        "\"a++\"++",
+        vec![],
+        kst!("a++", Karma::Up)
+    );
+    success_test!(
+        test_case_five,
+        quoted,
+        "\"++\"++",
+        vec![],
+        kst!("++", Karma::Up)
+    );
 
     success_test!(
         test_case_six,
@@ -591,8 +621,20 @@ mod test_quoted {
         ErrorKind::Tag
     );
 
-    success_test!(test_case_nine, quoted, "\"[]\"++",   vec![], kst!("[]", Karma::Up));
-    success_test!(test_case_ten,  quoted, "\"--++\"++", vec![], kst!("--++", Karma::Up));
+    success_test!(
+        test_case_nine,
+        quoted,
+        "\"[]\"++",
+        vec![],
+        kst!("[]", Karma::Up)
+    );
+    success_test!(
+        test_case_ten,
+        quoted,
+        "\"--++\"++",
+        vec![],
+        kst!("--++", Karma::Up)
+    );
 
     fail_test!(
         test_case_eleven,
@@ -603,23 +645,24 @@ mod test_quoted {
     );
 }
 
-
 #[cfg(test)]
 mod test_simple {
     use super::*;
 
     success_test!(test_case_one, simple, "a++", vec![], kst!("a", Karma::Up));
-    success_test!(test_case_two, simple, "a b++", vec![], kst!("a b", Karma::Up));
+    success_test!(
+        test_case_two,
+        simple,
+        "a b++",
+        vec![],
+        kst!("a b", Karma::Up)
+    );
 
     success_test!(
         test_case_three,
         simple,
         "a++ b++",
-        vec![
-            space!(" "),
-            text!("b"),
-            karma!("++")
-        ],
+        vec![space!(" "), text!("b"), karma!("++")],
         kst!("a", Karma::Up)
     );
 
@@ -627,10 +670,7 @@ mod test_simple {
         test_case_four,
         simple,
         "a b++ c",
-        vec![
-            space!(" "),
-            text!("c"),
-        ],
+        vec![space!(" "), text!("c"),],
         kst!("a b", Karma::Up)
     );
 
@@ -680,7 +720,13 @@ mod test_simple {
         ErrorKind::TakeWhile1
     );
 
-    success_test!(test_case_ten, simple, "a--++", vec![], kst!("a--", Karma::Up));
+    success_test!(
+        test_case_ten,
+        simple,
+        "a--++",
+        vec![],
+        kst!("a--", Karma::Up)
+    );
 
     fail_test!(
         test_case_eleven,

@@ -1,32 +1,13 @@
 use nom::{
-  IResult,
-  bytes::complete::{
-      take_till,
-      tag,
-  },
-  multi::{
-      many1,
-  },
-  combinator::{
-      complete,
-      map,
-      peek,
-      opt,
-  },
-  branch::alt,
-  sequence::{
-      delimited,
-      preceded,
-      separated_pair,
-      tuple,
-  },
-  error::{
-      Error,
-      ErrorKind,
-  },
+    branch::alt,
+    bytes::complete::{tag, take_till},
+    combinator::{complete, map, opt, peek},
+    error::{Error, ErrorKind},
+    multi::many1,
+    sequence::{delimited, preceded, separated_pair, tuple},
+    IResult,
 };
 use std::fmt;
-
 
 #[derive(Debug, PartialEq)]
 pub enum Segment<'a> {
@@ -50,33 +31,32 @@ pub enum AtType {
 }
 
 // This is specifically for parsing karma and stowing to the database
-impl <'a> fmt::Display for Segment<'a> {
+impl<'a> fmt::Display for Segment<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Segment::Text(t)                 => write!(f, "{}", t),
-            Segment::Channel(cid, "")        => write!(f, "#{}", cid),
-            Segment::Channel(_, l)           => write!(f, "{}", l),
-            Segment::User(uid, "")           => write!(f, "@{}", uid),
-            Segment::User(_, l)              => write!(f, "{}", l),
-            Segment::Group(gid, "")          => write!(f, "@{}", gid),
-            Segment::Group(_, l)             => write!(f, "{}", l),
-            Segment::At(AtType::Here, _)     => write!(f, "@here"),
-            Segment::At(AtType::Channel, _)  => write!(f, "@channel"),
+            Segment::Text(t) => write!(f, "{}", t),
+            Segment::Channel(cid, "") => write!(f, "#{}", cid),
+            Segment::Channel(_, l) => write!(f, "{}", l),
+            Segment::User(uid, "") => write!(f, "@{}", uid),
+            Segment::User(_, l) => write!(f, "{}", l),
+            Segment::Group(gid, "") => write!(f, "@{}", gid),
+            Segment::Group(_, l) => write!(f, "{}", l),
+            Segment::At(AtType::Here, _) => write!(f, "@here"),
+            Segment::At(AtType::Channel, _) => write!(f, "@channel"),
             Segment::At(AtType::Everyone, _) => write!(f, "@everyone"),
-            Segment::Link(url, "")           => write!(f, "{}", url),
-            Segment::Link(_, l)              => write!(f, "{}", l),
-            Segment::Open                    => write!(f, "<"),
-            Segment::Date(_, _, _, l)        => write!(f, "{}", l),
+            Segment::Link(url, "") => write!(f, "{}", url),
+            Segment::Link(_, l) => write!(f, "{}", l),
+            Segment::Open => write!(f, "<"),
+            Segment::Date(_, _, _, l) => write!(f, "{}", l),
         }
     }
 }
-
 
 pub fn parse(input: &str) -> Result<Vec<Segment>, String> {
     let cmd = complete(many1(segment))(input);
 
     match cmd {
-        Err(x)       => Err(format!("{:?}", x)),
+        Err(x) => Err(format!("{:?}", x)),
         Ok((_, res)) => Ok(res),
     }
 }
@@ -91,7 +71,7 @@ fn segment(input: &str) -> IResult<&str, Segment> {
 }
 
 fn text(input: &str) -> IResult<&str, Segment> {
-    let (input, content) = take_till(|c:char| c == '<')(input)?;
+    let (input, content) = take_till(|c: char| c == '<')(input)?;
 
     if content.is_empty() {
         Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)))
@@ -103,14 +83,7 @@ fn text(input: &str) -> IResult<&str, Segment> {
 fn special(input: &str) -> IResult<&str, Segment> {
     delimited(
         tag("<"),
-        alt((
-            channel,
-            user,
-            group,
-            mention,
-            date,
-            link,
-        )),
+        alt((channel, user, group, mention, date, link)),
         tag(">"),
     )(input)
 }
@@ -118,29 +91,21 @@ fn special(input: &str) -> IResult<&str, Segment> {
 fn channel(input: &str) -> IResult<&str, Segment> {
     preceded(
         peek(tag("#C")),
-        preceded(
-            tag("#"),
-            map(content, |(c, l)| Segment::Channel(c, l))
-        )
+        preceded(tag("#"), map(content, |(c, l)| Segment::Channel(c, l))),
     )(input)
 }
 
 fn user(input: &str) -> IResult<&str, Segment> {
     preceded(
-        peek(alt((
-            tag("@U"), tag("@W")
-        ))),
-        preceded(
-            tag("@"),
-            map(content, |(u, l)| Segment::User(u, l))
-        )
+        peek(alt((tag("@U"), tag("@W")))),
+        preceded(tag("@"), map(content, |(u, l)| Segment::User(u, l))),
     )(input)
 }
 
 fn group(input: &str) -> IResult<&str, Segment> {
     preceded(
         tag("!subteam^"),
-        map(content, |(g, l)| Segment::Group(g, l))
+        map(content, |(g, l)| Segment::Group(g, l)),
     )(input)
 }
 
@@ -149,11 +114,11 @@ fn mention(input: &str) -> IResult<&str, Segment> {
         tag("!"),
         alt((
             map(
-                separated_pair(mention_type, tag("|"), take_till(|c:char| c == '>')),
-                |(t, l)| Segment::At(t, l)
+                separated_pair(mention_type, tag("|"), take_till(|c: char| c == '>')),
+                |(t, l)| Segment::At(t, l),
             ),
             map(mention_type, |t| Segment::At(t, "")),
-        ))
+        )),
     )(input)
 }
 
@@ -172,11 +137,11 @@ fn link(input: &str) -> IResult<&str, Segment> {
 fn content(input: &str) -> IResult<&str, (&str, &str)> {
     alt((
         separated_pair(
-            take_till(|c:char| c == '|'),
+            take_till(|c: char| c == '|'),
             tag("|"),
-            take_till(|c:char| c == '>'),
+            take_till(|c: char| c == '>'),
         ),
-        map(take_till(|c:char| c == '>'), |s:&str| (s, "")),
+        map(take_till(|c: char| c == '>'), |s: &str| (s, "")),
     ))(input)
 }
 
@@ -184,15 +149,17 @@ fn date(input: &str) -> IResult<&str, Segment> {
     // <!date^123123^{text} asdf[^link]|fallback>
     preceded(
         tag("!date"),
-        map(tuple((
-            preceded(tag("^"), take_till(|c:char| c == '^')),
-            preceded(tag("^"), take_till(|c:char| c == '^' || c == '|')),
-            opt(preceded(tag("^"), take_till(|c:char| c == '|'))),
-            preceded(tag("|"), take_till(|c:char| c == '>')),
-        )), |(timestamp, format, link, fallback)| Segment::Date(timestamp, format, link, fallback))
+        map(
+            tuple((
+                preceded(tag("^"), take_till(|c: char| c == '^')),
+                preceded(tag("^"), take_till(|c: char| c == '^' || c == '|')),
+                opt(preceded(tag("^"), take_till(|c: char| c == '|'))),
+                preceded(tag("|"), take_till(|c: char| c == '>')),
+            )),
+            |(timestamp, format, link, fallback)| Segment::Date(timestamp, format, link, fallback),
+        ),
     )(input)
 }
-
 
 #[derive(Debug, PartialEq)]
 enum SegmentLite<'a> {
@@ -202,14 +169,14 @@ enum SegmentLite<'a> {
 }
 
 // This is specifically for parsing any output and santizing it
-impl <'a> fmt::Display for SegmentLite<'a> {
+impl<'a> fmt::Display for SegmentLite<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SegmentLite::Text(t)              => write!(f, "{}", t),
-            SegmentLite::At(AtType::Here)     => write!(f, "@here"),
-            SegmentLite::At(AtType::Channel)  => write!(f, "@channel"),
+            SegmentLite::Text(t) => write!(f, "{}", t),
+            SegmentLite::At(AtType::Here) => write!(f, "@here"),
+            SegmentLite::At(AtType::Channel) => write!(f, "@channel"),
             SegmentLite::At(AtType::Everyone) => write!(f, "@everyone"),
-            SegmentLite::Open                 => write!(f, "<"),
+            SegmentLite::Open => write!(f, "<"),
         }
     }
 }
@@ -217,11 +184,13 @@ impl <'a> fmt::Display for SegmentLite<'a> {
 pub fn santize_output(input: &str) -> String {
     let res = complete(many1(segment_lite))(input);
 
-    res.map(
-        |(_, i)| i.iter().map(|i| i.to_string()).collect::<Vec<String>>().join("")
-    ).unwrap_or(
-        input.to_string()
-    )
+    res.map(|(_, i)| {
+        i.iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<String>>()
+            .join("")
+    })
+    .unwrap_or(input.to_string())
 }
 
 fn segment_lite(input: &str) -> IResult<&str, SegmentLite> {
@@ -234,7 +203,7 @@ fn segment_lite(input: &str) -> IResult<&str, SegmentLite> {
 }
 
 fn text_lite(input: &str) -> IResult<&str, SegmentLite> {
-    let (input, content) = take_till(|c:char| c == '<')(input)?;
+    let (input, content) = take_till(|c: char| c == '<')(input)?;
 
     if content.is_empty() {
         Err(nom::Err::Error(Error::new(input, ErrorKind::Eof)))
@@ -248,14 +217,13 @@ fn mention_lite(input: &str) -> IResult<&str, SegmentLite> {
         tag("!"),
         alt((
             map(
-                separated_pair(mention_type, tag("|"), take_till(|c:char| c == '>')),
-                |(t, _)| SegmentLite::At(t)
+                separated_pair(mention_type, tag("|"), take_till(|c: char| c == '>')),
+                |(t, _)| SegmentLite::At(t),
             ),
             map(mention_type, |t| SegmentLite::At(t)),
-        ))
+        )),
     )(input)
 }
-
 
 #[cfg(test)]
 mod test_segment {
@@ -263,36 +231,23 @@ mod test_segment {
 
     #[test]
     fn test_plain_text() {
-        assert_eq!(
-            segment("as dfas <"),
-            Ok(("<", Segment::Text("as dfas ")))
-        );
+        assert_eq!(segment("as dfas <"), Ok(("<", Segment::Text("as dfas "))));
     }
 
     #[test]
     fn test_plain_text_eof() {
-        assert_eq!(
-            segment("as dfas "),
-            Ok(("", Segment::Text("as dfas ")))
-        );
+        assert_eq!(segment("as dfas "), Ok(("", Segment::Text("as dfas "))));
     }
 
     #[test]
     fn test_plain_text_fallback() {
-        assert_eq!(
-            segment("<!here"),
-            Ok(("!here", Segment::Open))
-        );
+        assert_eq!(segment("<!here"), Ok(("!here", Segment::Open)));
     }
 
     #[test]
     fn test_gibbish_fallback() {
-        assert_eq!(
-            segment("<gibbish>"),
-            Ok(("", Segment::Link("gibbish", "")))
-        );
+        assert_eq!(segment("<gibbish>"), Ok(("", Segment::Link("gibbish", ""))));
     }
-
 
     #[test]
     fn test_unlabeled_channel() {
@@ -434,7 +389,10 @@ mod test_segment {
     fn test_url_date() {
         assert_eq!(
             segment("<!date^12345^{text}^http://google.com|timedate> text"),
-            Ok((" text", Segment::Date("12345", "{text}", Some("http://google.com"), "timedate")))
+            Ok((
+                " text",
+                Segment::Date("12345", "{text}", Some("http://google.com"), "timedate")
+            ))
         );
     }
 
@@ -443,10 +401,10 @@ mod test_segment {
         assert_eq!(
             parse("<!here> for <#CASDF|Weebs> text"),
             Ok(vec![
-               Segment::At(AtType::Here, ""),
-               Segment::Text(" for "),
-               Segment::Channel("CASDF", "Weebs"),
-               Segment::Text(" text")
+                Segment::At(AtType::Here, ""),
+                Segment::Text(" for "),
+                Segment::Channel("CASDF", "Weebs"),
+                Segment::Text(" text")
             ])
         );
     }
@@ -454,9 +412,11 @@ mod test_segment {
     #[test]
     fn test_santized_output() {
         assert_eq!(
-            parse("<!here> for <#CASDF|Weebs> text").map(
-                |i| i.iter().map(|i| i.to_string()).collect::<Vec<String>>().join("")
-            ),
+            parse("<!here> for <#CASDF|Weebs> text").map(|i| i
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<String>>()
+                .join("")),
             Ok("@here for Weebs text".to_string())
         );
     }
@@ -466,10 +426,10 @@ mod test_segment {
         assert_eq!(
             parse("<!here <!here> bad"),
             Ok(vec![
-               Segment::Open,
-               Segment::Text("!here "),
-               Segment::At(AtType::Here, ""),
-               Segment::Text(" bad")
+                Segment::Open,
+                Segment::Text("!here "),
+                Segment::At(AtType::Here, ""),
+                Segment::Text(" bad")
             ])
         );
     }
@@ -479,9 +439,9 @@ mod test_segment {
         assert_eq!(
             parse(">!here <!here>> bad"),
             Ok(vec![
-               Segment::Text(">!here "),
-               Segment::At(AtType::Here, ""),
-               Segment::Text("> bad")
+                Segment::Text(">!here "),
+                Segment::At(AtType::Here, ""),
+                Segment::Text("> bad")
             ])
         );
     }

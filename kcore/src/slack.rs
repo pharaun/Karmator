@@ -1,9 +1,9 @@
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
-use serde::de::DeserializeOwned;
 
-use std::future::Future;
 use std::clone::Clone;
+use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -13,9 +13,11 @@ use log::warn;
 
 use quick_cache::sync::Cache;
 
-
 pub trait HttpSender {
-    fn send(&self, request: reqwest::RequestBuilder) -> impl Future<Output = AResult<reqwest::Response>> + Send;
+    fn send(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> impl Future<Output = AResult<reqwest::Response>> + Send;
 }
 
 #[derive(Clone)]
@@ -28,7 +30,7 @@ impl HttpSender for ReqwestSender {
 }
 
 #[derive(Clone)]
-pub struct Client<S: HttpSender=ReqwestSender> {
+pub struct Client<S: HttpSender = ReqwestSender> {
     url: String,
     user_cache: Arc<Cache<String, User>>,
     app_token: String,
@@ -120,7 +122,13 @@ impl Client<ReqwestSender> {
 }
 
 impl<S: HttpSender> Client<S> {
-    pub fn with_sender(sender: S, url: &str, app_token: &str, bot_token: &str, capacity: usize) -> Client<S> {
+    pub fn with_sender(
+        sender: S,
+        url: &str,
+        app_token: &str,
+        bot_token: &str,
+        capacity: usize,
+    ) -> Client<S> {
         Client {
             url: url.to_string(),
             user_cache: Arc::new(Cache::new(capacity)),
@@ -137,11 +145,19 @@ impl<S: HttpSender> Client<S> {
 
     pub async fn socket_connect(&self, debug: bool) -> AResult<String> {
         let url = self.get_slack_url_for_method("apps.connections.open");
-        let conn: String = parse_response("url", self.sender.send(
-            self.client.post(url)
-                .header("Content-type", "application/x-www-form-urlencoded")
-                .header("Authorization", format!("Bearer {}", self.app_token))
-            ).await?.text().await?)?;
+        let conn: String = parse_response(
+            "url",
+            self.sender
+                .send(
+                    self.client
+                        .post(url)
+                        .header("Content-type", "application/x-www-form-urlencoded")
+                        .header("Authorization", format!("Bearer {}", self.app_token)),
+                )
+                .await?
+                .text()
+                .await?,
+        )?;
 
         Ok(if debug {
             format!("{}&debug_reconnects=true", conn)
@@ -155,12 +171,17 @@ impl<S: HttpSender> Client<S> {
         let url = self.get_slack_url_for_method("chat.postMessage");
         parse_response(
             "ts",
-            self.sender.send(
-                self.client.post(url)
-                    .header("Content-type", "application/json")
-                    .header("Authorization", format!("Bearer {}", self.bot_token))
-                    .body(serde_json::to_string(&message)?)
-            ).await?.text().await?
+            self.sender
+                .send(
+                    self.client
+                        .post(url)
+                        .header("Content-type", "application/json")
+                        .header("Authorization", format!("Bearer {}", self.bot_token))
+                        .body(serde_json::to_string(&message)?),
+                )
+                .await?
+                .text()
+                .await?,
         )
     }
 
@@ -173,7 +194,10 @@ impl<S: HttpSender> Client<S> {
     }
 
     pub async fn get_username(&self, user_id: &str) -> AResult<Option<String>> {
-        Ok(self.get_user(user_id).await?.map(|u| u.display_name.clone()))
+        Ok(self
+            .get_user(user_id)
+            .await?
+            .map(|u| u.display_name.clone()))
     }
 
     pub async fn get_user_tz(&self, user_id: &str) -> AResult<Option<Timezone>> {
@@ -181,9 +205,8 @@ impl<S: HttpSender> Client<S> {
     }
 
     async fn get_user(&self, user_id: &str) -> AResult<Option<User>> {
-        self.user_cache.get_or_insert_async(
-            user_id,
-            async {
+        self.user_cache
+            .get_or_insert_async(user_id, async {
                 // TODO: Improve the retry strat instead of straight up failing.
                 // TODO: handle the case when a user does not exist:
                 // {"ok": false, "error": "user_not_found"}
@@ -191,15 +214,21 @@ impl<S: HttpSender> Client<S> {
                 let url = self.get_slack_url_for_method("users.info");
                 parse_response::<User>(
                     "user",
-                    self.sender.send(
-                        self.client.get(url)
-                            .header("Content-type", "application/json")
-                            .header("Authorization", format!("Bearer {}", self.bot_token))
-                            .query(&vec![("user", &user_id)])
-                    ).await?.text().await?
+                    self.sender
+                        .send(
+                            self.client
+                                .get(url)
+                                .header("Content-type", "application/json")
+                                .header("Authorization", format!("Bearer {}", self.bot_token))
+                                .query(&vec![("user", &user_id)]),
+                        )
+                        .await?
+                        .text()
+                        .await?,
                 )
-            }
-        ).await.map(|u| Some(u))
+            })
+            .await
+            .map(|u| Some(u))
     }
 
     pub async fn get_message(
@@ -216,26 +245,33 @@ impl<S: HttpSender> Client<S> {
         ];
         let mess: Vec<ConversationHistoryMessage> = parse_response(
             "messages",
-            self.sender.send(
-                self.client.get(url)
-                    .header("Content-type", "application/json")
-                    .header("Authorization", format!("Bearer {}", self.bot_token))
-                    .query(&params)
-            ).await?.text().await?
+            self.sender
+                .send(
+                    self.client
+                        .get(url)
+                        .header("Content-type", "application/json")
+                        .header("Authorization", format!("Bearer {}", self.bot_token))
+                        .query(&params),
+                )
+                .await?
+                .text()
+                .await?,
         )?;
 
         if mess.len() != 1 {
             Err(anyhow!("Malformed messages: {:?}", mess).into())
         } else {
-            mess.first().ok_or(anyhow!("Shouldn't happen")).map(|m| Some(m.clone()))
+            mess.first()
+                .ok_or(anyhow!("Shouldn't happen"))
+                .map(|m| Some(m.clone()))
         }
     }
 }
 
 #[cfg(test)]
 mod test_slack_client {
-    use http::response;
     use super::*;
+    use http::response;
 
     struct FakeSender(u16, &'static str);
     impl HttpSender for FakeSender {
@@ -257,15 +293,24 @@ mod test_slack_client {
     }
 
     fn panic_response() -> Client<PanicSender> {
-        Client::with_sender(PanicSender, "http://localhost/api", "app_token", "bot_token", 10)
+        Client::with_sender(
+            PanicSender,
+            "http://localhost/api",
+            "app_token",
+            "bot_token",
+            10,
+        )
     }
 
     #[tokio::test]
     async fn test_socket_connect() {
-        let client = client_response(200, r#"{
+        let client = client_response(
+            200,
+            r#"{
             "ok": true,
             "url": "http://localhost/websocket"
-        }"#);
+        }"#,
+        );
         let result = client.socket_connect(false).await;
 
         assert_eq!(result.unwrap(), "http://localhost/websocket");
@@ -273,10 +318,13 @@ mod test_slack_client {
 
     #[tokio::test]
     async fn test_fail_socket_connect() {
-        let client = client_response(200, r#"{
+        let client = client_response(
+            200,
+            r#"{
             "ok": false,
             "error": "gone_bye"
-        }"#);
+        }"#,
+        );
         let result = client.socket_connect(false).await;
 
         assert_eq!(format!("{}", result.unwrap_err()), "Slack error: gone_bye");
@@ -284,25 +332,34 @@ mod test_slack_client {
 
     #[tokio::test]
     async fn test_one_message() {
-        let client = client_response(200, r#"{
+        let client = client_response(
+            200,
+            r#"{
             "ok": true,
             "messages": [{
                 "type": "message",
                 "text": "Asdf",
                 "user": "userId"
             }]
-        }"#);
+        }"#,
+        );
         let result = client.get_message("whatever", "whenever").await;
 
         assert_eq!(
             result.unwrap(),
-            Some(ConversationHistoryMessage::Message { text: "Asdf".into(), user_id: Some("userId".into()), bot_id: None })
+            Some(ConversationHistoryMessage::Message {
+                text: "Asdf".into(),
+                user_id: Some("userId".into()),
+                bot_id: None
+            })
         );
     }
 
     #[tokio::test]
     async fn test_two_message() {
-        let client = client_response(200, r#"{
+        let client = client_response(
+            200,
+            r#"{
             "ok": true,
             "messages": [{
                 "type": "message",
@@ -312,7 +369,8 @@ mod test_slack_client {
                 "type": "message",
                 "text": "Two"
             }]
-        }"#);
+        }"#,
+        );
         let result = client.get_message("whatever", "whenever").await;
 
         assert!(result.is_err());
@@ -320,28 +378,38 @@ mod test_slack_client {
 
     #[tokio::test]
     async fn test_bot_message() {
-        let client = client_response(200, r#"{
+        let client = client_response(
+            200,
+            r#"{
             "ok": true,
             "messages": [{
                 "type": "message",
                 "text": "Asdf",
                 "bot_id": "userId"
             }]
-        }"#);
+        }"#,
+        );
         let result = client.get_message("whatever", "whenever").await;
 
         assert_eq!(
             result.unwrap(),
-            Some(ConversationHistoryMessage::Message { text: "Asdf".into(), user_id: None, bot_id: Some("userId".into()) })
+            Some(ConversationHistoryMessage::Message {
+                text: "Asdf".into(),
+                user_id: None,
+                bot_id: Some("userId".into())
+            })
         );
     }
 
     #[tokio::test]
     async fn test_bad_message() {
-        let client = client_response(200, r#"{
+        let client = client_response(
+            200,
+            r#"{
             "ok": false,
             "error": "bad_user"
-        }"#);
+        }"#,
+        );
         let result = client.get_message("whatever", "whenever").await;
 
         assert_eq!(format!("{}", result.unwrap_err()), "Slack error: bad_user");
@@ -363,21 +431,24 @@ mod test_slack_client {
             display_name: "dn".into(),
             real_name: "rn".into(),
             is_bot: false,
-            timezone: Timezone { label: "Den".into(), tz: "MST".into(), offset: 1234 }
+            timezone: Timezone {
+                label: "Den".into(),
+                tz: "MST".into(),
+                offset: 1234,
+            },
         };
         client.user_cache.insert("whoever".into(), user.clone());
 
         let result = client.get_user("whoever").await;
 
-        assert_eq!(
-            result.unwrap(),
-            Some(user)
-        );
+        assert_eq!(result.unwrap(), Some(user));
     }
 
     #[tokio::test]
     async fn test_get_user_not_in_cache() {
-        let client = client_response(200, r#"{
+        let client = client_response(
+            200,
+            r#"{
             "ok": true,
             "user": {
                 "name": "dn",
@@ -387,14 +458,19 @@ mod test_slack_client {
                 "tz": "MST",
                 "tz_offset": 1234
             }
-        }"#);
+        }"#,
+        );
         let result = client.get_user("whoever").await;
 
         let user = User {
             display_name: "dn".into(),
             real_name: "rn".into(),
             is_bot: false,
-            timezone: Timezone { label: "Den".into(), tz: "MST".into(), offset: 1234 }
+            timezone: Timezone {
+                label: "Den".into(),
+                tz: "MST".into(),
+                offset: 1234,
+            },
         };
 
         assert_eq!(result.unwrap(), Some(user.clone()));
@@ -408,10 +484,13 @@ mod test_slack_client {
 
     #[tokio::test]
     async fn test_get_user_not_in_cache_error() {
-        let client = client_response(200, r#"{
+        let client = client_response(
+            200,
+            r#"{
             "ok": false,
             "error": "user_gone"
-        }"#);
+        }"#,
+        );
         let result = client.get_user("whoever").await;
 
         assert_eq!(format!("{}", result.unwrap_err()), "Slack error: user_gone");
@@ -419,42 +498,81 @@ mod test_slack_client {
 
     #[tokio::test]
     async fn test_post_message() {
-        let client = client_response(200, r#"{
+        let client = client_response(
+            200,
+            r#"{
             "ok": true,
             "ts": "whenever"
-        }"#);
-        let result = client.post_message(Message {channel: "a".into(), text: "b".into(), thread_ts: None}).await;
+        }"#,
+        );
+        let result = client
+            .post_message(Message {
+                channel: "a".into(),
+                text: "b".into(),
+                thread_ts: None,
+            })
+            .await;
 
         assert_eq!(result.unwrap(), "whenever");
     }
 
     #[tokio::test]
     async fn test_post_message_error() {
-        let client = client_response(200, r#"{
+        let client = client_response(
+            200,
+            r#"{
             "ok": false,
             "error": "try_again"
-        }"#);
-        let result = client.post_message(Message {channel: "a".into(), text: "b".into(), thread_ts: None}).await;
+        }"#,
+        );
+        let result = client
+            .post_message(Message {
+                channel: "a".into(),
+                text: "b".into(),
+                thread_ts: None,
+            })
+            .await;
 
         assert_eq!(format!("{}", result.unwrap_err()), "Slack error: try_again");
     }
 
     #[tokio::test]
     async fn test_malformed_envelope() {
-        let client = client_response(200, r#"{
+        let client = client_response(
+            200,
+            r#"{
             "ok": false
-        }"#);
-        let result = client.post_message(Message {channel: "a".into(), text: "b".into(), thread_ts: None}).await;
+        }"#,
+        );
+        let result = client
+            .post_message(Message {
+                channel: "a".into(),
+                text: "b".into(),
+                thread_ts: None,
+            })
+            .await;
 
-        assert_eq!(format!("{}", result.unwrap_err()), "Bad Slack API - got {ok: false} with no error information");
+        assert_eq!(
+            format!("{}", result.unwrap_err()),
+            "Bad Slack API - got {ok: false} with no error information"
+        );
     }
 
     #[tokio::test]
     async fn test_malformed_json_envelope() {
-        let client = client_response(200, r#"{
+        let client = client_response(
+            200,
+            r#"{
             "ok": "gibbish"
-        }"#);
-        let result = client.post_message(Message {channel: "a".into(), text: "b".into(), thread_ts: None}).await;
+        }"#,
+        );
+        let result = client
+            .post_message(Message {
+                channel: "a".into(),
+                text: "b".into(),
+                thread_ts: None,
+            })
+            .await;
         assert!(result.is_err());
     }
 }

@@ -1,5 +1,5 @@
-use nom::bytes::complete::tag;
 use nom::branch::alt;
+use nom::bytes::complete::tag;
 use nom::IResult;
 
 use crate::parser::karma::Karma;
@@ -30,31 +30,31 @@ pub fn str_to_karma(input: &str) -> Karma {
     match input {
         "++" => Karma::Up,
         "--" => Karma::Down,
-        "—"  => Karma::Down,
-        "╌"  => Karma::Down,
+        "—" => Karma::Down,
+        "╌" => Karma::Down,
         "+-" => Karma::Side,
         "-+" => Karma::Side,
-        "±"  => Karma::Side,
-        "∓"  => Karma::Side,
-        _    => panic!("Shouldn't arrive here"),
+        "±" => Karma::Side,
+        "∓" => Karma::Side,
+        _ => panic!("Shouldn't arrive here"),
     }
 }
 
 pub fn reacji_to_karma(input: &str) -> Option<Karma> {
     match input {
-        "++"               => Some(Karma::Up),
-        "++1"              => Some(Karma::Up),
-        "++vert"           => Some(Karma::Up),
-        "plusone"          => Some(Karma::Up),
-        "plus1"            => Some(Karma::Up),
-        "++-inverted"      => Some(Karma::Up),
-        "upvote"           => Some(Karma::Up),
-        "heavy_plus_sign"  => Some(Karma::Up),
+        "++" => Some(Karma::Up),
+        "++1" => Some(Karma::Up),
+        "++vert" => Some(Karma::Up),
+        "plusone" => Some(Karma::Up),
+        "plus1" => Some(Karma::Up),
+        "++-inverted" => Some(Karma::Up),
+        "upvote" => Some(Karma::Up),
+        "heavy_plus_sign" => Some(Karma::Up),
         "heavy_minus_sign" => Some(Karma::Down),
-        "--"               => Some(Karma::Down),
-        "minus1"           => Some(Karma::Down),
-        "downvote"         => Some(Karma::Down),
-        "+-"               => Some(Karma::Side),
-        _                  => None,
+        "--" => Some(Karma::Down),
+        "minus1" => Some(Karma::Down),
+        "downvote" => Some(Karma::Down),
+        "+-" => Some(Karma::Side),
+        _ => None,
     }
 }

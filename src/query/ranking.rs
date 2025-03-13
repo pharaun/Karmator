@@ -1,5 +1,5 @@
-use tokio_postgres::GenericClient;
 use log::error;
+use tokio_postgres::GenericClient;
 
 use futures_util::future;
 
@@ -7,9 +7,8 @@ use anyhow::Result as AResult;
 
 use kcore::slack;
 
-use crate::query::{KarmaCol, KarmaTyp, KarmaName};
 use crate::bot::user_event::Event;
-
+use crate::query::{KarmaCol, KarmaName, KarmaTyp};
 
 pub async fn ranking<S, C: GenericClient>(
     event: &mut Event<S>,
@@ -17,8 +16,7 @@ pub async fn ranking<S, C: GenericClient>(
     ktyp: KarmaTyp,
     target: &str,
     label: &str,
-)
-where
+) where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
     let query = future::try_join4(
@@ -43,17 +41,17 @@ where
 
             let rank = match (receiving, giving) {
                 (Some(r), Some(g)) => format!("{} and {}.", r, g),
-                (Some(r), None)    => format!("{}.", r),
-                (None, Some(g))    => format!("{}.", g),
-                (None, None)       => format!("No ranking available"),
+                (Some(r), None) => format!("{}.", r),
+                (None, Some(g)) => format!("{}.", g),
+                (None, None) => format!("No ranking available"),
             };
 
             event.send_reply(&rank).await;
-        },
+        }
         Err(e) => {
             error!("Ranking something went wrong - {:?}", e);
             event.send_reply("Something went wrong").await
-        },
+        }
     }
 }
 
@@ -61,12 +59,12 @@ async fn ranking_denormalized<C: GenericClient>(
     client: &C,
     karma_col: KarmaCol,
     karma_typ: KarmaTyp,
-    user: KarmaName
+    user: KarmaName,
 ) -> AResult<Option<i64>> {
     // Default won't work here, override
     let t_col2 = match karma_typ {
         KarmaTyp::Total => "kcol2.up - kcol2.down",
-        KarmaTyp::Side  => "kcol2.side",
+        KarmaTyp::Side => "kcol2.side",
     };
 
     Ok(client.query_one(&format!(
@@ -83,12 +81,12 @@ async fn ranking_denormalized<C: GenericClient>(
     )
 }
 
-async fn count<C: GenericClient>(
-    client: &C,
-    karma_col: KarmaCol,
-) -> AResult<i64> {
-    Ok(client.query_one(&format!(
-        "SELECT COUNT(name) FROM {table}",
-        table=karma_col), &[]).await?.try_get(0)?
-    )
+async fn count<C: GenericClient>(client: &C, karma_col: KarmaCol) -> AResult<i64> {
+    Ok(client
+        .query_one(
+            &format!("SELECT COUNT(name) FROM {table}", table = karma_col),
+            &[],
+        )
+        .await?
+        .try_get(0)?)
 }

@@ -1,7 +1,7 @@
 use tokio_postgres::GenericClient;
 
-use std::collections::HashSet;
 use log::error;
+use std::collections::HashSet;
 
 use anyhow::Result as AResult;
 
@@ -9,30 +9,37 @@ use futures_util::{pin_mut, TryStreamExt};
 
 use kcore::slack;
 
-use crate::query::{KarmaCol, KarmaName};
 use crate::bot::user_event::Event;
-
+use crate::query::{KarmaCol, KarmaName};
 
 pub async fn partial<S, C: GenericClient>(
     event: &mut Event<S>,
     client: &C,
     kcol: KarmaCol,
     arg: Vec<&str>,
-)
-where
+) where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
     let res = partial_query(
         client,
         kcol,
         arg.into_iter().map(|i| KarmaName::new(i)).collect(),
-    ).await.map(|e| {
-        e.iter().map(|(entity, up, down, side)| {
-            format!(
-                "{}, {} ({}++/{}--/{}+-)",
-                entity, (up - down), up, down, side
-            )
-        }).collect::<Vec<String>>().join("; ")
+    )
+    .await
+    .map(|e| {
+        e.iter()
+            .map(|(entity, up, down, side)| {
+                format!(
+                    "{}, {} ({}++/{}--/{}+-)",
+                    entity,
+                    (up - down),
+                    up,
+                    down,
+                    side
+                )
+            })
+            .collect::<Vec<String>>()
+            .join("; ")
     });
 
     // TODO: do something here
@@ -41,10 +48,9 @@ where
         e => {
             error!("partial - Error: {:?}", e);
             event.send_reply("Something went wrong").await
-        },
+        }
     };
 }
-
 
 async fn partial_query<C: GenericClient>(
     client: &C,

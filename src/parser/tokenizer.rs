@@ -40,16 +40,17 @@ impl<'a> Tokens<'a> {
     }
 
     pub fn second_to_last(&self) -> Option<KarmaToken> {
-        self.tok.split_last().map(
-            |(_, rest)| rest.last().map(|t| t.clone())
-        ).flatten()
+        self.tok
+            .split_last()
+            .map(|(_, rest)| rest.last().map(|t| t.clone()))
+            .flatten()
     }
 
     pub fn is_empty(&self) -> bool {
         self.tok.is_empty()
     }
 
-    pub fn iter(&self) -> Iter<'_, KarmaToken>{
+    pub fn iter(&self) -> Iter<'_, KarmaToken> {
         self.tok.iter()
     }
 }

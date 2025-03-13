@@ -10,7 +10,7 @@ use tokio::time::MissedTickBehavior;
 
 use serde_json::json;
 
-use log::{debug, info, warn, error};
+use log::{debug, error, info, warn};
 
 use atomic_counter::AtomicCounter;
 use atomic_counter::RelaxedCounter;
@@ -23,10 +23,9 @@ use std::time::Instant;
 
 use anyhow::Result as AResult;
 
-use crate::slack;
 use crate::event;
 use crate::signal;
-
+use crate::slack;
 
 pub async fn default_event_loop<S, F1>(
     slack: slack::Client<S>,
@@ -35,11 +34,7 @@ pub async fn default_event_loop<S, F1>(
 ) -> AResult<()>
 where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
-    F1: Fn(
-        serde_json::Value,
-        slack::Client<S>,
-        mpsc::Sender<event::Reply>
-    ) -> (),
+    F1: Fn(serde_json::Value, slack::Client<S>, mpsc::Sender<event::Reply>) -> (),
 {
     // Atomic boolean for ensuring send can't happen till the hello is received from slack
     let can_send = Arc::new(AtomicBool::new(false));

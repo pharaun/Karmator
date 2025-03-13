@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-pub mod user_event;
 mod tz;
+pub mod user_event;
 
 include!(concat!(env!("OUT_DIR"), "/built.rs"));

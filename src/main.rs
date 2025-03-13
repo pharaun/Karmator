@@ -1,7 +1,7 @@
 use std::env;
 use std::sync::Arc;
 
-use log::{info, error};
+use log::{error, info};
 
 use anyhow::anyhow;
 use anyhow::Result as AResult;
@@ -9,13 +9,13 @@ use anyhow::Result as AResult;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig as RustlsClientConfig;
-use tokio_postgres_rustls::MakeRustlsConnect;
 use tokio::sync::RwLock;
+use tokio_postgres_rustls::MakeRustlsConnect;
 
-use kcore::slack;
-use kcore::signal;
-use kcore::bot;
 use karmator::bot::user_event;
+use kcore::bot;
+use kcore::signal;
+use kcore::slack;
 
 // TODO:
 // 5. Migrate from batch over to stored procedure for cleaning out votes run (ie repeated votes for
@@ -27,10 +27,14 @@ use karmator::bot::user_event;
 async fn main() -> AResult<()> {
     env_logger::init();
 
-    let postgres_pem = env::var("POSTGRES_PEM").map_err(|_| anyhow!("POSTGRES_PEM env var must be set"))?;
-    let postgres_url = env::var("POSTGRES_URL").map_err(|_| anyhow!("POSTGRES_URL env var must be set"))?;
-    let app_token = env::var("SLACK_APP_TOKEN").map_err(|_| anyhow!("SLACK_APP_TOKEN env var must be set"))?;
-    let bot_token = env::var("SLACK_BOT_TOKEN").map_err(|_| anyhow!("SLACK_BOT_TOKEN env var must be set"))?;
+    let postgres_pem =
+        env::var("POSTGRES_PEM").map_err(|_| anyhow!("POSTGRES_PEM env var must be set"))?;
+    let postgres_url =
+        env::var("POSTGRES_URL").map_err(|_| anyhow!("POSTGRES_URL env var must be set"))?;
+    let app_token =
+        env::var("SLACK_APP_TOKEN").map_err(|_| anyhow!("SLACK_APP_TOKEN env var must be set"))?;
+    let bot_token =
+        env::var("SLACK_BOT_TOKEN").map_err(|_| anyhow!("SLACK_BOT_TOKEN env var must be set"))?;
 
     //*******************
     // Signals bits
@@ -40,7 +44,9 @@ async fn main() -> AResult<()> {
         let mut signal = signal.clone();
         tokio::spawn(async move {
             // If this exits, then shutdown got invoked and this is no longer needed
-            if let Err(e) = signal.shutdown_daemon().await {error!("Signal Error: {:?}", e);}
+            if let Err(e) = signal.shutdown_daemon().await {
+                error!("Signal Error: {:?}", e);
+            }
             info!("Shutdown listener exited, shutdown is invoked");
         });
     }
@@ -69,8 +75,12 @@ async fn main() -> AResult<()> {
         // If the connection exits its for one of the 2 reasons:
         // 1. The client got dropped (meaning main loop exited)
         // 2. There was an error, and we are in a bad state, shutdown
-        if let Err(e) = connection.await {error!("Database Error: {:?}", e);}
-        if let Err(e) = sql_shutdown_tx.send(true) {error!("Shutdown Signal Error: {:?}", e);}
+        if let Err(e) = connection.await {
+            error!("Database Error: {:?}", e);
+        }
+        if let Err(e) = sql_shutdown_tx.send(true) {
+            error!("Shutdown Signal Error: {:?}", e);
+        }
     });
 
     //*******************
@@ -87,7 +97,8 @@ async fn main() -> AResult<()> {
                 };
             });
         },
-    ).await?;
+    )
+    .await?;
 
     Ok(())
 }

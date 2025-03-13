@@ -1,41 +1,26 @@
 use nom::{
-  IResult,
-  bytes::complete::{
-      tag,
-      take_while1,
-  },
-  multi::{
-      separated_list0,
-  },
-  combinator::{
-      complete,
-  },
-  branch::alt,
-  sequence::{
-      delimited,
-  },
-  character::complete::{
-      multispace1,
-      multispace0,
-  },
+    branch::alt,
+    bytes::complete::{tag, take_while1},
+    character::complete::{multispace0, multispace1},
+    combinator::complete,
+    multi::separated_list0,
+    sequence::delimited,
+    IResult,
 };
-
 
 // TODO: add in specific support for parsing at-here and other special <!user_id> entities
 // so that in the message subsystem it can do the right thing
 #[derive(Debug, PartialEq)]
-pub struct Command<'a> (pub &'a str, pub Vec<&'a str>);
-
+pub struct Command<'a>(pub &'a str, pub Vec<&'a str>);
 
 pub fn parse(input: &str) -> Result<Command, String> {
     let cmd = complete(command)(input);
 
     match cmd {
-        Err(x)       => Err(format!("{:?}", x)),
+        Err(x) => Err(format!("{:?}", x)),
         Ok((_, res)) => Ok(res),
     }
 }
-
 
 fn command(input: &str) -> IResult<&str, Command> {
     let (input, _) = tag("!")(input)?;
@@ -47,27 +32,15 @@ fn command(input: &str) -> IResult<&str, Command> {
 }
 
 fn command_string(input: &str) -> IResult<&str, &str> {
-    take_while1(|c:char| c.is_alphanumeric())(input)
+    take_while1(|c: char| c.is_alphanumeric())(input)
 }
 
 fn not_multispace1(input: &str) -> IResult<&str, &str> {
     alt((
-        delimited(
-            tag("\""),
-            take_while1(|c:char| c != '"'),
-            tag("\""),
-        ),
-        delimited(
-            tag("“"),
-            take_while1(|c:char| c != '”'),
-            tag("”"),
-        ),
-        delimited(
-            tag("["),
-            take_while1(|c:char| c != ']'),
-            tag("]"),
-        ),
-        take_while1(|c:char| !c.is_whitespace()),
+        delimited(tag("\""), take_while1(|c: char| c != '"'), tag("\"")),
+        delimited(tag("“"), take_while1(|c: char| c != '”'), tag("”")),
+        delimited(tag("["), take_while1(|c: char| c != ']'), tag("]")),
+        take_while1(|c: char| !c.is_whitespace()),
     ))(input)
 }
 
@@ -75,25 +48,18 @@ fn args(input: &str) -> IResult<&str, Vec<&str>> {
     separated_list0(multispace1, not_multispace1)(input)
 }
 
-
 #[cfg(test)]
 mod test_command {
     use super::*;
 
     #[test]
     fn test_command() {
-        assert_eq!(
-            command("!karma"),
-            Ok(("", Command("karma", vec![])))
-        );
+        assert_eq!(command("!karma"), Ok(("", Command("karma", vec![]))));
     }
 
     #[test]
     fn test_command_one_arg() {
-        assert_eq!(
-            command("!karma a"),
-            Ok(("", Command("karma", vec!["a"])))
-        );
+        assert_eq!(command("!karma a"), Ok(("", Command("karma", vec!["a"]))));
     }
 
     #[test]
