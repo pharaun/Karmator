@@ -32,18 +32,17 @@ impl<'a> Tokens<'a> {
 
     // Accessors for reading the current token stream
     pub fn first(&self) -> Option<KarmaToken> {
-        self.tok.get(0).map(|t| t.clone())
+        self.tok.first().cloned()
     }
 
     pub fn last(&self) -> Option<KarmaToken> {
-        self.tok.last().map(|t| t.clone())
+        self.tok.last().cloned()
     }
 
     pub fn second_to_last(&self) -> Option<KarmaToken> {
         self.tok
             .split_last()
-            .map(|(_, rest)| rest.last().map(|t| t.clone()))
-            .flatten()
+            .and_then(|(_, rest)| rest.last().cloned())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -89,7 +88,7 @@ impl<'a> InputTake for Tokens<'a> {
     }
 }
 
-impl<'a> InputLength for KarmaToken {
+impl InputLength for KarmaToken {
     #[inline]
     fn input_len(&self) -> usize {
         1
@@ -150,7 +149,7 @@ impl<'a> InputIter for Tokens<'a> {
     where
         P: Fn(Self::Item) -> bool,
     {
-        self.tok.iter().position(|b| predicate(b))
+        self.tok.iter().position(predicate)
     }
     #[inline]
     fn slice_index(&self, count: usize) -> Result<usize, nom::Needed> {

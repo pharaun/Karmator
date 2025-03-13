@@ -119,7 +119,7 @@ where
 fn core_hours<T: TimeZone>(dt: DateTime<T>) -> &'static str {
     match dt.hour() {
         // 11am to 3pm
-        11 | 12 | 13 | 14 => ":green:",
+        11..=14 => ":green:",
         // 9am to 5pm
         9 | 10 | 15 | 16 => ":yellow:",
         // 7am to 7pm
@@ -199,13 +199,7 @@ fn parse(input: &str) -> IResult<&str, TzReq> {
     let (input, tz) = preceded(multispace0, opt(tz_abbv))(input)?;
     let (input, _) = eof(input)?;
 
-    Ok((
-        input,
-        TzReq {
-            time: time,
-            zone: tz,
-        },
-    ))
+    Ok((input, TzReq { time, zone: tz }))
 }
 
 // Note: Nonstandard timezones, for user convience only:

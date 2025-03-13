@@ -20,30 +20,25 @@ pub async fn partial<S, C: GenericClient>(
 ) where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
-    let res = partial_query(
-        client,
-        kcol,
-        arg.into_iter().map(|i| KarmaName::new(i)).collect(),
-    )
-    .await
-    .map(|e| {
-        e.iter()
-            .map(|(entity, up, down, side)| {
-                format!(
-                    "{}, {} ({}++/{}--/{}+-)",
-                    entity,
-                    (up - down),
-                    up,
-                    down,
-                    side
-                )
-            })
-            .collect::<Vec<String>>()
-            .join("; ")
-    });
+    let res = partial_query(client, kcol, arg.into_iter().map(KarmaName::new).collect())
+        .await
+        .map(|e| {
+            e.iter()
+                .map(|(entity, up, down, side)| {
+                    format!(
+                        "{}, {} ({}++/{}--/{}+-)",
+                        entity,
+                        (up - down),
+                        up,
+                        down,
+                        side
+                    )
+                })
+                .collect::<Vec<String>>()
+                .join("; ")
+        });
 
-    // TODO: do something here
-    let _ = match res {
+    match res {
         Ok(x) => event.send_reply(&x).await,
         e => {
             error!("partial - Error: {:?}", e);

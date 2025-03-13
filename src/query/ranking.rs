@@ -43,7 +43,7 @@ pub async fn ranking<S, C: GenericClient>(
                 (Some(r), Some(g)) => format!("{} and {}.", r, g),
                 (Some(r), None) => format!("{}.", r),
                 (None, Some(g)) => format!("{}.", g),
-                (None, None) => format!("No ranking available"),
+                (None, None) => "No ranking available".to_string(),
             };
 
             event.send_reply(&rank).await;

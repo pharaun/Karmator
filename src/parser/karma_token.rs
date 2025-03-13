@@ -45,7 +45,7 @@ pub enum KarmaToken {
 // TODO: implement smart quotes
 // tag("“"), tag("”"),
 // support since it'll be like open/close braces
-impl<'a> fmt::Display for KarmaToken {
+impl fmt::Display for KarmaToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             KarmaToken::Text(t) => write!(f, "{}", t),
@@ -115,13 +115,11 @@ fn karma_run(input: &str) -> IResult<&str, KarmaToken> {
         // Check if there is any possible match at all
         if !v.is_empty() {
             // There is, let's verify if the index of the match is eol
-            let (idx, _) = v.get(0).unwrap();
+            let (idx, _) = v.first().unwrap();
             let offset = candidate.len() - k.len();
 
-            if idx == &offset {
-                if k.len() >= longest.len() {
-                    longest = k;
-                }
+            if idx == &offset && k.len() >= longest.len() {
+                longest = k;
             }
         }
     }
@@ -141,19 +139,17 @@ fn karma_run(input: &str) -> IResult<&str, KarmaToken> {
         if input_slice.is_empty() {
             Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
         } else {
-            Ok((&ret_slice, KarmaToken::KText(input_slice.to_string())))
+            Ok((ret_slice, KarmaToken::KText(input_slice.to_string())))
         }
     }
 }
 
 fn is_karma_symbol(s: char) -> bool {
-    let sym = vec!['+', '-', '±'];
-    sym.contains(&s)
+    ['+', '-', '±'].contains(&s)
 }
 
 fn is_symbol(s: char) -> bool {
-    let sym = vec!['"', '[', ']'];
-    sym.contains(&s)
+    ['"', '[', ']'].contains(&s)
 }
 
 // Steps needed:

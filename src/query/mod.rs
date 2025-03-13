@@ -44,10 +44,10 @@ impl KarmaName {
     }
 }
 
-impl ToString for KarmaName {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for KarmaName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let KarmaName(n) = self;
-        n.to_string()
+        write!(f, "{}", n)
     }
 }
 
@@ -166,7 +166,7 @@ where
                 match seg {
                     santizer::Segment::User(uid, l) => {
                         // Do a user id lookup
-                        let username = slack.get_username(&uid).await;
+                        let username = slack.get_username(uid).await;
 
                         match username {
                             Ok(Some(name)) => safe_text.push(name),

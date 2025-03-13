@@ -127,7 +127,7 @@ where
     pub async fn get_message(&mut self) -> Result<Option<String>, String> {
         match &self.thread_ts {
             None => Err("No timestamp set for reacji event!".to_string()),
-            Some(ts) => match self.slack.get_message(&self.channel_id, &ts).await {
+            Some(ts) => match self.slack.get_message(&self.channel_id, ts).await {
                 Ok(Some(slack::ConversationHistoryMessage::Message {
                     text,
                     user_id: Some(user_id),
@@ -386,17 +386,13 @@ where
                 Ok(command::Command(c @ "topkarma", arg))
                 | Ok(command::Command(c @ "topgivers", arg))
                 | Ok(command::Command(c @ "topsidevotes", arg)) => {
-                    if arg.is_empty() {
-                        event
-                            .send_reply("Please specify a positive integer between 1 and 25.")
-                            .await;
-                    } else if arg.len() != 1 {
+                    if arg.len() != 1 {
                         event
                             .send_reply("Please specify a positive integer between 1 and 25.")
                             .await;
                     } else {
                         // Parse the argument
-                        let limit = u32::from_str(arg.get(0).unwrap_or(&"1"));
+                        let limit = u32::from_str(arg.first().unwrap_or(&"1"));
 
                         let client = client.read().await;
                         match (c, limit) {
@@ -475,16 +471,9 @@ where
                         }
                     } else if arg.len() == 1 {
                         // Rank up with one target
-                        let target = arg.get(0).unwrap_or(&"INVALID");
+                        let target = arg.first().unwrap_or(&"INVALID");
                         let client = client.read().await;
-                        ranking(
-                            &mut event.clone(),
-                            &*client,
-                            t_typ,
-                            target,
-                            &format!("{}", target),
-                        )
-                        .await;
+                        ranking(&mut event.clone(), &*client, t_typ, target, target).await;
                     } else {
                         event
                             .send_reply("Can only rank one karma entry at a time!")

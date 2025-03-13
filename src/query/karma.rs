@@ -38,7 +38,7 @@ where
             match username {
                 None => (),
                 Some(ref ud) => {
-                    karma.retain(|&karma::KST(ref t, _)| KarmaName::new(t) != KarmaName::new(ud))
+                    karma.retain(|karma::KST(t, _)| KarmaName::new(t) != KarmaName::new(ud))
                 }
             }
             let after = karma.len();
