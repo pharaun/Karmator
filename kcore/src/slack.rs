@@ -135,7 +135,7 @@ impl<S: HttpSender> Client<S> {
             app_token: app_token.to_string(),
             bot_token: bot_token.to_string(),
             client: reqwest::Client::new(),
-            sender: sender,
+            sender,
         }
     }
 
@@ -228,7 +228,7 @@ impl<S: HttpSender> Client<S> {
                 )
             })
             .await
-            .map(|u| Some(u))
+            .map(Some)
     }
 
     pub async fn get_message(
@@ -259,7 +259,7 @@ impl<S: HttpSender> Client<S> {
         )?;
 
         if mess.len() != 1 {
-            Err(anyhow!("Malformed messages: {:?}", mess).into())
+            Err(anyhow!("Malformed messages: {:?}", mess))
         } else {
             mess.first()
                 .ok_or(anyhow!("Shouldn't happen"))

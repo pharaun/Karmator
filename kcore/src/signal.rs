@@ -37,8 +37,8 @@ impl Signal {
 
         // This will never exit till shutdown is true
         tokio::select! {
-            _ = self.external_shutdown.wait_for(|v| *v == true) => (),
-            _ = self.shutdown.1.wait_for(|v| *v == true) => (),
+            _ = self.external_shutdown.wait_for(|v| *v) => (),
+            _ = self.shutdown.1.wait_for(|v| *v) => (),
             _ = sig_int.recv() => (),
             _ = sig_term.recv() => (),
         };
@@ -52,8 +52,8 @@ impl Signal {
     pub async fn shutdown_daemon(&mut self) -> AResult<()> {
         // This will never exit till shutdown is true
         tokio::select! {
-            _ = self.external_shutdown.wait_for(|v| *v == true) => (),
-            _ = self.shutdown.1.wait_for(|v| *v == true) => (),
+            _ = self.external_shutdown.wait_for(|v| *v) => (),
+            _ = self.shutdown.1.wait_for(|v| *v) => (),
             _ = signal::ctrl_c() => (),
         };
 
@@ -63,7 +63,7 @@ impl Signal {
     }
 
     pub async fn shutdown(&mut self) {
-        if let Err(e) = self.shutdown.1.wait_for(|v| *v == true).await {
+        if let Err(e) = self.shutdown.1.wait_for(|v| *v).await {
             error!("Signal shutdown error: {:?}", e);
         }
     }

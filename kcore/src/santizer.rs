@@ -220,7 +220,7 @@ fn mention_lite(input: &str) -> IResult<&str, SegmentLite> {
                 separated_pair(mention_type, tag("|"), take_till(|c: char| c == '>')),
                 |(t, _)| SegmentLite::At(t),
             ),
-            map(mention_type, |t| SegmentLite::At(t)),
+            map(mention_type, SegmentLite::At),
         )),
     )(input)
 }

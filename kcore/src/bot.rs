@@ -34,7 +34,7 @@ pub async fn default_event_loop<S, F1>(
 ) -> AResult<()>
 where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
-    F1: Fn(serde_json::Value, slack::Client<S>, mpsc::Sender<event::Reply>) -> (),
+    F1: Fn(serde_json::Value, slack::Client<S>, mpsc::Sender<event::Reply>),
 {
     // Atomic boolean for ensuring send can't happen till the hello is received from slack
     let can_send = Arc::new(AtomicBool::new(false));
@@ -152,37 +152,34 @@ where
 
                     // Check the delta, If either or both are None, that means
                     // their timer are *ahead* of the 'now' which is fine, stop checking.
-                    match (last_message_delta, last_ping_delta) {
-                        (Some(lmd), Some(lpd)) => {
-                            // Check if more than 30s has past since the last slack message received
-                            //  - [Yes] Check if more than 30s has past since the send of the last ping
-                            //    - [Yes] Send Ping
-                            //    - [No] Do nothing
-                            //  - [No] Do nothing
-                            //
-                            // Check if more than 2m has past since the last slack message received
-                            //  - [Yes] Reconnect
-                            //  - [No] Do nothing
-                            if lmd.as_secs() > 30 {
-                                if lpd.as_secs() > 30 {
-                                    debug!("Slack Websocket Heartbeat - Last message: {:?}s, Last ping: {:?}s",
-                                        lmd.as_secs(),
-                                        lpd.as_secs(),
-                                    );
-                                    if let Err(e) = event::send_slack_ping(
-                                        &mut tx.clone(),
-                                        last_ping_sent.clone(),
-                                    ).await {
-                                        warn!("Slack Websocket Heartbeat - Error sending ping {:?}", e);
-                                    }
+                    if let (Some(lmd), Some(lpd)) = (last_message_delta, last_ping_delta) {
+                        // Check if more than 30s has past since the last slack message received
+                        //  - [Yes] Check if more than 30s has past since the send of the last ping
+                        //    - [Yes] Send Ping
+                        //    - [No] Do nothing
+                        //  - [No] Do nothing
+                        //
+                        // Check if more than 2m has past since the last slack message received
+                        //  - [Yes] Reconnect
+                        //  - [No] Do nothing
+                        if lmd.as_secs() > 30 {
+                            if lpd.as_secs() > 30 {
+                                debug!("Slack Websocket Heartbeat - Last message: {:?}s, Last ping: {:?}s",
+                                    lmd.as_secs(),
+                                    lpd.as_secs(),
+                                );
+                                if let Err(e) = event::send_slack_ping(
+                                    &mut tx.clone(),
+                                    last_ping_sent.clone(),
+                                ).await {
+                                    warn!("Slack Websocket Heartbeat - Error sending ping {:?}", e);
                                 }
-                            } else if lmd.as_secs() > 120 {
-                                info!("Slack Websocket Heartbeat - Last message: {:?}s, reconnecting", lmd.as_secs());
-                                reconnect.store(true, Ordering::Relaxed);
-                                can_send.store(false, Ordering::Relaxed);
                             }
-                        },
-                        _ => (),
+                        } else if lmd.as_secs() > 120 {
+                            info!("Slack Websocket Heartbeat - Last message: {:?}s, reconnecting", lmd.as_secs());
+                            reconnect.store(true, Ordering::Relaxed);
+                            can_send.store(false, Ordering::Relaxed);
+                        }
                     }
                 },
             }

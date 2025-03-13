@@ -91,9 +91,9 @@ pub async fn send_simple_message(
     let text = santizer::santize_output(&text);
 
     tx.send(Reply::Message(Message {
-        channel: channel,
-        text: text,
-        thread_ts: thread_ts,
+        channel,
+        text,
+        thread_ts,
     }))
     .await
     .map_err(|_| "Error sending")
