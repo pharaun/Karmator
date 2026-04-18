@@ -194,7 +194,7 @@ struct TzReq<'a> {
     zone: Option<(Tz, Option<&'a str>)>,
 }
 
-fn parse(input: &str) -> IResult<&str, TzReq> {
+fn parse(input: &str) -> IResult<&str, TzReq<'_>> {
     let (input, time) = alt((twelve, twenty_four))(input)?;
     let (input, tz) = preceded(multispace0, opt(tz_abbv))(input)?;
     let (input, _) = eof(input)?;

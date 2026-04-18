@@ -13,7 +13,7 @@ use nom::{
 #[derive(Debug, PartialEq)]
 pub struct Command<'a>(pub &'a str, pub Vec<&'a str>);
 
-pub fn parse(input: &str) -> Result<Command, String> {
+pub fn parse(input: &str) -> Result<Command<'_>, String> {
     let cmd = complete(command)(input);
 
     match cmd {
@@ -22,7 +22,7 @@ pub fn parse(input: &str) -> Result<Command, String> {
     }
 }
 
-fn command(input: &str) -> IResult<&str, Command> {
+fn command(input: &str) -> IResult<&str, Command<'_>> {
     let (input, _) = tag("!")(input)?;
     let (input, cmd) = command_string(input)?;
     let (input, _) = multispace0(input)?;

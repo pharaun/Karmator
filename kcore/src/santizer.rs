@@ -52,7 +52,7 @@ impl<'a> fmt::Display for Segment<'a> {
     }
 }
 
-pub fn parse(input: &str) -> Result<Vec<Segment>, String> {
+pub fn parse(input: &str) -> Result<Vec<Segment<'_>>, String> {
     let cmd = complete(many1(segment))(input);
 
     match cmd {
@@ -61,7 +61,7 @@ pub fn parse(input: &str) -> Result<Vec<Segment>, String> {
     }
 }
 
-fn segment(input: &str) -> IResult<&str, Segment> {
+fn segment(input: &str) -> IResult<&str, Segment<'_>> {
     alt((
         special,
         text,
@@ -70,7 +70,7 @@ fn segment(input: &str) -> IResult<&str, Segment> {
     ))(input)
 }
 
-fn text(input: &str) -> IResult<&str, Segment> {
+fn text(input: &str) -> IResult<&str, Segment<'_>> {
     let (input, content) = take_till(|c: char| c == '<')(input)?;
 
     if content.is_empty() {
@@ -80,7 +80,7 @@ fn text(input: &str) -> IResult<&str, Segment> {
     }
 }
 
-fn special(input: &str) -> IResult<&str, Segment> {
+fn special(input: &str) -> IResult<&str, Segment<'_>> {
     delimited(
         tag("<"),
         alt((channel, user, group, mention, date, link)),
@@ -88,28 +88,28 @@ fn special(input: &str) -> IResult<&str, Segment> {
     )(input)
 }
 
-fn channel(input: &str) -> IResult<&str, Segment> {
+fn channel(input: &str) -> IResult<&str, Segment<'_>> {
     preceded(
         peek(tag("#C")),
         preceded(tag("#"), map(content, |(c, l)| Segment::Channel(c, l))),
     )(input)
 }
 
-fn user(input: &str) -> IResult<&str, Segment> {
+fn user(input: &str) -> IResult<&str, Segment<'_>> {
     preceded(
         peek(alt((tag("@U"), tag("@W")))),
         preceded(tag("@"), map(content, |(u, l)| Segment::User(u, l))),
     )(input)
 }
 
-fn group(input: &str) -> IResult<&str, Segment> {
+fn group(input: &str) -> IResult<&str, Segment<'_>> {
     preceded(
         tag("!subteam^"),
         map(content, |(g, l)| Segment::Group(g, l)),
     )(input)
 }
 
-fn mention(input: &str) -> IResult<&str, Segment> {
+fn mention(input: &str) -> IResult<&str, Segment<'_>> {
     preceded(
         tag("!"),
         alt((
@@ -130,7 +130,7 @@ fn mention_type(input: &str) -> IResult<&str, AtType> {
     ))(input)
 }
 
-fn link(input: &str) -> IResult<&str, Segment> {
+fn link(input: &str) -> IResult<&str, Segment<'_>> {
     map(content, |(u, l)| Segment::Link(u, l))(input)
 }
 
@@ -145,7 +145,7 @@ fn content(input: &str) -> IResult<&str, (&str, &str)> {
     ))(input)
 }
 
-fn date(input: &str) -> IResult<&str, Segment> {
+fn date(input: &str) -> IResult<&str, Segment<'_>> {
     // <!date^123123^{text} asdf[^link]|fallback>
     preceded(
         tag("!date"),
@@ -193,7 +193,7 @@ pub fn santize_output(input: &str) -> String {
     .unwrap_or(input.to_string())
 }
 
-fn segment_lite(input: &str) -> IResult<&str, SegmentLite> {
+fn segment_lite(input: &str) -> IResult<&str, SegmentLite<'_>> {
     alt((
         delimited(tag("<"), mention_lite, tag(">")),
         text_lite,
@@ -202,7 +202,7 @@ fn segment_lite(input: &str) -> IResult<&str, SegmentLite> {
     ))(input)
 }
 
-fn text_lite(input: &str) -> IResult<&str, SegmentLite> {
+fn text_lite(input: &str) -> IResult<&str, SegmentLite<'_>> {
     let (input, content) = take_till(|c: char| c == '<')(input)?;
 
     if content.is_empty() {
@@ -212,7 +212,7 @@ fn text_lite(input: &str) -> IResult<&str, SegmentLite> {
     }
 }
 
-fn mention_lite(input: &str) -> IResult<&str, SegmentLite> {
+fn mention_lite(input: &str) -> IResult<&str, SegmentLite<'_>> {
     preceded(
         tag("!"),
         alt((

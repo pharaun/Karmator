@@ -69,7 +69,7 @@ where
         }
     }
 
-    fn parse_command(&self) -> Result<command::Command, String> {
+    fn parse_command(&self) -> Result<command::Command<'_>, String> {
         match &self.text {
             None => Err("Empty input".to_string()),
             Some(text) => command::parse(text),
