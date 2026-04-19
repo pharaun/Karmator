@@ -5,6 +5,7 @@ use nom::{
     error::{Error, ErrorKind},
     multi::many0,
     IResult,
+    Parser,
 };
 use std::fmt;
 
@@ -61,7 +62,7 @@ impl fmt::Display for KarmaToken {
 }
 
 pub(super) fn all_token(input: &str) -> IResult<&str, Vec<KarmaToken>> {
-    many0(token)(input)
+    many0(token).parse(input)
 }
 
 // TODO: maybe instead of parsing in only whole karma chunk could be greedy
@@ -76,7 +77,7 @@ pub(super) fn all_token(input: &str) -> IResult<&str, Vec<KarmaToken>> {
 // Rightmost parse with space/eof after, will become a token, the rejects get shuffled
 // back into a Text
 fn token(input: &str) -> IResult<&str, KarmaToken> {
-    alt((symbols, space, karma_run, karma, text))(input)
+    alt((symbols, space, karma_run, karma, text)).parse(input)
 }
 
 fn symbols(input: &str) -> IResult<&str, KarmaToken> {
@@ -84,17 +85,17 @@ fn symbols(input: &str) -> IResult<&str, KarmaToken> {
         map(tag("\""), |_| KarmaToken::Quote),
         map(tag("["), |_| KarmaToken::OpenBrace),
         map(tag("]"), |_| KarmaToken::CloseBrace),
-    ))(input)
+    )).parse(input)
 }
 
 fn space(input: &str) -> IResult<&str, KarmaToken> {
     map(take_while1(|c: char| c.is_whitespace()), |s: &str| {
         KarmaToken::Space(s.to_owned())
-    })(input)
+    }).parse(input)
 }
 
 fn karma(input: &str) -> IResult<&str, KarmaToken> {
-    map(karma_tags, |k: &str| KarmaToken::Karma(k.to_owned()))(input)
+    map(karma_tags, |k: &str| KarmaToken::Karma(k.to_owned())).parse(input)
 }
 
 fn karma_run(input: &str) -> IResult<&str, KarmaToken> {
@@ -179,7 +180,7 @@ fn text(input: &str) -> IResult<&str, KarmaToken> {
         }
 
         // Check if it is a whitespace or symbol parse
-        let par = peek(alt((space, symbols, karma_run, karma)))(cur_input);
+        let par = peek(alt((space, symbols, karma_run, karma))).parse(cur_input);
 
         if par.is_ok() {
             break

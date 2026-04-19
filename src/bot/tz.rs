@@ -19,6 +19,7 @@ use nom::{
     error::{Error, ErrorKind},
     sequence::{delimited, preceded, separated_pair},
     IResult,
+    Parser,
 };
 
 const TIME_FORMAT: &str = "%-l:%M%P";
@@ -195,8 +196,8 @@ struct TzReq<'a> {
 }
 
 fn parse(input: &str) -> IResult<&str, TzReq<'_>> {
-    let (input, time) = alt((twelve, twenty_four))(input)?;
-    let (input, tz) = preceded(multispace0, opt(tz_abbv))(input)?;
+    let (input, time) = alt((twelve, twenty_four)).parse(input)?;
+    let (input, tz) = preceded(multispace0, opt(tz_abbv)).parse(input)?;
     let (input, _) = eof(input)?;
 
     Ok((input, TzReq { time, zone: tz }))
@@ -239,22 +240,22 @@ fn tz_abbv(input: &str) -> IResult<&str, (Tz, Option<&str>)> {
         map(tag_no_case("CET"), |_| {
             (chrono_tz::Europe::Berlin, Some("HAM"))
         }),
-    ))(input)
+    )).parse(input)
 }
 
 fn meridiem(input: &str) -> IResult<&str, &str> {
     alt((
         map(tag_no_case("am"), |_| "AM"),
         map(tag_no_case("pm"), |_| "PM"),
-    ))(input)
+    )).parse(input)
 }
 
 fn time(input: &str) -> IResult<&str, &str> {
-    alt((recognize(delimited(digit1, tag(":"), digit1)), digit1))(input)
+    alt((recognize(delimited(digit1, tag(":"), digit1)), digit1)).parse(input)
 }
 
 fn twelve(input: &str) -> IResult<&str, NaiveTime> {
-    let (input, (time, meri)) = separated_pair(time, multispace0, meridiem)(input)?;
+    let (input, (time, meri)) = separated_pair(time, multispace0, meridiem).parse(input)?;
 
     let time_str = if time.contains(':') {
         format!("{time}{meri}")
@@ -269,7 +270,7 @@ fn twelve(input: &str) -> IResult<&str, NaiveTime> {
 }
 
 fn twenty_four(input: &str) -> IResult<&str, NaiveTime> {
-    let (input, time) = map(time, |t| t.replace(':', ""))(input)?;
+    let (input, time) = map(time, |t| t.replace(':', "")).parse(input)?;
 
     match NaiveTime::parse_from_str(&time, "%H%M") {
         Ok(nt) => Ok((input, nt)),

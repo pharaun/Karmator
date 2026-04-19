@@ -14,7 +14,7 @@ lto = "thin"
 [workspace]
 
 [build-dependencies]
-built = { version = "0.7", features = ["chrono", "git2"] }
+built = { version = "0.8", features = ["chrono", "git2"] }
 
 [dependencies]
 # Core library for the bot
@@ -36,7 +36,7 @@ rustls = "0.23"
 bytes = "1.9"
 
 # For karma parsing
-nom = "7"
+nom = "8"
 unicode-normalization = "0.1"
 unicase = "2.8"
 

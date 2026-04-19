@@ -1,8 +1,5 @@
-use nom::InputIter;
-use nom::InputLength;
-use nom::InputTake;
-use nom::Slice;
-use nom::UnspecializedInput;
+use nom::Input;
+use nom::Needed;
 
 use std::iter::Enumerate;
 use std::ops::Range;
@@ -10,6 +7,8 @@ use std::ops::RangeFrom;
 use std::ops::RangeFull;
 use std::ops::RangeTo;
 use std::slice::Iter;
+use std::slice;
+
 
 use crate::parser::karma_token::KarmaToken;
 
@@ -54,20 +53,32 @@ impl<'a> Tokens<'a> {
     }
 }
 
-impl InputLength for Tokens<'_> {
+
+impl<'a> Input for Tokens<'a> {
+    type Item = &'a KarmaToken;
+    type Iter = Iter<'a, KarmaToken>;
+    type IterIndices = Enumerate<Iter<'a, KarmaToken>>;
+
     #[inline]
     fn input_len(&self) -> usize {
         self.tok.len()
     }
-}
 
-impl InputTake for Tokens<'_> {
     #[inline]
     fn take(&self, count: usize) -> Self {
         Tokens {
             tok: &self.tok[0..count],
             start: 0,
             end: count,
+        }
+    }
+
+    #[inline]
+    fn take_from(&self, count: usize) -> Self {
+        Tokens {
+            tok: &self.tok[count..],
+            start: count,
+            end: self.end,
         }
     }
 
@@ -86,64 +97,7 @@ impl InputTake for Tokens<'_> {
         };
         (second, first)
     }
-}
 
-impl InputLength for KarmaToken {
-    #[inline]
-    fn input_len(&self) -> usize {
-        1
-    }
-}
-
-impl Slice<Range<usize>> for Tokens<'_> {
-    #[inline]
-    fn slice(&self, range: Range<usize>) -> Self {
-        Tokens {
-            tok: self.tok.slice(range.clone()),
-            start: self.start + range.start,
-            end: self.start + range.end,
-        }
-    }
-}
-
-impl Slice<RangeTo<usize>> for Tokens<'_> {
-    #[inline]
-    fn slice(&self, range: RangeTo<usize>) -> Self {
-        self.slice(0..range.end)
-    }
-}
-
-impl Slice<RangeFrom<usize>> for Tokens<'_> {
-    #[inline]
-    fn slice(&self, range: RangeFrom<usize>) -> Self {
-        self.slice(range.start..self.end - self.start)
-    }
-}
-
-impl Slice<RangeFull> for Tokens<'_> {
-    #[inline]
-    fn slice(&self, _: RangeFull) -> Self {
-        Tokens {
-            tok: self.tok,
-            start: self.start,
-            end: self.end,
-        }
-    }
-}
-
-impl<'a> InputIter for Tokens<'a> {
-    type Item = &'a KarmaToken;
-    type Iter = Enumerate<::std::slice::Iter<'a, KarmaToken>>;
-    type IterElem = ::std::slice::Iter<'a, KarmaToken>;
-
-    #[inline]
-    fn iter_indices(&self) -> Enumerate<::std::slice::Iter<'a, KarmaToken>> {
-        self.tok.iter().enumerate()
-    }
-    #[inline]
-    fn iter_elements(&self) -> ::std::slice::Iter<'a, KarmaToken> {
-        self.tok.iter()
-    }
     #[inline]
     fn position<P>(&self, predicate: P) -> Option<usize>
     where
@@ -151,14 +105,60 @@ impl<'a> InputIter for Tokens<'a> {
     {
         self.tok.iter().position(predicate)
     }
+
     #[inline]
-    fn slice_index(&self, count: usize) -> Result<usize, nom::Needed> {
+    fn iter_elements(&self) -> <Self as Input>::Iter {
+        self.tok.iter()
+    }
+
+    #[inline]
+    fn iter_indices(&self) -> <Self as Input>::IterIndices {
+        self.tok.iter().enumerate()
+    }
+
+    #[inline]
+    fn slice_index(&self, count: usize) -> Result<usize, Needed> {
         if self.tok.len() >= count {
             Ok(count)
         } else {
-            Err(nom::Needed::Unknown)
+            Err(Needed::Unknown)
         }
     }
 }
 
-impl UnspecializedInput for Tokens<'_> {}
+
+//impl Slice<Range<usize>> for Tokens<'_> {
+//    #[inline]
+//    fn slice(&self, range: Range<usize>) -> Self {
+//        Tokens {
+//            tok: self.tok.slice(range.clone()),
+//            start: self.start + range.start,
+//            end: self.start + range.end,
+//        }
+//    }
+//}
+//
+//impl Slice<RangeTo<usize>> for Tokens<'_> {
+//    #[inline]
+//    fn slice(&self, range: RangeTo<usize>) -> Self {
+//        self.slice(0..range.end)
+//    }
+//}
+//
+//impl Slice<RangeFrom<usize>> for Tokens<'_> {
+//    #[inline]
+//    fn slice(&self, range: RangeFrom<usize>) -> Self {
+//        self.slice(range.start..self.end - self.start)
+//    }
+//}
+//
+//impl Slice<RangeFull> for Tokens<'_> {
+//    #[inline]
+//    fn slice(&self, _: RangeFull) -> Self {
+//        Tokens {
+//            tok: self.tok,
+//            start: self.start,
+//            end: self.end,
+//        }
+//    }
+//}

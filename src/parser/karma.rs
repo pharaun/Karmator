@@ -6,6 +6,7 @@ use nom::{
     multi::many0,
     sequence::{delimited, pair, terminated},
     IResult,
+    Parser,
 };
 use std::matches;
 
@@ -26,12 +27,12 @@ pub enum Karma {
 }
 
 pub fn parse(input: &str) -> Result<Vec<KST>, String> {
-    let tokens = complete(all_token)(input);
+    let tokens = complete(all_token).parse(input);
 
     match tokens {
         Err(e) => Err(format!("{e:?}")),
         Ok((_, tok)) => {
-            let result = complete(multi)(Tokens::new(&tok));
+            let result = complete(multi).parse(Tokens::new(&tok));
 
             match result {
                 Err(e) => Err(format!("{e:?}")),
@@ -101,7 +102,7 @@ fn kenclosedquote(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
                 | &KarmaToken::Quote
                 | &KarmaToken::KText(_)
         )
-    })(input)?;
+    }).parse(input)?;
 
     // Collapse the list into string and trim it
     let temp = tkt
@@ -129,7 +130,7 @@ fn kenclosedbrace(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
                 | &KarmaToken::CloseBrace
                 | &KarmaToken::KText(_)
         )
-    })(input)?;
+    }).parse(input)?;
 
     // Collapse the list into string and trim it
     let temp = tkt
@@ -152,7 +153,7 @@ fn kspacetext(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
             kt,
             &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::KText(_)
         )
-    })(input)?;
+    }).parse(input)?;
 
     match (tkt.second_to_last(), tkt.last()) {
         // Validate that last entity isn't a space
@@ -208,7 +209,7 @@ fn simple(input: Tokens<'_>) -> IResult<Tokens<'_>, KST> {
             alt((peek(kspace), map(eof, |_| String::new()))),
         ),
         |(t, k)| KST(t, k),
-    )(input)
+    ).parse(input)
 }
 
 // Quoted Karma
@@ -238,7 +239,7 @@ fn quoted(input: Tokens<'_>) -> IResult<Tokens<'_>, KST> {
             alt((peek(kspace), map(eof, |_| String::new()))),
         ),
         |(t, k)| KST(t, k),
-    )(input)
+    ).parse(input)
 }
 
 // Braced Karma
@@ -269,7 +270,7 @@ fn braced(input: Tokens<'_>) -> IResult<Tokens<'_>, KST> {
             alt((peek(kspace), map(eof, |_| String::new()))),
         ),
         |(t, k)| KST(t, k),
-    )(input)
+    ).parse(input)
 }
 
 // TODO: develop invalid cases to test extent of the parser
@@ -295,17 +296,17 @@ fn multi(input: Tokens<'_>) -> IResult<Tokens<'_>, Vec<KST>> {
 
     loop {
         // 1. Apply simple combinator as many times as possible
-        let (input, res) = many0(simple)(cur_input)?;
+        let (input, res) = many0(simple).parse(cur_input)?;
         cur_input = input;
         ret.extend(res);
 
         // 2. Apply quote combinator as many time as possible
-        let (input, res) = many0(quoted)(cur_input)?;
+        let (input, res) = many0(quoted).parse(cur_input)?;
         cur_input = input;
         ret.extend(res);
 
         // 3. Apply brace combinator as many time as possible
-        let (input, res) = many0(braced)(cur_input)?;
+        let (input, res) = many0(braced).parse(cur_input)?;
         cur_input = input;
         ret.extend(res);
 

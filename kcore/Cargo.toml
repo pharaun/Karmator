@@ -30,7 +30,7 @@ atomic-counter = "1"
 log = "0.4"
 
 # Command parsing
-nom = "7"
+nom = "8"
 
 # Error handling
 anyhow = "1"

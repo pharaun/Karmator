@@ -1,6 +1,7 @@
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::IResult;
+use nom::Parser;
 
 use crate::parser::karma::Karma;
 
@@ -14,7 +15,7 @@ macro_rules! tags {
                 $(
                     tag($x),
                 )*
-            ))($input)
+            )).parse($input)
         }
     };
 }

@@ -6,6 +6,7 @@ use nom::{
     multi::separated_list0,
     sequence::delimited,
     IResult,
+    Parser,
 };
 
 // TODO: add in specific support for parsing at-here and other special <!user_id> entities
@@ -14,7 +15,7 @@ use nom::{
 pub struct Command<'a>(pub &'a str, pub Vec<&'a str>);
 
 pub fn parse(input: &str) -> Result<Command<'_>, String> {
-    let cmd = complete(command)(input);
+    let cmd = complete(command).parse(input);
 
     match cmd {
         Err(e) => Err(format!("{e:?}")),
@@ -41,11 +42,11 @@ fn not_multispace1(input: &str) -> IResult<&str, &str> {
         delimited(tag("“"), take_while1(|c: char| c != '”'), tag("”")),
         delimited(tag("["), take_while1(|c: char| c != ']'), tag("]")),
         take_while1(|c: char| !c.is_whitespace()),
-    ))(input)
+    )).parse(input)
 }
 
 fn args(input: &str) -> IResult<&str, Vec<&str>> {
-    separated_list0(multispace1, not_multispace1)(input)
+    separated_list0(multispace1, not_multispace1).parse(input)
 }
 
 #[cfg(test)]
