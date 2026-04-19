@@ -1,6 +1,7 @@
 use std::env;
 use std::path::Path;
 
+#[expect(clippy::unwrap_used)]
 fn main() {
     let src = env::var("CARGO_MANIFEST_DIR").unwrap();
     let dst = Path::new(&env::var("OUT_DIR").unwrap()).join("built.rs");

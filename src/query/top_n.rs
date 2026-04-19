@@ -61,13 +61,7 @@ async fn top_n_denormalized<C: GenericClient>(
 ) -> AResult<Vec<(String, i64)>> {
     let rows = client
         .query(
-            &format!(
-                "SELECT name, {t_col} as total FROM {table} ORDER BY total {q_ord} LIMIT {limit}",
-                t_col = karma_typ,
-                table = karma_col,
-                q_ord = ord,
-                limit = limit
-            ),
+            &format!("SELECT name, {karma_typ} as total FROM {karma_col} ORDER BY total {ord} LIMIT {limit}"),
             &[],
         )
         .await?;

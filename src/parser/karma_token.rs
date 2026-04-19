@@ -181,16 +181,18 @@ fn text(input: &str) -> IResult<&str, KarmaToken> {
         // Check if it is a whitespace or symbol parse
         let par = peek(alt((space, symbols, karma_run, karma)))(cur_input);
 
-        if let Ok(_) = par { break } else {
-            // Check if it hit eof, if so exit
-            if cur_input.is_empty() {
-                break;
-            }
-
-            let (input, tok) = take(1usize)(cur_input)?;
-            cur_input = input;
-            ret.push_str(tok);
+        if par.is_ok() {
+            break
         }
+
+        // Check if it hit eof, if so exit
+        if cur_input.is_empty() {
+            break;
+        }
+
+        let (input, tok) = take(1usize)(cur_input)?;
+        cur_input = input;
+        ret.push_str(tok);
     }
 
     Ok((cur_input, KarmaToken::Text(ret)))

@@ -2,6 +2,7 @@ use tokio_postgres::GenericClient;
 
 use log::error;
 use std::collections::HashSet;
+use std::fmt::Write as _;
 
 use anyhow::Result as AResult;
 
@@ -57,7 +58,7 @@ async fn partial_query<C: GenericClient>(
     let p_user = {
         let mut p_user: String = "md5(lower($1))".to_owned();
         for i in 2..=users.len() {
-            p_user.push_str(&format!(", md5(lower(${i}))"));
+            let _ = write!(p_user, ", md5(lower(${i}))");
         }
         p_user
     };

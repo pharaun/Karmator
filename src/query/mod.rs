@@ -48,7 +48,7 @@ impl KarmaName {
 
 impl fmt::Display for KarmaName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let KarmaName(n) = self;
+        let Self(n) = self;
         write!(f, "{n}")
     }
 }

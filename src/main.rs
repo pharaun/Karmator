@@ -6,7 +6,7 @@ use log::{error, info};
 use anyhow::anyhow;
 use anyhow::Result as AResult;
 
-use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig as RustlsClientConfig;
 use tokio::sync::RwLock;
@@ -45,7 +45,7 @@ async fn main() -> AResult<()> {
         tokio::spawn(async move {
             // If this exits, then shutdown got invoked and this is no longer needed
             if let Err(e) = signal.shutdown_daemon().await {
-                error!("Signal Error: {:?}", e);
+                error!("Signal Error: {e:?}");
             }
             info!("Shutdown listener exited, shutdown is invoked");
         });
@@ -76,10 +76,10 @@ async fn main() -> AResult<()> {
         // 1. The client got dropped (meaning main loop exited)
         // 2. There was an error, and we are in a bad state, shutdown
         if let Err(e) = connection.await {
-            error!("Database Error: {:?}", e);
+            error!("Database Error: {e:?}");
         }
         if let Err(e) = sql_shutdown_tx.send(true) {
-            error!("Shutdown Signal Error: {:?}", e);
+            error!("Shutdown Signal Error: {e:?}");
         }
     });
 
@@ -90,11 +90,11 @@ async fn main() -> AResult<()> {
         slack::Client::new("https://slack.com/api", &app_token, &bot_token, 50),
         signal,
         |event, slack, tx| {
-            let client = client.clone();
+            let client = Arc::clone(&client);
             tokio::spawn(async move {
                 if let Err(e) = user_event::process_user_message(event, slack, tx, client).await {
-                    error!("user_event::process_user_message error: {:?}", e);
-                };
+                    error!("user_event::process_user_message error: {e:?}");
+                }
             });
         },
     )

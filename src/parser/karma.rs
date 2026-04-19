@@ -56,7 +56,7 @@ fn kspace(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
 
     // Extract this out of the Tokens structure
     match tkt.first() {
-        Some(KarmaToken::Space(t)) => Ok((input, t.clone())),
+        Some(KarmaToken::Space(t)) => Ok((input, t)),
         _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
     }
 }
@@ -312,17 +312,14 @@ fn multi(input: Tokens<'_>) -> IResult<Tokens<'_>, Vec<KST>> {
         // 4. If still more, discard 1 token and go to 1
         if !cur_input.is_empty() {
             // If space or karma, drop 1, otherwise eat till space/karma
-            match cur_input.first() {
-                Some(KarmaToken::Space(_) | KarmaToken::Karma(_)) => {
-                    let (input, _) = take(1usize)(input)?;
-                    cur_input = input;
-                }
-                _ => {
-                    let (input, _) = take_till1(|kt: &KarmaToken| {
-                        matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Karma(_))
-                    })(input)?;
-                    cur_input = input;
-                }
+            if let Some(KarmaToken::Space(_) | KarmaToken::Karma(_)) = cur_input.first() {
+                let (input, _) = take(1usize)(input)?;
+                cur_input = input;
+            } else {
+                let (input, _) = take_till1(|kt: &KarmaToken| {
+                    matches!(kt, &KarmaToken::Space(_) | &KarmaToken::Karma(_))
+                })(input)?;
+                cur_input = input;
             }
         }
 

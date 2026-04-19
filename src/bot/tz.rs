@@ -31,7 +31,7 @@ where
         // !tz --> utc current time + 3 tz (pacific, eastern, uk)
         let utc_time: DateTime<Utc> = Utc::now();
 
-        event.send_reply(&format_time(utc_time)).await;
+        event.send_reply(&format_time(&utc_time)).await;
     } else {
         let input = input.join(" ");
         match parse(&input) {
@@ -79,7 +79,7 @@ where
                                             .await;
                                     }
                                     Some(given_datetime_tz) => {
-                                        event.send_reply(&format_time(given_datetime_tz)).await;
+                                        event.send_reply(&format_time(&given_datetime_tz)).await;
                                     }
                                 }
                             }
@@ -103,7 +103,7 @@ where
                         Some(city) => format!("This is deprecated, use `{city}` instead.\n"),
                     };
                     event
-                        .send_reply(&format!("{} - {}", note, &format_time(given_datetime_tz)))
+                        .send_reply(&format!("{} - {}", note, &format_time(&given_datetime_tz)))
                         .await;
                 }
             },
@@ -129,9 +129,9 @@ fn core_hours<T: TimeZone>(dt: &DateTime<T>) -> &'static str {
     }
 }
 
-fn format_time<T: TimeZone>(dt: DateTime<T>) -> String {
+fn format_time<T: TimeZone>(dt: &DateTime<T>) -> String {
     // Supported locals
-    let out_tz = convert_to_locales(&dt);
+    let out_tz = convert_to_locales(dt);
 
     format!(
         "{}Pacific: {}, {}Eastern: {}, {}UK: {}, {}Germany: {}",
@@ -387,7 +387,7 @@ mod test_parser {
     fn test_convert_to_locales() {
         let tz_req = parse("5pm PST").unwrap();
         let conv_req = convert_naive_time(tz_req.1.time, tz_req.1.zone.unwrap().0).unwrap();
-        let out_req = convert_to_locales(conv_req);
+        let out_req = convert_to_locales(&conv_req);
 
         assert_eq!(
             out_req.pacific.time(),
