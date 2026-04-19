@@ -4,6 +4,8 @@ version = "9.0.0"
 authors = ["Anja Berens <pharaun666@gmail.com>"]
 edition = "2021"
 
+lints.workspace = true
+
 [dev-dependencies]
 http = "1.2"
 

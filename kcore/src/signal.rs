@@ -17,13 +17,13 @@ pub struct Signal {
 }
 
 impl Signal {
-    pub fn new() -> (watch::Sender<bool>, Signal) {
+    pub fn new() -> (watch::Sender<bool>, Self) {
         let (tx, rx) = watch::channel(false);
         info!("Signal installed");
 
         (
             tx,
-            Signal {
+            Self {
                 shutdown: watch::channel(false),
                 external_shutdown: rx,
             },
@@ -64,7 +64,7 @@ impl Signal {
 
     pub async fn shutdown(&mut self) {
         if let Err(e) = self.shutdown.1.wait_for(|v| *v).await {
-            error!("Signal shutdown error: {:?}", e);
+            error!("Signal shutdown error: {e:?}");
         }
     }
 
@@ -74,7 +74,7 @@ impl Signal {
 
     pub fn shutdown_now(&mut self) {
         if let Err(e) = self.shutdown.0.send(true) {
-            error!("Signal shutdown error: {:?}", e);
+            error!("Signal shutdown error: {e:?}");
         }
     }
 }

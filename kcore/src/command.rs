@@ -17,7 +17,7 @@ pub fn parse(input: &str) -> Result<Command<'_>, String> {
     let cmd = complete(command)(input);
 
     match cmd {
-        Err(x) => Err(format!("{:?}", x)),
+        Err(e) => Err(format!("{e:?}")),
         Ok((_, res)) => Ok(res),
     }
 }

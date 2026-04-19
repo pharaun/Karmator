@@ -1,6 +1,6 @@
 use tokio_tungstenite::tungstenite;
 
-use atomic_counter::AtomicCounter;
+use atomic_counter::AtomicCounter as _;
 use atomic_counter::RelaxedCounter;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -22,7 +22,7 @@ use crate::slack::Message;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
+#[expect(dead_code)]
 enum Event {
     // First message upon successful connection establishment
     Hello {
@@ -66,13 +66,13 @@ pub enum Reply {
     Pong(Vec<u8>),
 }
 
-fn parse_event(s: String) -> Option<Event> {
-    let res = serde_json::from_str::<Event>(&s).map_err(|x| format!("{:?}", x));
+fn parse_event(s: &str) -> Option<Event> {
+    let res = serde_json::from_str::<Event>(s).map_err(|e| format!("{e:?}"));
 
-    debug!("Parsed Event: {:?}", res);
+    debug!("Parsed Event: {res:?}");
 
     if res.is_err() {
-        error!("parse_event - Error: {:?}\n{:?}\n", res, s);
+        error!("parse_event - Error: {res:?}\n{s:?}\n");
     }
     res.ok()
 }
@@ -139,20 +139,20 @@ pub async fn process_control_message(
         tungstenite::Message::Pong(_) => None,
 
         tungstenite::Message::Close(reason) => {
-            info!("Slack Websocket - Close reason: {:?}", reason);
+            info!("Slack Websocket - Close reason: {reason:?}");
 
             reconnect.store(true, Ordering::Relaxed);
             can_send.store(false, Ordering::Relaxed);
             None
         }
 
-        _ => {
-            error!("Slack Websocket - Unsupported websocket type: {:?}", msg);
+        tungstenite::Message::Binary(_) => {
+            error!("Slack Websocket - Unsupported websocket type: {msg:?}");
             None
         }
     };
 
-    if let Some(e) = raw_msg.and_then(parse_event) {
+    if let Some(e) = raw_msg.as_deref().and_then(parse_event) {
         match e {
             Event::Hello { num_connections: _ } => {
                 // Hold on sending messages till this is received.
@@ -166,7 +166,7 @@ pub async fn process_control_message(
                 reconnect.store(true, Ordering::Relaxed);
                 can_send.store(false, Ordering::Relaxed);
 
-                info!("Slack Websocket - Disconnect reason: {:?}", r);
+                info!("Slack Websocket - Disconnect reason: {r:?}");
 
                 Ok(None)
             }

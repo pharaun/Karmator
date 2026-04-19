@@ -31,23 +31,23 @@ pub enum AtType {
 }
 
 // This is specifically for parsing karma and stowing to the database
-impl<'a> fmt::Display for Segment<'a> {
+impl fmt::Display for Segment<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Segment::Text(t) => write!(f, "{}", t),
-            Segment::Channel(cid, "") => write!(f, "#{}", cid),
-            Segment::Channel(_, l) => write!(f, "{}", l),
-            Segment::User(uid, "") => write!(f, "@{}", uid),
-            Segment::User(_, l) => write!(f, "{}", l),
-            Segment::Group(gid, "") => write!(f, "@{}", gid),
-            Segment::Group(_, l) => write!(f, "{}", l),
+            Segment::Text(t) => write!(f, "{t}"),
+            Segment::Channel(cid, "") => write!(f, "#{cid}"),
+            Segment::Channel(_, l) => write!(f, "{l}"),
+            Segment::User(uid, "") => write!(f, "@{uid}"),
+            Segment::User(_, l) => write!(f, "{l}"),
+            Segment::Group(gid, "") => write!(f, "@{gid}"),
+            Segment::Group(_, l) => write!(f, "{l}"),
             Segment::At(AtType::Here, _) => write!(f, "@here"),
             Segment::At(AtType::Channel, _) => write!(f, "@channel"),
             Segment::At(AtType::Everyone, _) => write!(f, "@everyone"),
-            Segment::Link(url, "") => write!(f, "{}", url),
-            Segment::Link(_, l) => write!(f, "{}", l),
+            Segment::Link(url, "") => write!(f, "{url}"),
+            Segment::Link(_, l) => write!(f, "{l}"),
             Segment::Open => write!(f, "<"),
-            Segment::Date(_, _, _, l) => write!(f, "{}", l),
+            Segment::Date(_, _, _, l) => write!(f, "{l}"),
         }
     }
 }
@@ -56,7 +56,7 @@ pub fn parse(input: &str) -> Result<Vec<Segment<'_>>, String> {
     let cmd = complete(many1(segment))(input);
 
     match cmd {
-        Err(x) => Err(format!("{:?}", x)),
+        Err(e) => Err(format!("{e:?}")),
         Ok((_, res)) => Ok(res),
     }
 }
@@ -169,10 +169,10 @@ enum SegmentLite<'a> {
 }
 
 // This is specifically for parsing any output and santizing it
-impl<'a> fmt::Display for SegmentLite<'a> {
+impl fmt::Display for SegmentLite<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SegmentLite::Text(t) => write!(f, "{}", t),
+            SegmentLite::Text(t) => write!(f, "{t}"),
             SegmentLite::At(AtType::Here) => write!(f, "@here"),
             SegmentLite::At(AtType::Channel) => write!(f, "@channel"),
             SegmentLite::At(AtType::Everyone) => write!(f, "@everyone"),
@@ -186,11 +186,10 @@ pub fn santize_output(input: &str) -> String {
 
     res.map(|(_, i)| {
         i.iter()
-            .map(|i| i.to_string())
-            .collect::<Vec<String>>()
-            .join("")
+            .map(ToString::to_string)
+            .collect::<String>()
     })
-    .unwrap_or(input.to_string())
+    .unwrap_or(input.to_owned())
 }
 
 fn segment_lite(input: &str) -> IResult<&str, SegmentLite<'_>> {

@@ -15,6 +15,7 @@ use serde::Deserialize;
 
 use crate::query::santizer;
 
+use crate::bot::build;
 use crate::bot::tz::timezone;
 use crate::query::karma::add_karma;
 use crate::query::partial::partial;
@@ -285,9 +286,9 @@ where
             // Parse string to see if its a command one
             match event.parse_command() {
                 Ok(command::Command("version", _)) => {
-                    let ver = crate::bot::PKG_VERSION;
-                    let dat = crate::bot::BUILT_TIME_UTC;
-                    let sha = crate::bot::GIT_COMMIT_HASH.unwrap_or("Unknown");
+                    let ver = build::PKG_VERSION;
+                    let dat = build::BUILT_TIME_UTC;
+                    let sha = build::GIT_COMMIT_HASH.unwrap_or("Unknown");
 
                     event
                         .send_reply(&format!(

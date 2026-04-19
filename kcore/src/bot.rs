@@ -1,7 +1,8 @@
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite;
 
-use futures_util::{SinkExt, StreamExt};
+use futures_util::SinkExt as _;
+use futures_util::StreamExt as _;
 
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
@@ -12,7 +13,7 @@ use serde_json::json;
 
 use log::{debug, error, info, warn};
 
-use atomic_counter::AtomicCounter;
+use atomic_counter::AtomicCounter as _;
 use atomic_counter::RelaxedCounter;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -48,7 +49,7 @@ where
     let last_ping_sent = Arc::new(RwLock::new(Instant::now()));
 
     // Interval timers for heartbeat
-    let mut heartbeat = time::interval(time::Duration::from_secs(1));
+    let mut heartbeat = time::interval(Duration::from_secs(1));
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     // Message Tx/Rx from the message loop to the downstream handlers
@@ -74,27 +75,27 @@ where
         while !reconnect.load(Ordering::Relaxed) && !signal.should_shutdown() {
             tokio::select! {
                 // Listens for shutdown signals from the system or the database
-                _ = signal.shutdown() => info!("Shutdown signal received"),
+                () = signal.shutdown() => info!("Shutdown signal received"),
 
                 ws_msg = ws_read.next() => {
                     match ws_msg {
                         Some(Ok(ws_msg)) => {
                             match event::process_control_message(
                                 tx.clone(),
-                                can_send.clone(),
-                                reconnect.clone(),
-                                reconnect_count.clone(),
-                                last_message_received.clone(),
+                                Arc::clone(&can_send),
+                                Arc::clone(&reconnect),
+                                Arc::clone(&reconnect_count),
+                                Arc::clone(&last_message_received),
                                 ws_msg,
                             ).await {
                                 // If there's an user event returned spawn off the user event processor
                                 Ok(Some(event)) => user_event_listener(event, slack.clone(), tx.clone()),
-                                Err(e) => error!("process_control_message error: {:?}", e),
+                                Err(e) => error!("process_control_message error: {e:?}"),
                                 _ => (),
                             }
                         },
                         Some(Err(e)) => {
-                            error!("Slack Websocket - Connection error: {:?}", e);
+                            error!("Slack Websocket - Connection error: {e:?}");
                             reconnect.store(true, Ordering::Relaxed);
                             can_send.store(false, Ordering::Relaxed);
                         },
@@ -125,12 +126,12 @@ where
                         event::Reply::Message(msg) => {
                             if let Err(e) = slack.post_message(msg).await {
                                 // Don't propagage error to websocket cuz this is via web api
-                                error!("Slack Http - Post message error: {:?}", e);
+                                error!("Slack Http - Post message error: {e:?}");
                             }
                             Ok(())
                         },
                     } {
-                        error!("Slack Websocket - Connection error: {:?}", e);
+                        error!("Slack Websocket - Connection error: {e:?}");
                         reconnect.store(true, Ordering::Relaxed);
                         can_send.store(false, Ordering::Relaxed);
                     }
@@ -170,9 +171,9 @@ where
                                 );
                                 if let Err(e) = event::send_slack_ping(
                                     &mut tx.clone(),
-                                    last_ping_sent.clone(),
+                                    Arc::clone(&last_ping_sent),
                                 ).await {
-                                    warn!("Slack Websocket Heartbeat - Error sending ping {:?}", e);
+                                    warn!("Slack Websocket Heartbeat - Error sending ping {e:?}");
                                 }
                             }
                         } else if lmd.as_secs() > 120 {
@@ -189,10 +190,10 @@ where
         // wait for 20s, then increment the reconnect_count by 1, and if it exceeds 10, set the
         // shutdown flag and exit
         if !signal.should_shutdown() {
-            let count = reconnect_count.clone().inc();
+            let count = Arc::clone(&reconnect_count).inc();
 
             if count <= 10 {
-                info!("Slack Websocket - Reconnecting, try: {:?}", count);
+                info!("Slack Websocket - Reconnecting, try: {count:?}");
                 time::sleep(Duration::from_secs(20)).await;
             } else {
                 error!("Slack Websocket - Exceeded 10 retries, shutting down");

@@ -25,7 +25,7 @@ pub struct ReqwestSender;
 impl HttpSender for ReqwestSender {
     // TODO: Better support rate limiting - https://api.slack.com/apis/rate-limits
     async fn send(&self, request: reqwest::RequestBuilder) -> AResult<reqwest::Response> {
-        request.send().await.map_err(|e| e.into())
+        request.send().await.map_err(Into::into)
     }
 }
 
@@ -35,7 +35,7 @@ pub struct Client<S: HttpSender = ReqwestSender> {
     user_cache: Arc<Cache<String, User>>,
     app_token: String,
     bot_token: String,
-    client: reqwest::Client,
+    http: reqwest::Client,
     sender: S,
 }
 
@@ -49,20 +49,20 @@ struct Envelope {
     data: serde_json::Value,
 }
 
-fn parse_response<T: DeserializeOwned>(key: &str, res: String) -> AResult<T> {
-    let env: Envelope = serde_json::from_str(&res)?;
+fn parse_response<T: DeserializeOwned>(key: &str, res: &str) -> AResult<T> {
+    let env: Envelope = serde_json::from_str(res)?;
 
-    if !env.ok {
-        Err(match env.error {
-            Some(err) => anyhow!("Slack error: {}", err),
-            None => anyhow!("Bad Slack API - got {{ok: false}} with no error information"),
-        })
-    } else {
+    if env.ok {
         // There may sometime be warning with a ok response, log it
         if let Some(warning) = env.warning {
-            warn!("Slack api response warning: {}", warning);
+            warn!("Slack api response warning: {warning}");
         }
         Ok(serde_json::from_value(env.data[key].clone())?)
+    } else {
+        Err(match env.error {
+            Some(err) => anyhow!("Slack error: {err}"),
+            None => anyhow!("Bad Slack API - got {{ok: false}} with no error information"),
+        })
     }
 }
 
@@ -109,19 +109,20 @@ pub struct Message {
 }
 
 impl Client<ReqwestSender> {
-    pub fn new(url: &str, app_token: &str, bot_token: &str, capacity: usize) -> Client {
-        Client {
-            url: url.to_string(),
+    pub fn new(url: &str, app_token: &str, bot_token: &str, capacity: usize) -> Self {
+        Self {
+            url: url.to_owned(),
             user_cache: Arc::new(Cache::new(capacity)),
-            app_token: app_token.to_string(),
-            bot_token: bot_token.to_string(),
-            client: reqwest::Client::new(),
+            app_token: app_token.to_owned(),
+            bot_token: bot_token.to_owned(),
+            http: reqwest::Client::new(),
             sender: ReqwestSender,
         }
     }
 }
 
 impl<S: HttpSender> Client<S> {
+    #[expect(clippy::use_self)]
     pub fn with_sender(
         sender: S,
         url: &str,
@@ -129,12 +130,12 @@ impl<S: HttpSender> Client<S> {
         bot_token: &str,
         capacity: usize,
     ) -> Client<S> {
-        Client {
-            url: url.to_string(),
+        Self {
+            url: url.to_owned(),
             user_cache: Arc::new(Cache::new(capacity)),
-            app_token: app_token.to_string(),
-            bot_token: bot_token.to_string(),
-            client: reqwest::Client::new(),
+            app_token: app_token.to_owned(),
+            bot_token: bot_token.to_owned(),
+            http: reqwest::Client::new(),
             sender,
         }
     }
@@ -147,9 +148,9 @@ impl<S: HttpSender> Client<S> {
         let url = self.get_slack_url_for_method("apps.connections.open");
         let conn: String = parse_response(
             "url",
-            self.sender
+            &self.sender
                 .send(
-                    self.client
+                    self.http
                         .post(url)
                         .header("Content-type", "application/x-www-form-urlencoded")
                         .header("Authorization", format!("Bearer {}", self.app_token)),
@@ -160,7 +161,7 @@ impl<S: HttpSender> Client<S> {
         )?;
 
         Ok(if debug {
-            format!("{}&debug_reconnects=true", conn)
+            format!("{conn}&debug_reconnects=true")
         } else {
             conn
         })
@@ -171,9 +172,9 @@ impl<S: HttpSender> Client<S> {
         let url = self.get_slack_url_for_method("chat.postMessage");
         parse_response(
             "ts",
-            self.sender
+            &self.sender
                 .send(
-                    self.client
+                    self.http
                         .post(url)
                         .header("Content-type", "application/json")
                         .header("Authorization", format!("Bearer {}", self.bot_token))
@@ -190,18 +191,18 @@ impl<S: HttpSender> Client<S> {
     }
 
     pub async fn get_user_real_name(&self, user_id: &str) -> AResult<Option<String>> {
-        Ok(self.get_user(user_id).await?.map(|u| u.real_name.clone()))
+        Ok(self.get_user(user_id).await?.map(|u| u.real_name))
     }
 
     pub async fn get_username(&self, user_id: &str) -> AResult<Option<String>> {
         Ok(self
             .get_user(user_id)
             .await?
-            .map(|u| u.display_name.clone()))
+            .map(|u| u.display_name))
     }
 
     pub async fn get_user_tz(&self, user_id: &str) -> AResult<Option<Timezone>> {
-        Ok(self.get_user(user_id).await?.map(|u| u.timezone.clone()))
+        Ok(self.get_user(user_id).await?.map(|u| u.timezone))
     }
 
     async fn get_user(&self, user_id: &str) -> AResult<Option<User>> {
@@ -214,9 +215,9 @@ impl<S: HttpSender> Client<S> {
                 let url = self.get_slack_url_for_method("users.info");
                 parse_response::<User>(
                     "user",
-                    self.sender
+                    &self.sender
                         .send(
-                            self.client
+                            self.http
                                 .get(url)
                                 .header("Content-type", "application/json")
                                 .header("Authorization", format!("Bearer {}", self.bot_token))
@@ -238,16 +239,16 @@ impl<S: HttpSender> Client<S> {
     ) -> AResult<Option<ConversationHistoryMessage>> {
         let url = self.get_slack_url_for_method("conversations.history");
         let params = vec![
-            Some(("channel", channel_id.to_string())),
-            Some(("latest", message_ts.to_string())),
-            Some(("inclusive", "true".to_string())),
-            Some(("limit", "1".to_string())),
+            Some(("channel", channel_id.to_owned())),
+            Some(("latest", message_ts.to_owned())),
+            Some(("inclusive", "true".to_owned())),
+            Some(("limit", "1".to_owned())),
         ];
         let mess: Vec<ConversationHistoryMessage> = parse_response(
             "messages",
-            self.sender
+            &self.sender
                 .send(
-                    self.client
+                    self.http
                         .get(url)
                         .header("Content-type", "application/json")
                         .header("Authorization", format!("Bearer {}", self.bot_token))
@@ -258,12 +259,12 @@ impl<S: HttpSender> Client<S> {
                 .await?,
         )?;
 
-        if mess.len() != 1 {
-            Err(anyhow!("Malformed messages: {:?}", mess))
-        } else {
+        if mess.len() == 1 {
             mess.first()
                 .ok_or(anyhow!("Shouldn't happen"))
                 .map(|m| Some(m.clone()))
+        } else {
+            Err(anyhow!("Malformed messages: {mess:?}"))
         }
     }
 }
