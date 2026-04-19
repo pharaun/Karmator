@@ -54,7 +54,7 @@ impl HttpSender for FakeSender {
                         request.body().map(|x| x.as_bytes()).flatten().map(|x| std::str::from_utf8(x))
                     );
 
-                    let response = r#"{"ok": true}"#;
+                    let response = r#"{"ok": true, "ts": "123.123"}"#;
                     Ok(response::Builder::new().status(200).body(response)?.into())
                 },
                 "/users.info" => {
@@ -299,6 +299,9 @@ async fn terminal_readline(
                                     "event_ts": "N/A",
                                 })
                             ).await;
+                        },
+                        Ok(Command("help", _)) => {
+                            let _ = writeln!(stdout, "Commands available: help, send [arg], truncate, addReacji [arg], delReacji [arg]");
                         },
                         _ => {
                             let _ = writeln!(stdout, "Command not found: \"{}\"", line);
