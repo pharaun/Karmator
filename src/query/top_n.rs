@@ -34,20 +34,20 @@ pub async fn top_n<S, C: GenericClient>(
                     "{}: {}. {}: {}.",
                     label.0,
                     high.iter()
-                        .map(|(e, c)| format!("{}, ({})", e, c))
+                        .map(|(e, c)| format!("{e}, ({c})"))
                         .collect::<Vec<String>>()
                         .join("; "),
                     label.1,
                     low.iter()
-                        .map(|(e, c)| format!("{}, ({})", e, c))
+                        .map(|(e, c)| format!("{e}, ({c})"))
                         .collect::<Vec<String>>()
                         .join("; "),
                 ))
-                .await
+                .await;
         }
         Err(e) => {
-            error!("Top-n something went wrong - {:?}", e);
-            event.send_reply("Something went wrong").await
+            error!("Top-n something went wrong - {e:?}");
+            event.send_reply("Something went wrong").await;
         }
     };
 }

@@ -49,13 +49,13 @@ pub enum KarmaToken {
 impl fmt::Display for KarmaToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            KarmaToken::Text(t) => write!(f, "{}", t),
-            KarmaToken::Space(t) => write!(f, "{}", t),
-            KarmaToken::Karma(t) => write!(f, "{}", t),
-            KarmaToken::KText(t) => write!(f, "{}", t),
-            KarmaToken::Quote => write!(f, "\""),
-            KarmaToken::OpenBrace => write!(f, "["),
-            KarmaToken::CloseBrace => write!(f, "]"),
+            Self::Text(t) => write!(f, "{t}"),
+            Self::Space(t) => write!(f, "{t}"),
+            Self::Karma(t) => write!(f, "{t}"),
+            Self::KText(t) => write!(f, "{t}"),
+            Self::Quote => write!(f, "\""),
+            Self::OpenBrace => write!(f, "["),
+            Self::CloseBrace => write!(f, "]"),
         }
     }
 }
@@ -89,12 +89,12 @@ fn symbols(input: &str) -> IResult<&str, KarmaToken> {
 
 fn space(input: &str) -> IResult<&str, KarmaToken> {
     map(take_while1(|c: char| c.is_whitespace()), |s: &str| {
-        KarmaToken::Space(s.to_string())
+        KarmaToken::Space(s.to_owned())
     })(input)
 }
 
 fn karma(input: &str) -> IResult<&str, KarmaToken> {
-    map(karma_tags, |k: &str| KarmaToken::Karma(k.to_string()))(input)
+    map(karma_tags, |k: &str| KarmaToken::Karma(k.to_owned()))(input)
 }
 
 fn karma_run(input: &str) -> IResult<&str, KarmaToken> {
@@ -102,7 +102,7 @@ fn karma_run(input: &str) -> IResult<&str, KarmaToken> {
     let mut longest = "";
 
     // Let's try a list of karma
-    for k in KARMA_LIST.iter() {
+    for k in &KARMA_LIST {
         // Short circuit this check if
         // 1. karma is shorter than longest match, it won't win
         // 2. candidate is shorter than the karma to be checked
@@ -140,7 +140,7 @@ fn karma_run(input: &str) -> IResult<&str, KarmaToken> {
         if input_slice.is_empty() {
             Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
         } else {
-            Ok((ret_slice, KarmaToken::KText(input_slice.to_string())))
+            Ok((ret_slice, KarmaToken::KText(input_slice.to_owned())))
         }
     }
 }
@@ -159,7 +159,7 @@ fn is_symbol(s: char) -> bool {
 // 3. [if fail] add the character to the string and resume take_while
 // 4. [if succ] exit parser with a Text(ret)
 fn text(input: &str) -> IResult<&str, KarmaToken> {
-    let mut ret = "".to_string();
+    let mut ret = String::new();
     let mut cur_input = input;
 
     // Bail out if empty input
@@ -181,18 +181,15 @@ fn text(input: &str) -> IResult<&str, KarmaToken> {
         // Check if it is a whitespace or symbol parse
         let par = peek(alt((space, symbols, karma_run, karma)))(cur_input);
 
-        match par {
-            Ok(_) => break,
-            Err(_) => {
-                // Check if it hit eof, if so exit
-                if cur_input.is_empty() {
-                    break;
-                }
-
-                let (input, tok) = take(1usize)(cur_input)?;
-                cur_input = input;
-                ret.push_str(tok);
+        if let Ok(_) = par { break } else {
+            // Check if it hit eof, if so exit
+            if cur_input.is_empty() {
+                break;
             }
+
+            let (input, tok) = take(1usize)(cur_input)?;
+            cur_input = input;
+            ret.push_str(tok);
         }
     }
 

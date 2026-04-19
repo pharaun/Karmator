@@ -29,12 +29,12 @@ pub fn parse(input: &str) -> Result<Vec<KST>, String> {
     let tokens = complete(all_token)(input);
 
     match tokens {
-        Err(x) => Err(format!("{:?}", x)),
+        Err(e) => Err(format!("{e:?}")),
         Ok((_, tok)) => {
             let result = complete(multi)(Tokens::new(&tok));
 
             match result {
-                Err(x) => Err(format!("{:?}", x)),
+                Err(e) => Err(format!("{e:?}")),
                 Ok((_, res)) => Ok(res),
             }
         }
@@ -56,7 +56,7 @@ fn kspace(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
 
     // Extract this out of the Tokens structure
     match tkt.first() {
-        Some(KarmaToken::Space(t)) => Ok((input, t.to_string())),
+        Some(KarmaToken::Space(t)) => Ok((input, t.clone())),
         _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
     }
 }
@@ -66,7 +66,7 @@ fn kquote(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
 
     // Extract this out of the Tokens structure
     match tkt.first() {
-        Some(KarmaToken::Quote) => Ok((input, "\"".to_string())),
+        Some(KarmaToken::Quote) => Ok((input, "\"".to_owned())),
         _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
     }
 }
@@ -76,7 +76,7 @@ fn kopenbrace(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
 
     // Extract this out of the Tokens structure
     match tkt.first() {
-        Some(KarmaToken::OpenBrace) => Ok((input, "[".to_string())),
+        Some(KarmaToken::OpenBrace) => Ok((input, "[".to_owned())),
         _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
     }
 }
@@ -86,7 +86,7 @@ fn kclosebrace(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
 
     // Extract this out of the Tokens structure
     match tkt.first() {
-        Some(KarmaToken::CloseBrace) => Ok((input, "]".to_string())),
+        Some(KarmaToken::CloseBrace) => Ok((input, "]".to_owned())),
         _ => Err(nom::Err::Error(Error::new(input, ErrorKind::Tag))),
     }
 }
@@ -107,10 +107,9 @@ fn kenclosedquote(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
     let temp = tkt
         .iter()
         .map(|k: &KarmaToken| k.to_string())
-        .collect::<Vec<String>>()
-        .join("")
+        .collect::<String>()
         .trim()
-        .to_string();
+        .to_owned();
 
     if temp.is_empty() {
         Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
@@ -136,10 +135,9 @@ fn kenclosedbrace(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
     let temp = tkt
         .iter()
         .map(|k: &KarmaToken| k.to_string())
-        .collect::<Vec<String>>()
-        .join("")
+        .collect::<String>()
         .trim()
-        .to_string();
+        .to_owned();
 
     if temp.is_empty() {
         Err(nom::Err::Error(Error::new(input, ErrorKind::Tag)))
@@ -175,10 +173,9 @@ fn kspacetext(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
             let temp = tkt
                 .iter()
                 .map(|k: &KarmaToken| k.to_string())
-                .collect::<Vec<String>>()
-                .join("")
+                .collect::<String>()
                 .trim_start()
-                .to_string();
+                .to_owned();
 
             Ok((input, temp))
         }
@@ -208,7 +205,7 @@ fn simple(input: Tokens<'_>) -> IResult<Tokens<'_>, KST> {
     map(
         terminated(
             pair(kspacetext, kkarma),
-            alt((peek(kspace), map(eof, |_| "".to_string()))),
+            alt((peek(kspace), map(eof, |_| String::new()))),
         ),
         |(t, k)| KST(t, k),
     )(input)
@@ -238,7 +235,7 @@ fn quoted(input: Tokens<'_>) -> IResult<Tokens<'_>, KST> {
     map(
         terminated(
             pair(delimited(kquote, kenclosedbrace, kquote), kkarma),
-            alt((peek(kspace), map(eof, |_| "".to_string()))),
+            alt((peek(kspace), map(eof, |_| String::new()))),
         ),
         |(t, k)| KST(t, k),
     )(input)
@@ -269,7 +266,7 @@ fn braced(input: Tokens<'_>) -> IResult<Tokens<'_>, KST> {
     map(
         terminated(
             pair(delimited(kopenbrace, kenclosedquote, kclosebrace), kkarma),
-            alt((peek(kspace), map(eof, |_| "".to_string()))),
+            alt((peek(kspace), map(eof, |_| String::new()))),
         ),
         |(t, k)| KST(t, k),
     )(input)
@@ -316,7 +313,7 @@ fn multi(input: Tokens<'_>) -> IResult<Tokens<'_>, Vec<KST>> {
         if !cur_input.is_empty() {
             // If space or karma, drop 1, otherwise eat till space/karma
             match cur_input.first() {
-                Some(KarmaToken::Space(_)) | Some(KarmaToken::Karma(_)) => {
+                Some(KarmaToken::Space(_) | KarmaToken::Karma(_)) => {
                     let (input, _) = take(1usize)(input)?;
                     cur_input = input;
                 }

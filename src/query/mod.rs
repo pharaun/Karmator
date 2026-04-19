@@ -20,7 +20,9 @@ use std::error::Error;
 use std::fmt;
 use unicase::UniCase;
 
-use unicode_normalization::{is_nfc_quick, IsNormalized, UnicodeNormalization};
+use unicode_normalization::is_nfc_quick;
+use unicode_normalization::IsNormalized;
+use unicode_normalization::UnicodeNormalization as _;
 
 use crate::parser::karma::Karma;
 use kcore::santizer;
@@ -29,7 +31,7 @@ use kcore::slack;
 // Normalize any incoming string to be stored in the database
 pub fn normalize(input: &str) -> String {
     match is_nfc_quick(input.chars()) {
-        IsNormalized::Yes => input.to_string(),
+        IsNormalized::Yes => input.to_owned(),
         _ => input.nfc().collect(),
     }
 }
@@ -39,15 +41,15 @@ pub fn normalize(input: &str) -> String {
 pub struct KarmaName(UniCase<String>);
 
 impl KarmaName {
-    pub fn new(name: &str) -> KarmaName {
-        KarmaName(UniCase::new(normalize(name)))
+    pub fn new(name: &str) -> Self {
+        Self(UniCase::new(normalize(name)))
     }
 }
 
 impl fmt::Display for KarmaName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let KarmaName(n) = self;
-        write!(f, "{}", n)
+        write!(f, "{n}")
     }
 }
 
@@ -66,9 +68,9 @@ impl ToSql for KarmaName {
 impl ToSql for Karma {
     fn to_sql(&self, ty: &Type, w: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let value: i16 = match *self {
-            Karma::Up => 1,
-            Karma::Down => -1,
-            Karma::Side => 0,
+            Self::Up => 1,
+            Self::Down => -1,
+            Self::Side => 0,
         };
         value.to_sql(ty, w)?;
         Ok(IsNull::No)
@@ -89,8 +91,8 @@ pub enum ReacjiAction {
 impl ToSql for ReacjiAction {
     fn to_sql(&self, ty: &Type, w: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let value: i16 = match *self {
-            ReacjiAction::Add => 1,
-            ReacjiAction::Del => -1,
+            Self::Add => 1,
+            Self::Del => -1,
         };
         value.to_sql(ty, w)?;
         Ok(IsNull::No)
@@ -111,8 +113,8 @@ pub enum OrdQuery {
 impl fmt::Display for OrdQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            OrdQuery::Asc => write!(f, "ASC"),
-            OrdQuery::Desc => write!(f, "DESC"),
+            Self::Asc => write!(f, "ASC"),
+            Self::Desc => write!(f, "DESC"),
         }
     }
 }
@@ -126,8 +128,8 @@ pub enum KarmaCol {
 impl fmt::Display for KarmaCol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            KarmaCol::Given => write!(f, "karma_given_count"),
-            KarmaCol::Received => write!(f, "karma_received_count"),
+            Self::Given => write!(f, "karma_given_count"),
+            Self::Received => write!(f, "karma_received_count"),
         }
     }
 }
@@ -141,8 +143,8 @@ pub enum KarmaTyp {
 impl fmt::Display for KarmaTyp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            KarmaTyp::Total => write!(f, "up - down"),
-            KarmaTyp::Side => write!(f, "side"),
+            Self::Total => write!(f, "up - down"),
+            Self::Side => write!(f, "side"),
         }
     }
 }
@@ -153,14 +155,14 @@ where
 {
     match santizer::parse(input).ok() {
         None => {
-            error!("Failed to santize: {:?}", input);
-            input.to_string()
+            error!("Failed to santize: {input:?}");
+            input.to_owned()
         }
 
         Some(san) => {
             let mut safe_text = vec![];
 
-            for seg in san.iter() {
+            for seg in &san {
                 // TODO: do other id reprocessing such as:
                 // 1. channel...
                 match seg {
@@ -199,15 +201,12 @@ pub async fn add_nick<C: GenericClient>(
             &[&user_id],
         )
         .await?;
-    match row {
-        Some(r) => Ok(r.try_get(0)?),
-        None => {
-            let row = client.query_one(
-                "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES ($1, $2, $3, $4) RETURNING id",
-                &[&username, &real_name, &user_id, &"SlackServer"]
-            ).await?;
-            Ok(row.try_get(0)?)
-        }
+    if let Some(r) = row { Ok(r.try_get(0)?) } else {
+        let row = client.query_one(
+            "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES ($1, $2, $3, $4) RETURNING id",
+            &[&username, &real_name, &user_id, &"SlackServer"]
+        ).await?;
+        Ok(row.try_get(0)?)
     }
 }
 
@@ -228,16 +227,13 @@ pub async fn add_channel<C: GenericClient>(client: &C, channel_id: String) -> AR
             &[&channel_id],
         )
         .await?;
-    match row {
-        Some(r) => Ok(r.try_get(0)?),
-        None => {
-            let row = client
-                .query_one(
-                    "INSERT INTO chan_metadata (channel) VALUES ($1) RETURNING id",
-                    &[&channel_id],
-                )
-                .await?;
-            Ok(row.try_get(0)?)
-        }
+    if let Some(r) = row { Ok(r.try_get(0)?) } else {
+        let row = client
+            .query_one(
+                "INSERT INTO chan_metadata (channel) VALUES ($1) RETURNING id",
+                &[&channel_id],
+            )
+            .await?;
+        Ok(row.try_get(0)?)
     }
 }

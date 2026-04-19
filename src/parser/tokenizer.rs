@@ -54,14 +54,14 @@ impl<'a> Tokens<'a> {
     }
 }
 
-impl<'a> InputLength for Tokens<'a> {
+impl InputLength for Tokens<'_> {
     #[inline]
     fn input_len(&self) -> usize {
         self.tok.len()
     }
 }
 
-impl<'a> InputTake for Tokens<'a> {
+impl InputTake for Tokens<'_> {
     #[inline]
     fn take(&self, count: usize) -> Self {
         Tokens {
@@ -95,7 +95,7 @@ impl InputLength for KarmaToken {
     }
 }
 
-impl<'a> Slice<Range<usize>> for Tokens<'a> {
+impl Slice<Range<usize>> for Tokens<'_> {
     #[inline]
     fn slice(&self, range: Range<usize>) -> Self {
         Tokens {
@@ -106,21 +106,21 @@ impl<'a> Slice<Range<usize>> for Tokens<'a> {
     }
 }
 
-impl<'a> Slice<RangeTo<usize>> for Tokens<'a> {
+impl Slice<RangeTo<usize>> for Tokens<'_> {
     #[inline]
     fn slice(&self, range: RangeTo<usize>) -> Self {
         self.slice(0..range.end)
     }
 }
 
-impl<'a> Slice<RangeFrom<usize>> for Tokens<'a> {
+impl Slice<RangeFrom<usize>> for Tokens<'_> {
     #[inline]
     fn slice(&self, range: RangeFrom<usize>) -> Self {
         self.slice(range.start..self.end - self.start)
     }
 }
 
-impl<'a> Slice<RangeFull> for Tokens<'a> {
+impl Slice<RangeFull> for Tokens<'_> {
     #[inline]
     fn slice(&self, _: RangeFull) -> Self {
         Tokens {

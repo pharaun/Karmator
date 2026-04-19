@@ -30,7 +30,7 @@ pub async fn add_reacji<S>(
 {
     if let Some(karma) = reacji_to_karma(input) {
         let message_id = match query_reacji_message(
-            client.clone(),
+            Arc::clone(&client),
             event.channel_id.clone(),
             event.thread_ts.clone().unwrap(),
         )
@@ -49,7 +49,7 @@ pub async fn add_reacji<S>(
                     {
                         (santized_text, Some(ud), Some(rn)) => {
                             add_reacji_message(
-                                client.clone(),
+                                Arc::clone(&client),
                                 message_user_id,
                                 KarmaName::new(&ud),
                                 KarmaName::new(&rn),
@@ -68,24 +68,19 @@ pub async fn add_reacji<S>(
                 }
                 // This is a bot-owned message so abort out
                 Ok(None) => return,
-                e => Err(format!(
-                    "ERROR: [Reacji] Querying for message failed: {:?}",
-                    e
-                )),
+                e => Err(format!("ERROR: [Reacji] Querying for message failed: {e:?}")),
             },
-            Err(e) => Err(format!("Database error: {:?}", e)),
+            Err(e) => Err(format!("Database error: {e:?}")),
         };
 
         match message_id {
-            Err(e) => {
-                error!("Failed to get reacji message - Error: {:?}", e);
-            }
+            Err(e) => error!("Failed to get reacji message - Error: {e:?}"),
             Ok(None) => (), // These are expected error, drop
             Ok(Some(mid)) => {
                 match future::join(event.get_username(), event.get_user_real_name()).await {
                     (Some(ud), Some(rn)) => {
                         if let Err(e) = add_reacji_query(
-                            client.clone(),
+                            Arc::clone(&client),
                             Utc::now(),
                             event.user_id.clone(),
                             KarmaName::new(&ud),
@@ -96,10 +91,10 @@ pub async fn add_reacji<S>(
                         )
                         .await
                         {
-                            error!("Query failed: {:?}", e);
+                            error!("Query failed: {e:?}");
                         }
                     }
-                    e => error!("Querying for user/name failed: {:?}", e),
+                    e => error!("Querying for user/name failed: {e:?}"),
                 }
             }
         }
@@ -160,10 +155,7 @@ async fn add_reacji_message(
 
         // Compare
         if sql_nick != nick_id || sql_message != message {
-            error!(
-                "Duplicate Channel+TS - Slack/Sql - Nick {} / {} - Msg: {} / {}",
-                nick_id, sql_nick, message, sql_message
-            );
+            error!("Duplicate Channel+TS - Slack/Sql - Nick {nick_id} / {sql_nick} - Msg: {message} / {sql_message}");
         }
 
         // Return one anyway for now

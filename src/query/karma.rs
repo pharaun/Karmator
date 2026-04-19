@@ -27,7 +27,7 @@ where
 {
     match karma::parse(&event.santize().await) {
         Ok(mut karma) if !karma.is_empty() => {
-            info!("Parsed Karma: {:?}", karma);
+            info!("Parsed Karma: {karma:?}");
             let username = event.get_username().await;
             let user_real_name = event.get_user_real_name().await;
 
@@ -38,20 +38,20 @@ where
             match username {
                 None => (),
                 Some(ref ud) => {
-                    karma.retain(|KST(t, _)| KarmaName::new(t) != KarmaName::new(ud))
+                    karma.retain(|KST(t, _)| KarmaName::new(t) != KarmaName::new(ud));
                 }
             }
             let after = karma.len();
 
             if before != after {
-                info!("User self-voted: {:?}", username);
+                info!("User self-voted: {username:?}");
             }
 
             if !karma.is_empty() {
                 match (username, user_real_name) {
                     (Some(ud), Some(rn)) => {
                         let res = add_karma_query(
-                            client.clone(),
+                            Arc::clone(&client),
                             Utc::now(),
                             event.user_id.clone(),
                             KarmaName::new(&ud),
@@ -62,8 +62,8 @@ where
                         .await;
 
                         match res {
-                            Ok(_) => (),
-                            Err(x) => error!("Database Error: {:?}", x),
+                            Ok(()) => (),
+                            Err(e) => error!("Database Error: {e:?}"),
                         }
                     }
                     _ => error!("Wasn't able to get a username/real_name from slack"),
@@ -76,7 +76,7 @@ where
         Err(e) => {
             // The parse should return empty if its valid, something
             // broke, should log it here
-            error!("Failed to parse karma: {:?}", e);
+            error!("Failed to parse karma: {e:?}");
         }
     }
 }
@@ -100,7 +100,7 @@ async fn add_karma_query(
     .await?;
 
     // Shove the karma into the db now
-    for KST(karma_text, amount) in karma.iter() {
+    for KST(karma_text, amount) in &karma {
         let karma_text = normalize(karma_text);
 
         // TODO: better handle failure of username, maybe we should make username mandatory before inserting?

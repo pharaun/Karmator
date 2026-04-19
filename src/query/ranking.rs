@@ -30,27 +30,27 @@ pub async fn ranking<S, C: GenericClient>(
         Ok((target_received, total_received, target_given, total_given)) => {
             // Formatting the ranks
             let receiving = match (target_received, total_received) {
-                (Some(r), tr) => Some(format!("{} rank is {} of {} in receiving", label, r, tr)),
+                (Some(r), tr) => Some(format!("{label} rank is {r} of {tr} in receiving")),
                 (None, _) => None,
             };
 
             let giving = match (target_given, total_given) {
-                (Some(g), tg) => Some(format!("{} rank is {} of {} in giving", label, g, tg)),
+                (Some(g), tg) => Some(format!("{label} rank is {g} of {tg} in giving")),
                 (None, _) => None,
             };
 
             let rank = match (receiving, giving) {
-                (Some(r), Some(g)) => format!("{} and {}.", r, g),
-                (Some(r), None) => format!("{}.", r),
-                (None, Some(g)) => format!("{}.", g),
-                (None, None) => "No ranking available".to_string(),
+                (Some(r), Some(g)) => format!("{r} and {g}."),
+                (Some(r), None) => format!("{r}."),
+                (None, Some(g)) => format!("{g}."),
+                (None, None) => "No ranking available".to_owned(),
             };
 
             event.send_reply(&rank).await;
         }
         Err(e) => {
-            error!("Ranking something went wrong - {:?}", e);
-            event.send_reply("Something went wrong").await
+            error!("Ranking something went wrong - {e:?}");
+            event.send_reply("Something went wrong").await;
         }
     }
 }
@@ -84,7 +84,7 @@ async fn ranking_denormalized<C: GenericClient>(
 async fn count<C: GenericClient>(client: &C, karma_col: KarmaCol) -> AResult<i64> {
     Ok(client
         .query_one(
-            &format!("SELECT COUNT(name) FROM {table}", table = karma_col),
+            &format!("SELECT COUNT(name) FROM {karma_col}"),
             &[],
         )
         .await?

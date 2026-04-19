@@ -4,7 +4,7 @@ use tokio::sync::RwLock;
 use tokio_postgres::Client;
 
 use std::result::Result;
-use std::str::FromStr;
+use std::str::FromStr as _;
 use std::sync::Arc;
 
 use anyhow::Result as AResult;
@@ -72,7 +72,7 @@ where
 
     fn parse_command(&self) -> Result<command::Command<'_>, String> {
         match &self.text {
-            None => Err("Empty input".to_string()),
+            None => Err("Empty input".to_owned()),
             Some(text) => command::parse(text),
         }
     }
@@ -100,7 +100,7 @@ where
         match self.slack.get_username(user_id).await {
             Ok(un) => un,
             Err(e) => {
-                error!("Api error when querying for user: {:?} - {:?}", user_id, e);
+                error!("Api error when querying for user: {user_id:?} - {e:?}");
 
                 // Bail out
                 None
@@ -116,7 +116,7 @@ where
         match self.slack.get_user_real_name(user_id).await {
             Ok(rn) => rn,
             Err(e) => {
-                error!("Api error when querying for user: {:?} - {:?}", user_id, e);
+                error!("Api error when querying for user: {user_id:?} - {e:?}");
 
                 // Bail out
                 None
@@ -127,7 +127,7 @@ where
     // TODO: to support an existing bug, this will return the message's owner user_id
     pub async fn get_message(&mut self) -> Result<Option<String>, String> {
         match &self.thread_ts {
-            None => Err("No timestamp set for reacji event!".to_string()),
+            None => Err("No timestamp set for reacji event!".to_owned()),
             Some(ts) => match self.slack.get_message(&self.channel_id, ts).await {
                 Ok(Some(slack::ConversationHistoryMessage::Message {
                     text,
@@ -149,8 +149,8 @@ where
                     text: _,
                     user_id: None,
                     bot_id: None,
-                })) => Err("Slack failed to give a owner for this message".to_string()),
-                e => Err(format!("ERROR: [User Event] IDK here: {:?}", e)),
+                })) => Err("Slack failed to give a owner for this message".to_owned()),
+                e => Err(format!("ERROR: [User Event] IDK here: {e:?}")),
             },
         }
     }
@@ -169,13 +169,13 @@ where
 
     pub async fn santize(&self) -> String {
         match &self.text {
-            None => "".to_string(),
+            None => String::new(),
             Some(text) => santizer(text, &self.slack).await,
         }
     }
 
     pub fn text(&self) -> String {
-        self.text.clone().unwrap_or("".to_string())
+        self.text.clone().unwrap_or(String::new())
     }
 }
 
@@ -233,11 +233,11 @@ pub enum ReactionItem {
     },
 }
 
-fn parse_user_event(s: serde_json::Value) -> Option<UserEvent> {
-    let res = serde_json::from_value::<UserEvent>(s.clone()).map_err(|x| format!("{:?}", x));
+fn parse_user_event(s: &serde_json::Value) -> Option<UserEvent> {
+    let res = serde_json::from_value::<UserEvent>(s.clone()).map_err(|e| format!("{e:?}"));
 
     if res.is_err() {
-        error!("parse_event - Error: {:?}\n{:?}\n", res, s);
+        error!("parse_event - Error: {res:?}\n{s:?}\n");
     }
     res.ok()
 }
@@ -252,7 +252,7 @@ where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
     // Check if its a message/certain string, if so, reply
-    match parse_user_event(msg) {
+    match parse_user_event(&msg) {
         Some(UserEvent::Message {
             channel_id: Some(channel_id),
             subtype: None,
@@ -291,10 +291,7 @@ where
                     let sha = build::GIT_COMMIT_HASH.unwrap_or("Unknown");
 
                     event
-                        .send_reply(&format!(
-                            "Cargo Version: {} - Build Date: {}, - Build SHA: {}",
-                            ver, dat, sha
-                        ))
+                        .send_reply(&format!("Cargo Version: {ver} - Build Date: {dat}, - Build SHA: {sha}"))
                         .await;
                 }
 
@@ -320,9 +317,7 @@ where
                 // TODO: Implement a 'slack id' to unix name mapper
                 //  - for now can probs query it as needed, but should
                 //      be cached
-                Ok(command::Command(c @ "karma", arg))
-                | Ok(command::Command(c @ "givers", arg))
-                | Ok(command::Command(c @ "sidevotes", arg)) => {
+                Ok(command::Command(c @ ("karma"|"givers"|"sidevotes"), arg)) => {
                     let client = client.read().await;
                     if arg.is_empty() {
                         match c {
@@ -338,7 +333,7 @@ where
                                     ("highest karma", "lowest karma"),
                                     3u32,
                                 )
-                                .await
+                                .await;
                             }
                             "givers" => {
                                 top_n(
@@ -352,7 +347,7 @@ where
                                     ("most positive", "most negative"),
                                     3u32,
                                 )
-                                .await
+                                .await;
                             }
                             "sidevotes" => {
                                 top_n(
@@ -366,17 +361,17 @@ where
                                     ("most sidevotes received", "most sidevotes given"),
                                     3u32,
                                 )
-                                .await
+                                .await;
                             }
                             _ => (),
                         }
                     } else {
                         match c {
                             "karma" => {
-                                partial(&mut event.clone(), &*client, KarmaCol::Received, arg).await
+                                partial(&mut event.clone(), &*client, KarmaCol::Received, arg).await;
                             }
                             "givers" => {
-                                partial(&mut event.clone(), &*client, KarmaCol::Given, arg).await
+                                partial(&mut event.clone(), &*client, KarmaCol::Given, arg).await;
                             }
                             "sidevotes" => event.send_reply("Not supported!").await,
                             _ => (),
@@ -384,14 +379,8 @@ where
                     }
                 }
 
-                Ok(command::Command(c @ "topkarma", arg))
-                | Ok(command::Command(c @ "topgivers", arg))
-                | Ok(command::Command(c @ "topsidevotes", arg)) => {
-                    if arg.len() != 1 {
-                        event
-                            .send_reply("Please specify a positive integer between 1 and 25.")
-                            .await;
-                    } else {
+                Ok(command::Command(c @ ("topkarma"|"topgivers"|"topsidevotes"), arg)) => {
+                    if arg.len() == 1 {
                         // Parse the argument
                         let limit = u32::from_str(arg.first().unwrap_or(&"1"));
 
@@ -447,11 +436,14 @@ where
                                     .await;
                             }
                         }
+                    } else {
+                        event
+                            .send_reply("Please specify a positive integer between 1 and 25.")
+                            .await;
                     }
                 }
 
-                Ok(command::Command(c @ "rank", arg))
-                | Ok(command::Command(c @ "ranksidevote", arg)) => {
+                Ok(command::Command(c @ ("rank"|"ranksidevote"), arg)) => {
                     let t_typ = if c == "rank" {
                         KarmaTyp::Total
                     } else {
@@ -482,9 +474,9 @@ where
                     }
                 }
 
-                Ok(command::Command(x, _)) => info!("No handler: {:?}", x),
+                Ok(command::Command(x, _)) => info!("No handler: {x:?}"),
 
-                Err(_) => add_karma(&event, client.clone()).await,
+                Err(_) => add_karma(&event, Arc::clone(&client)).await,
             }
         }
 
@@ -505,7 +497,7 @@ where
                 text: None,
             };
 
-            add_reacji(&mut event, client.clone(), &reaction, ReacjiAction::Add).await;
+            add_reacji(&mut event, Arc::clone(&client), &reaction, ReacjiAction::Add).await;
         }
 
         Some(UserEvent::ReactionRemoved {
@@ -525,7 +517,7 @@ where
                 text: None,
             };
 
-            add_reacji(&mut event, client.clone(), &reaction, ReacjiAction::Del).await;
+            add_reacji(&mut event, Arc::clone(&client), &reaction, ReacjiAction::Del).await;
         }
 
         // TODO: improve error logging to log unhandled events or errors in parsing here

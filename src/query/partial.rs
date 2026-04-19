@@ -5,7 +5,8 @@ use std::collections::HashSet;
 
 use anyhow::Result as AResult;
 
-use futures_util::{pin_mut, TryStreamExt};
+use futures_util::pin_mut;
+use futures_util::TryStreamExt as _;
 
 use kcore::slack;
 
@@ -41,10 +42,10 @@ pub async fn partial<S, C: GenericClient>(
     match res {
         Ok(x) => event.send_reply(&x).await,
         e => {
-            error!("partial - Error: {:?}", e);
-            event.send_reply("Something went wrong").await
+            error!("partial - Error: {e:?}");
+            event.send_reply("Something went wrong").await;
         }
-    };
+    }
 }
 
 async fn partial_query<C: GenericClient>(
@@ -54,17 +55,16 @@ async fn partial_query<C: GenericClient>(
 ) -> AResult<Vec<(String, i64, i64, i64)>> {
     // Hack to insert enough parameterizers into the query
     let p_user = {
-        let mut p_user: String = "md5(lower($1))".to_string();
-        for i in 2..(users.len() + 1) {
-            p_user.push_str(&format!(", md5(lower(${}))", i));
+        let mut p_user: String = "md5(lower($1))".to_owned();
+        for i in 2..=users.len() {
+            p_user.push_str(&format!(", md5(lower(${i}))"));
         }
         p_user
     };
     let query: String = format!(
-        "SELECT name, up, down, side FROM {table} WHERE md5(lower(name)) in ({p_user}) ORDER BY name DESC",
-        table=karma_col, p_user=p_user
+        "SELECT name, up, down, side FROM {karma_col} WHERE md5(lower(name)) in ({p_user}) ORDER BY name DESC"
     );
-    let params: Vec<String> = users.iter().map(|x| x.to_string()).collect();
+    let params: Vec<String> = users.iter().map(ToString::to_string).collect();
 
     // Maxmium Pain here we go!
     let it = client.query_raw(&query, params).await?;

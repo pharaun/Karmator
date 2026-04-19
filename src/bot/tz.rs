@@ -1,8 +1,8 @@
 use chrono::prelude::{DateTime, NaiveTime, Utc};
 use chrono::NaiveDateTime;
 use chrono::TimeZone;
-use chrono::Timelike;
-use chrono_tz::OffsetComponents;
+use chrono::Timelike as _;
+use chrono_tz::OffsetComponents as _;
 use chrono_tz::Tz;
 
 use log::error;
@@ -36,7 +36,7 @@ where
         let input = input.join(" ");
         match parse(&input) {
             Err(e) => {
-                error!("ERROR [TZ]: {:?}", e);
+                error!("ERROR [TZ]: {e:?}");
 
                 let message = "Usage: `!tz TIME [TZ]`
                     24hr: `!tz 05:00 [TZ]` or `!tz 0500 [TZ]`
@@ -69,7 +69,7 @@ where
                             }
                             Ok(tz) => {
                                 // Validate the offset
-                                validate_offset(&tz, user_tz.offset);
+                                validate_offset(tz, user_tz.offset);
 
                                 // Convert time
                                 match convert_naive_time(nt, tz) {
@@ -99,8 +99,8 @@ where
                 }
                 Some(given_datetime_tz) => {
                     let note = match tz_abbv.1 {
-                        None => "".to_string(),
-                        Some(city) => format!("This is deprecated, use `{}` instead.\n", city,),
+                        None => String::new(),
+                        Some(city) => format!("This is deprecated, use `{city}` instead.\n"),
                     };
                     event
                         .send_reply(&format!("{} - {}", note, &format_time(given_datetime_tz)))
@@ -116,7 +116,7 @@ where
 // Yellow - 9-11, 15-17
 // Orange - 7-9, 17-19
 // Red    - 0-7, 19-24
-fn core_hours<T: TimeZone>(dt: DateTime<T>) -> &'static str {
+fn core_hours<T: TimeZone>(dt: &DateTime<T>) -> &'static str {
     match dt.hour() {
         // 11am to 3pm
         11..=14 => ":green:",
@@ -131,25 +131,25 @@ fn core_hours<T: TimeZone>(dt: DateTime<T>) -> &'static str {
 
 fn format_time<T: TimeZone>(dt: DateTime<T>) -> String {
     // Supported locals
-    let out_tz = convert_to_locales(dt);
+    let out_tz = convert_to_locales(&dt);
 
     format!(
         "{}Pacific: {}, {}Eastern: {}, {}UK: {}, {}Germany: {}",
-        core_hours(out_tz.pacific),
+        core_hours(&out_tz.pacific),
         out_tz.pacific.format(TIME_FORMAT),
-        core_hours(out_tz.eastern),
+        core_hours(&out_tz.eastern),
         out_tz.eastern.format(TIME_FORMAT),
-        core_hours(out_tz.london),
+        core_hours(&out_tz.london),
         out_tz.london.format(TIME_FORMAT),
-        core_hours(out_tz.berlin),
+        core_hours(&out_tz.berlin),
         out_tz.berlin.format(TIME_FORMAT),
     )
 }
 
-fn validate_offset(tz: &Tz, offset: i64) {
+fn validate_offset(tz: Tz, offset: i64) {
     // Validate and compare the offset
     let utc_time: DateTime<Utc> = Utc::now();
-    let tz_time = utc_time.with_timezone(tz);
+    let tz_time = utc_time.with_timezone(&tz);
     let tz_offset = tz_time.offset().base_utc_offset() + tz_time.offset().dst_offset();
 
     if tz_offset.num_seconds() != offset {
@@ -179,7 +179,7 @@ struct OutTz {
     berlin: DateTime<Tz>,
 }
 
-fn convert_to_locales<T: TimeZone>(dt: DateTime<T>) -> OutTz {
+fn convert_to_locales<T: TimeZone>(dt: &DateTime<T>) -> OutTz {
     OutTz {
         pacific: dt.with_timezone(&chrono_tz::America::Los_Angeles),
         eastern: dt.with_timezone(&chrono_tz::America::Toronto),
@@ -256,10 +256,10 @@ fn time(input: &str) -> IResult<&str, &str> {
 fn twelve(input: &str) -> IResult<&str, NaiveTime> {
     let (input, (time, meri)) = separated_pair(time, multispace0, meridiem)(input)?;
 
-    let time_str = if time.contains(":") {
-        format!("{}{}", time, meri)
+    let time_str = if time.contains(':') {
+        format!("{time}{meri}")
     } else {
-        format!("{}:00{}", time, meri)
+        format!("{time}:00{meri}")
     };
 
     match NaiveTime::parse_from_str(&time_str, "%-I:%M%p") {
@@ -269,7 +269,7 @@ fn twelve(input: &str) -> IResult<&str, NaiveTime> {
 }
 
 fn twenty_four(input: &str) -> IResult<&str, NaiveTime> {
-    let (input, time) = map(time, |t| t.replace(":", ""))(input)?;
+    let (input, time) = map(time, |t| t.replace(':', ""))(input)?;
 
     match NaiveTime::parse_from_str(&time, "%H%M") {
         Ok(nt) => Ok((input, nt)),
