@@ -41,7 +41,7 @@ pub fn parse(input: &str) -> Result<Vec<KST>, String> {
     }
 }
 
-fn kkarma(input: Tokens) -> IResult<Tokens, Karma> {
+fn kkarma(input: Tokens<'_>) -> IResult<Tokens<'_>, Karma> {
     let (input, tkt) = take(1usize)(input)?;
 
     // Extract this out of the Tokens structure
@@ -51,7 +51,7 @@ fn kkarma(input: Tokens) -> IResult<Tokens, Karma> {
     }
 }
 
-fn kspace(input: Tokens) -> IResult<Tokens, String> {
+fn kspace(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
     let (input, tkt) = take(1usize)(input)?;
 
     // Extract this out of the Tokens structure
@@ -61,7 +61,7 @@ fn kspace(input: Tokens) -> IResult<Tokens, String> {
     }
 }
 
-fn kquote(input: Tokens) -> IResult<Tokens, String> {
+fn kquote(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
     let (input, tkt) = take(1usize)(input)?;
 
     // Extract this out of the Tokens structure
@@ -71,7 +71,7 @@ fn kquote(input: Tokens) -> IResult<Tokens, String> {
     }
 }
 
-fn kopenbrace(input: Tokens) -> IResult<Tokens, String> {
+fn kopenbrace(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
     let (input, tkt) = take(1usize)(input)?;
 
     // Extract this out of the Tokens structure
@@ -81,7 +81,7 @@ fn kopenbrace(input: Tokens) -> IResult<Tokens, String> {
     }
 }
 
-fn kclosebrace(input: Tokens) -> IResult<Tokens, String> {
+fn kclosebrace(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
     let (input, tkt) = take(1usize)(input)?;
 
     // Extract this out of the Tokens structure
@@ -91,7 +91,7 @@ fn kclosebrace(input: Tokens) -> IResult<Tokens, String> {
     }
 }
 
-fn kenclosedquote(input: Tokens) -> IResult<Tokens, String> {
+fn kenclosedquote(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
     let (input, tkt) = take_while1(|kt: &KarmaToken| {
         matches!(
             kt,
@@ -119,7 +119,7 @@ fn kenclosedquote(input: Tokens) -> IResult<Tokens, String> {
     }
 }
 
-fn kenclosedbrace(input: Tokens) -> IResult<Tokens, String> {
+fn kenclosedbrace(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
     let (input, tkt) = take_while1(|kt: &KarmaToken| {
         matches!(
             kt,
@@ -148,7 +148,7 @@ fn kenclosedbrace(input: Tokens) -> IResult<Tokens, String> {
     }
 }
 
-fn kspacetext(input: Tokens) -> IResult<Tokens, String> {
+fn kspacetext(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
     let (input, tkt) = take_while1(|kt: &KarmaToken| {
         matches!(
             kt,
@@ -204,7 +204,7 @@ fn kspacetext(input: Tokens) -> IResult<Tokens, String> {
 // 2. Karma must follow a Text/KText
 // 3. karma must be followed by space/eol
 // 4. KText must follow a Text
-fn simple(input: Tokens) -> IResult<Tokens, KST> {
+fn simple(input: Tokens<'_>) -> IResult<Tokens<'_>, KST> {
     map(
         terminated(
             pair(kspacetext, kkarma),
@@ -234,7 +234,7 @@ fn simple(input: Tokens) -> IResult<Tokens, KST> {
 // 4. Closing Quote followed by karma
 // 5. Karma followed by whitespace/eol
 // 6. KText must not follow Quote
-fn quoted(input: Tokens) -> IResult<Tokens, KST> {
+fn quoted(input: Tokens<'_>) -> IResult<Tokens<'_>, KST> {
     map(
         terminated(
             pair(delimited(kquote, kenclosedbrace, kquote), kkarma),
@@ -265,7 +265,7 @@ fn quoted(input: Tokens) -> IResult<Tokens, KST> {
 // 4. CloseBrace followed by karma
 // 5. Karma followed by whitespace/eol
 // 6. KText must not follow CloseBrace
-fn braced(input: Tokens) -> IResult<Tokens, KST> {
+fn braced(input: Tokens<'_>) -> IResult<Tokens<'_>, KST> {
     map(
         terminated(
             pair(delimited(kopenbrace, kenclosedquote, kclosebrace), kkarma),
@@ -292,7 +292,7 @@ fn braced(input: Tokens) -> IResult<Tokens, KST> {
 // 2. Apply quote combinator as many time as possible
 // 3. Apply brace combinator as many time as possible
 // 4. If still more, discard till space/karma, goto 1
-fn multi(input: Tokens) -> IResult<Tokens, Vec<KST>> {
+fn multi(input: Tokens<'_>) -> IResult<Tokens<'_>, Vec<KST>> {
     let mut ret = vec![];
     let mut cur_input = input;
 

@@ -23,7 +23,7 @@ use nom::{
 
 const TIME_FORMAT: &str = "%-l:%M%P";
 
-pub async fn timezone<S>(event: &mut Event<S>, input: Vec<&str>)
+pub(super) async fn timezone<S>(event: &mut Event<S>, input: Vec<&str>)
 where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {

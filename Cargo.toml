@@ -5,6 +5,9 @@ authors = ["Anja Berens <pharaun666@gmail.com>"]
 edition = "2021"
 build = "build.rs"
 
+[lints]
+workspace = true
+
 [profile.release]
 lto = "thin"
 
@@ -57,7 +60,6 @@ unsafe_op_in_unsafe_fn = "warn"
 unused_lifetimes = "warn"
 unused_macro_rules = "warn"
 unused_qualifications = "warn"
-unused_crate_dependencies = "warn"
 
 elided_lifetimes_in_paths = "warn"
 future_incompatible = { level = "warn", priority = -1 }

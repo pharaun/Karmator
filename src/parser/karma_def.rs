@@ -20,13 +20,13 @@ macro_rules! tags {
 }
 
 // Karma definition list (Try to generate the rest from this)
-pub const KARMA_LIST: [&str; 8] = ["++", "--", "—", "╌", "+-", "-+", "±", "∓"];
+pub(super) const KARMA_LIST: [&str; 8] = ["++", "--", "—", "╌", "+-", "-+", "±", "∓"];
 
-pub fn karma_tags(input: &str) -> IResult<&str, &str> {
+pub(super) fn karma_tags(input: &str) -> IResult<&str, &str> {
     tags!(input, "++", "--", "—", "╌", "+-", "-+", "±", "∓")
 }
 
-pub fn str_to_karma(input: &str) -> Karma {
+pub(super) fn str_to_karma(input: &str) -> Karma {
     match input {
         "++" => Karma::Up,
         "--" => Karma::Down,
@@ -40,7 +40,7 @@ pub fn str_to_karma(input: &str) -> Karma {
     }
 }
 
-pub fn reacji_to_karma(input: &str) -> Option<Karma> {
+pub(super) fn reacji_to_karma(input: &str) -> Option<Karma> {
     match input {
         "++" => Some(Karma::Up),
         "++1" => Some(Karma::Up),

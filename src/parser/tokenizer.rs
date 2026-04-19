@@ -15,14 +15,14 @@ use crate::parser::karma_token::KarmaToken;
 
 // Engine for allowing us to parse on top of tokens
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub struct Tokens<'a> {
+pub(super) struct Tokens<'a> {
     tok: &'a [KarmaToken],
     start: usize,
     end: usize,
 }
 
 impl<'a> Tokens<'a> {
-    pub fn new(vec: &'a Vec<KarmaToken>) -> Self {
+    pub(super) fn new(vec: &'a Vec<KarmaToken>) -> Self {
         Tokens {
             tok: vec.as_slice(),
             start: 0,
@@ -31,25 +31,25 @@ impl<'a> Tokens<'a> {
     }
 
     // Accessors for reading the current token stream
-    pub fn first(&self) -> Option<KarmaToken> {
+    pub(super) fn first(&self) -> Option<KarmaToken> {
         self.tok.first().cloned()
     }
 
-    pub fn last(&self) -> Option<KarmaToken> {
+    pub(super) fn last(&self) -> Option<KarmaToken> {
         self.tok.last().cloned()
     }
 
-    pub fn second_to_last(&self) -> Option<KarmaToken> {
+    pub(super) fn second_to_last(&self) -> Option<KarmaToken> {
         self.tok
             .split_last()
             .and_then(|(_, rest)| rest.last().cloned())
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(super) fn is_empty(&self) -> bool {
         self.tok.is_empty()
     }
 
-    pub fn iter(&self) -> Iter<'_, KarmaToken> {
+    pub(super) fn iter(&self) -> Iter<'_, KarmaToken> {
         self.tok.iter()
     }
 }

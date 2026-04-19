@@ -44,8 +44,8 @@ impl KarmaName {
     }
 }
 
-impl std::fmt::Display for KarmaName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for KarmaName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let KarmaName(n) = self;
         write!(f, "{}", n)
     }

@@ -18,6 +18,7 @@ use crate::parser::karma_def::KARMA_LIST;
 // 2. support 2 types of braces '"' and '['/']' to support single type and open/close
 // 3. suppport 3 types of karma, up, down, side
 // 4. support single character or multiple character karma token, for now '++', '--', '+-' '±'
+#[expect(unreachable_pub)]
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum KarmaToken {
@@ -59,7 +60,7 @@ impl fmt::Display for KarmaToken {
     }
 }
 
-pub fn all_token(input: &str) -> IResult<&str, Vec<KarmaToken>> {
+pub(super) fn all_token(input: &str) -> IResult<&str, Vec<KarmaToken>> {
     many0(token)(input)
 }
 
