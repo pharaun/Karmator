@@ -62,8 +62,8 @@ pub enum Reply {
     Acknowledge(String),
 
     // Control
-    Ping(Vec<u8>),
-    Pong(Vec<u8>),
+    Ping(tungstenite::Bytes),
+    Pong(tungstenite::Bytes),
 }
 
 fn parse_event(s: &str) -> Option<Event> {
@@ -107,7 +107,7 @@ pub async fn send_slack_ping(
         let mut timer = last_ping_sent.write().await;
         *timer = Instant::now();
     }
-    tx.send(Reply::Ping(vec![]))
+    tx.send(Reply::Ping(tungstenite::Bytes::new()))
         .await
         .map_err(|_| "Error sending")
 }
@@ -147,6 +147,11 @@ pub async fn process_control_message(
         }
 
         tungstenite::Message::Binary(_) => {
+            error!("Slack Websocket - Unsupported websocket type: {msg:?}");
+            None
+        }
+
+        tungstenite::Message::Frame(_) => {
             error!("Slack Websocket - Unsupported websocket type: {msg:?}");
             None
         }

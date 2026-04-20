@@ -2,12 +2,7 @@ use nom::Input;
 use nom::Needed;
 
 use std::iter::Enumerate;
-use std::ops::Range;
-use std::ops::RangeFrom;
-use std::ops::RangeFull;
-use std::ops::RangeTo;
 use std::slice::Iter;
-use std::slice;
 
 use crate::parser::karma_token::KarmaToken;
 

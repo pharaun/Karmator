@@ -4,7 +4,7 @@ use nom::{
     combinator::{complete, map, opt, peek},
     error::{Error, ErrorKind},
     multi::many1,
-    sequence::{delimited, preceded, separated_pair, tuple},
+    sequence::{delimited, preceded, separated_pair},
     IResult,
     Parser,
 };
@@ -151,12 +151,12 @@ fn date(input: &str) -> IResult<&str, Segment<'_>> {
     preceded(
         tag("!date"),
         map(
-            tuple((
+            (
                 preceded(tag("^"), take_till(|c: char| c == '^')),
                 preceded(tag("^"), take_till(|c: char| c == '^' || c == '|')),
                 opt(preceded(tag("^"), take_till(|c: char| c == '|'))),
                 preceded(tag("|"), take_till(|c: char| c == '>')),
-            )),
+            ),
             |(timestamp, format, link, fallback)| Segment::Date(timestamp, format, link, fallback),
         ),
     ).parse(input)
