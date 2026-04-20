@@ -18,8 +18,7 @@ use nom::{
     combinator::{eof, map, opt, recognize},
     error::{Error, ErrorKind},
     sequence::{delimited, preceded, separated_pair},
-    IResult,
-    Parser,
+    IResult, Parser,
 };
 
 const TIME_FORMAT: &str = "%-l:%M%P";
@@ -240,14 +239,16 @@ fn tz_abbv(input: &str) -> IResult<&str, (Tz, Option<&str>)> {
         map(tag_no_case("CET"), |_| {
             (chrono_tz::Europe::Berlin, Some("HAM"))
         }),
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 fn meridiem(input: &str) -> IResult<&str, &str> {
     alt((
         map(tag_no_case("am"), |_| "AM"),
         map(tag_no_case("pm"), |_| "PM"),
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 fn time(input: &str) -> IResult<&str, &str> {

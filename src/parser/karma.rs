@@ -5,8 +5,7 @@ use nom::{
     error::{Error, ErrorKind},
     multi::many0,
     sequence::{delimited, pair, terminated},
-    IResult,
-    Parser,
+    IResult, Parser,
 };
 use std::matches;
 
@@ -102,7 +101,8 @@ fn kenclosedquote(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
                 | &KarmaToken::Quote
                 | &KarmaToken::KText(_)
         )
-    }).parse(input)?;
+    })
+    .parse(input)?;
 
     // Collapse the list into string and trim it
     let temp = tkt
@@ -130,7 +130,8 @@ fn kenclosedbrace(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
                 | &KarmaToken::CloseBrace
                 | &KarmaToken::KText(_)
         )
-    }).parse(input)?;
+    })
+    .parse(input)?;
 
     // Collapse the list into string and trim it
     let temp = tkt
@@ -153,7 +154,8 @@ fn kspacetext(input: Tokens<'_>) -> IResult<Tokens<'_>, String> {
             kt,
             &KarmaToken::Space(_) | &KarmaToken::Text(_) | &KarmaToken::KText(_)
         )
-    }).parse(input)?;
+    })
+    .parse(input)?;
 
     match (tkt.second_to_last(), tkt.last()) {
         // Validate that last entity isn't a space
@@ -209,7 +211,8 @@ fn simple(input: Tokens<'_>) -> IResult<Tokens<'_>, KST> {
             alt((peek(kspace), map(eof, |_| String::new()))),
         ),
         |(t, k)| KST(t, k),
-    ).parse(input)
+    )
+    .parse(input)
 }
 
 // Quoted Karma
@@ -239,7 +242,8 @@ fn quoted(input: Tokens<'_>) -> IResult<Tokens<'_>, KST> {
             alt((peek(kspace), map(eof, |_| String::new()))),
         ),
         |(t, k)| KST(t, k),
-    ).parse(input)
+    )
+    .parse(input)
 }
 
 // Braced Karma
@@ -270,7 +274,8 @@ fn braced(input: Tokens<'_>) -> IResult<Tokens<'_>, KST> {
             alt((peek(kspace), map(eof, |_| String::new()))),
         ),
         |(t, k)| KST(t, k),
-    ).parse(input)
+    )
+    .parse(input)
 }
 
 // TODO: develop invalid cases to test extent of the parser

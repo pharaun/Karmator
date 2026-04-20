@@ -201,7 +201,9 @@ pub async fn add_nick<C: GenericClient>(
             &[&user_id],
         )
         .await?;
-    if let Some(r) = row { Ok(r.try_get(0)?) } else {
+    if let Some(r) = row {
+        Ok(r.try_get(0)?)
+    } else {
         let row = client.query_one(
             "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES ($1, $2, $3, $4) RETURNING id",
             &[&username, &real_name, &user_id, &"SlackServer"]
@@ -227,7 +229,9 @@ pub async fn add_channel<C: GenericClient>(client: &C, channel_id: String) -> AR
             &[&channel_id],
         )
         .await?;
-    if let Some(r) = row { Ok(r.try_get(0)?) } else {
+    if let Some(r) = row {
+        Ok(r.try_get(0)?)
+    } else {
         let row = client
             .query_one(
                 "INSERT INTO chan_metadata (channel) VALUES ($1) RETURNING id",

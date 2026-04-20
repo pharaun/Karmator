@@ -291,7 +291,9 @@ where
                     let sha = build::GIT_COMMIT_HASH.unwrap_or("Unknown");
 
                     event
-                        .send_reply(&format!("Cargo Version: {ver} - Build Date: {dat}, - Build SHA: {sha}"))
+                        .send_reply(&format!(
+                            "Cargo Version: {ver} - Build Date: {dat}, - Build SHA: {sha}"
+                        ))
                         .await;
                 }
 
@@ -317,7 +319,7 @@ where
                 // TODO: Implement a 'slack id' to unix name mapper
                 //  - for now can probs query it as needed, but should
                 //      be cached
-                Ok(command::Command(c @ ("karma"|"givers"|"sidevotes"), arg)) => {
+                Ok(command::Command(c @ ("karma" | "givers" | "sidevotes"), arg)) => {
                     let client = client.read().await;
                     if arg.is_empty() {
                         match c {
@@ -368,7 +370,8 @@ where
                     } else {
                         match c {
                             "karma" => {
-                                partial(&mut event.clone(), &*client, KarmaCol::Received, arg).await;
+                                partial(&mut event.clone(), &*client, KarmaCol::Received, arg)
+                                    .await;
                             }
                             "givers" => {
                                 partial(&mut event.clone(), &*client, KarmaCol::Given, arg).await;
@@ -379,7 +382,7 @@ where
                     }
                 }
 
-                Ok(command::Command(c @ ("topkarma"|"topgivers"|"topsidevotes"), arg)) => {
+                Ok(command::Command(c @ ("topkarma" | "topgivers" | "topsidevotes"), arg)) => {
                     if arg.len() == 1 {
                         // Parse the argument
                         let limit = u32::from_str(arg.first().unwrap_or(&"1"));
@@ -443,7 +446,7 @@ where
                     }
                 }
 
-                Ok(command::Command(c @ ("rank"|"ranksidevote"), arg)) => {
+                Ok(command::Command(c @ ("rank" | "ranksidevote"), arg)) => {
                     let t_typ = if c == "rank" {
                         KarmaTyp::Total
                     } else {
@@ -497,7 +500,13 @@ where
                 text: None,
             };
 
-            add_reacji(&mut event, Arc::clone(&client), &reaction, ReacjiAction::Add).await;
+            add_reacji(
+                &mut event,
+                Arc::clone(&client),
+                &reaction,
+                ReacjiAction::Add,
+            )
+            .await;
         }
 
         Some(UserEvent::ReactionRemoved {
@@ -517,7 +526,13 @@ where
                 text: None,
             };
 
-            add_reacji(&mut event, Arc::clone(&client), &reaction, ReacjiAction::Del).await;
+            add_reacji(
+                &mut event,
+                Arc::clone(&client),
+                &reaction,
+                ReacjiAction::Del,
+            )
+            .await;
         }
 
         // TODO: improve error logging to log unhandled events or errors in parsing here

@@ -68,7 +68,9 @@ pub async fn add_reacji<S>(
                 }
                 // This is a bot-owned message so abort out
                 Ok(None) => return,
-                e => Err(format!("ERROR: [Reacji] Querying for message failed: {e:?}")),
+                e => Err(format!(
+                    "ERROR: [Reacji] Querying for message failed: {e:?}"
+                )),
             },
             Err(e) => Err(format!("Database error: {e:?}")),
         };

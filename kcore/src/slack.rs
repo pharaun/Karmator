@@ -148,7 +148,8 @@ impl<S: HttpSender> Client<S> {
         let url = self.get_slack_url_for_method("apps.connections.open");
         let conn: String = parse_response(
             "url",
-            &self.sender
+            &self
+                .sender
                 .send(
                     self.http
                         .post(url)
@@ -172,7 +173,8 @@ impl<S: HttpSender> Client<S> {
         let url = self.get_slack_url_for_method("chat.postMessage");
         parse_response(
             "ts",
-            &self.sender
+            &self
+                .sender
                 .send(
                     self.http
                         .post(url)
@@ -195,10 +197,7 @@ impl<S: HttpSender> Client<S> {
     }
 
     pub async fn get_username(&self, user_id: &str) -> AResult<Option<String>> {
-        Ok(self
-            .get_user(user_id)
-            .await?
-            .map(|u| u.display_name))
+        Ok(self.get_user(user_id).await?.map(|u| u.display_name))
     }
 
     pub async fn get_user_tz(&self, user_id: &str) -> AResult<Option<Timezone>> {
@@ -215,7 +214,8 @@ impl<S: HttpSender> Client<S> {
                 let url = self.get_slack_url_for_method("users.info");
                 parse_response::<User>(
                     "user",
-                    &self.sender
+                    &self
+                        .sender
                         .send(
                             self.http
                                 .get(url)
@@ -246,7 +246,8 @@ impl<S: HttpSender> Client<S> {
         ];
         let mess: Vec<ConversationHistoryMessage> = parse_response(
             "messages",
-            &self.sender
+            &self
+                .sender
                 .send(
                     self.http
                         .get(url)

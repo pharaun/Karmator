@@ -53,7 +53,6 @@ impl<'a> Tokens<'a> {
     }
 }
 
-
 impl<'a> Input for Tokens<'a> {
     type Item = &'a KarmaToken;
     type Iter = Iter<'a, KarmaToken>;
@@ -156,10 +155,7 @@ mod test_tokenizer {
         let data = token_data();
         let tokens = Tokens::new(&data);
 
-        assert_eq!(
-            tokens.first(),
-            Some(text!("A")),
-        );
+        assert_eq!(tokens.first(), Some(text!("A")),);
     }
 
     #[test]
@@ -167,10 +163,7 @@ mod test_tokenizer {
         let data = token_data();
         let tokens = Tokens::new(&data);
 
-        assert_eq!(
-            tokens.last(),
-            Some(text!("F")),
-        );
+        assert_eq!(tokens.last(), Some(text!("F")),);
     }
 
     #[test]
@@ -178,10 +171,7 @@ mod test_tokenizer {
         let data = token_data();
         let tokens = Tokens::new(&data);
 
-        assert_eq!(
-            tokens.second_to_last(),
-            Some(text!("E")),
-        );
+        assert_eq!(tokens.second_to_last(), Some(text!("E")),);
     }
 
     #[test]
@@ -189,18 +179,12 @@ mod test_tokenizer {
         let data = token_data();
         let tokens = Tokens::new(&data);
 
-        assert_eq!(
-            tokens.is_empty(),
-            false,
-        );
+        assert_eq!(tokens.is_empty(), false,);
 
         let data = vec![];
         let tokens = Tokens::new(&data);
 
-        assert_eq!(
-            tokens.is_empty(),
-            true,
-        );
+        assert_eq!(tokens.is_empty(), true,);
     }
 
     #[test]
@@ -208,10 +192,7 @@ mod test_tokenizer {
         let data = token_data();
         let tokens = Tokens::new(&data);
 
-        assert_eq!(
-            tokens.input_len(),
-            data.len(),
-        );
+        assert_eq!(tokens.input_len(), data.len(),);
     }
 
     #[test]
@@ -284,39 +265,48 @@ mod test_tokenizer {
         // unclear why its flipped but all examaple i could find had this
         assert_eq!(
             tokens.take_split(0),
-            (Tokens {
-                tok: &data,
-                start: 0,
-                end: data.len(),
-            }, Tokens {
-                tok: &vec![],
-                start: 0,
-                end: 0,
-            }),
+            (
+                Tokens {
+                    tok: &data,
+                    start: 0,
+                    end: data.len(),
+                },
+                Tokens {
+                    tok: &vec![],
+                    start: 0,
+                    end: 0,
+                }
+            ),
         );
         assert_eq!(
             tokens.take_split(1),
-            (Tokens {
-                tok: &data[1..],
-                start: 1,
-                end: data.len(),
-            }, Tokens {
-                tok: &vec![text!("A")],
-                start: 0,
-                end: 1,
-            }),
+            (
+                Tokens {
+                    tok: &data[1..],
+                    start: 1,
+                    end: data.len(),
+                },
+                Tokens {
+                    tok: &vec![text!("A")],
+                    start: 0,
+                    end: 1,
+                }
+            ),
         );
         assert_eq!(
             tokens.take_split(data.len()),
-            (Tokens {
-                tok: &vec![],
-                start: data.len(),
-                end: data.len(),
-            }, Tokens {
-                tok: &data,
-                start: 0,
-                end: data.len(),
-            }),
+            (
+                Tokens {
+                    tok: &vec![],
+                    start: data.len(),
+                    end: data.len(),
+                },
+                Tokens {
+                    tok: &data,
+                    start: 0,
+                    end: data.len(),
+                }
+            ),
         );
     }
 
@@ -325,17 +315,8 @@ mod test_tokenizer {
         let data = token_data();
         let tokens = Tokens::new(&data);
 
-        assert_eq!(
-            tokens.position(|t| *t == text!("Z")),
-            None,
-        );
-        assert_eq!(
-            tokens.position(|t| *t == text!("A")),
-            Some(0),
-        );
-        assert_eq!(
-            tokens.position(|t| *t == text!("F")),
-            Some(5),
-        );
+        assert_eq!(tokens.position(|t| *t == text!("Z")), None,);
+        assert_eq!(tokens.position(|t| *t == text!("A")), Some(0),);
+        assert_eq!(tokens.position(|t| *t == text!("F")), Some(5),);
     }
 }

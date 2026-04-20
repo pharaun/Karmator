@@ -83,10 +83,7 @@ async fn ranking_denormalized<C: GenericClient>(
 
 async fn count<C: GenericClient>(client: &C, karma_col: KarmaCol) -> AResult<i64> {
     Ok(client
-        .query_one(
-            &format!("SELECT COUNT(name) FROM {karma_col}"),
-            &[],
-        )
+        .query_one(&format!("SELECT COUNT(name) FROM {karma_col}"), &[])
         .await?
         .try_get(0)?)
 }

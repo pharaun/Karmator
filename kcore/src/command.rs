@@ -5,8 +5,7 @@ use nom::{
     combinator::complete,
     multi::separated_list0,
     sequence::delimited,
-    IResult,
-    Parser,
+    IResult, Parser,
 };
 
 // TODO: add in specific support for parsing at-here and other special <!user_id> entities
@@ -42,7 +41,8 @@ fn not_multispace1(input: &str) -> IResult<&str, &str> {
         delimited(tag("“"), take_while1(|c: char| c != '”'), tag("”")),
         delimited(tag("["), take_while1(|c: char| c != ']'), tag("]")),
         take_while1(|c: char| !c.is_whitespace()),
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 fn args(input: &str) -> IResult<&str, Vec<&str>> {

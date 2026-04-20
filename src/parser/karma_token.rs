@@ -4,8 +4,7 @@ use nom::{
     combinator::{map, peek},
     error::{Error, ErrorKind},
     multi::many0,
-    IResult,
-    Parser,
+    IResult, Parser,
 };
 use std::fmt;
 
@@ -85,13 +84,15 @@ fn symbols(input: &str) -> IResult<&str, KarmaToken> {
         map(tag("\""), |_| KarmaToken::Quote),
         map(tag("["), |_| KarmaToken::OpenBrace),
         map(tag("]"), |_| KarmaToken::CloseBrace),
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 fn space(input: &str) -> IResult<&str, KarmaToken> {
     map(take_while1(|c: char| c.is_whitespace()), |s: &str| {
         KarmaToken::Space(s.to_owned())
-    }).parse(input)
+    })
+    .parse(input)
 }
 
 fn karma(input: &str) -> IResult<&str, KarmaToken> {
@@ -183,7 +184,7 @@ fn text(input: &str) -> IResult<&str, KarmaToken> {
         let par = peek(alt((space, symbols, karma_run, karma))).parse(cur_input);
 
         if par.is_ok() {
-            break
+            break;
         }
 
         // Check if it hit eof, if so exit

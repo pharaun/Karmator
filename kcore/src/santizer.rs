@@ -5,8 +5,7 @@ use nom::{
     error::{Error, ErrorKind},
     multi::many1,
     sequence::{delimited, preceded, separated_pair},
-    IResult,
-    Parser,
+    IResult, Parser,
 };
 use std::fmt;
 
@@ -68,7 +67,8 @@ fn segment(input: &str) -> IResult<&str, Segment<'_>> {
         text,
         // Fallback
         map(tag("<"), |_| Segment::Open),
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 fn text(input: &str) -> IResult<&str, Segment<'_>> {
@@ -86,28 +86,32 @@ fn special(input: &str) -> IResult<&str, Segment<'_>> {
         tag("<"),
         alt((channel, user, group, mention, date, link)),
         tag(">"),
-    ).parse(input)
+    )
+    .parse(input)
 }
 
 fn channel(input: &str) -> IResult<&str, Segment<'_>> {
     preceded(
         peek(tag("#C")),
         preceded(tag("#"), map(content, |(c, l)| Segment::Channel(c, l))),
-    ).parse(input)
+    )
+    .parse(input)
 }
 
 fn user(input: &str) -> IResult<&str, Segment<'_>> {
     preceded(
         peek(alt((tag("@U"), tag("@W")))),
         preceded(tag("@"), map(content, |(u, l)| Segment::User(u, l))),
-    ).parse(input)
+    )
+    .parse(input)
 }
 
 fn group(input: &str) -> IResult<&str, Segment<'_>> {
     preceded(
         tag("!subteam^"),
         map(content, |(g, l)| Segment::Group(g, l)),
-    ).parse(input)
+    )
+    .parse(input)
 }
 
 fn mention(input: &str) -> IResult<&str, Segment<'_>> {
@@ -120,7 +124,8 @@ fn mention(input: &str) -> IResult<&str, Segment<'_>> {
             ),
             map(mention_type, |t| Segment::At(t, "")),
         )),
-    ).parse(input)
+    )
+    .parse(input)
 }
 
 fn mention_type(input: &str) -> IResult<&str, AtType> {
@@ -128,7 +133,8 @@ fn mention_type(input: &str) -> IResult<&str, AtType> {
         map(tag("here"), |_| AtType::Here),
         map(tag("channel"), |_| AtType::Channel),
         map(tag("everyone"), |_| AtType::Everyone),
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 fn link(input: &str) -> IResult<&str, Segment<'_>> {
@@ -143,7 +149,8 @@ fn content(input: &str) -> IResult<&str, (&str, &str)> {
             take_till(|c: char| c == '>'),
         ),
         map(take_till(|c: char| c == '>'), |s: &str| (s, "")),
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 fn date(input: &str) -> IResult<&str, Segment<'_>> {
@@ -159,7 +166,8 @@ fn date(input: &str) -> IResult<&str, Segment<'_>> {
             ),
             |(timestamp, format, link, fallback)| Segment::Date(timestamp, format, link, fallback),
         ),
-    ).parse(input)
+    )
+    .parse(input)
 }
 
 #[derive(Debug, PartialEq)]
@@ -185,12 +193,8 @@ impl fmt::Display for SegmentLite<'_> {
 pub fn santize_output(input: &str) -> String {
     let res = complete(many1(segment_lite)).parse(input);
 
-    res.map(|(_, i)| {
-        i.iter()
-            .map(ToString::to_string)
-            .collect::<String>()
-    })
-    .unwrap_or(input.to_owned())
+    res.map(|(_, i)| i.iter().map(ToString::to_string).collect::<String>())
+        .unwrap_or(input.to_owned())
 }
 
 fn segment_lite(input: &str) -> IResult<&str, SegmentLite<'_>> {
@@ -199,7 +203,8 @@ fn segment_lite(input: &str) -> IResult<&str, SegmentLite<'_>> {
         text_lite,
         // Fallback
         map(tag("<"), |_| SegmentLite::Open),
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 fn text_lite(input: &str) -> IResult<&str, SegmentLite<'_>> {
@@ -222,7 +227,8 @@ fn mention_lite(input: &str) -> IResult<&str, SegmentLite<'_>> {
             ),
             map(mention_type, SegmentLite::At),
         )),
-    ).parse(input)
+    )
+    .parse(input)
 }
 
 #[cfg(test)]
