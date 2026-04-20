@@ -12,11 +12,17 @@ use std::slice;
 use crate::parser::karma_token::KarmaToken;
 
 // Engine for allowing us to parse on top of tokens
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(super) struct Tokens<'a> {
     tok: &'a [KarmaToken],
     start: usize,
     end: usize,
+}
+
+impl PartialEq for Tokens<'_> {
+    fn eq(&self, other: &Tokens<'_>) -> bool {
+        self.tok == other.tok
+    }
 }
 
 impl<'a> Tokens<'a> {
