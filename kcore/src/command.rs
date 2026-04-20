@@ -5,7 +5,7 @@ use nom::{
     combinator::complete,
     multi::separated_list0,
     sequence::delimited,
-    IResult, Parser,
+    IResult, Parser as _,
 };
 
 // TODO: add in specific support for parsing at-here and other special <!user_id> entities

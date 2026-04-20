@@ -5,7 +5,7 @@ use nom::{
     error::{Error, ErrorKind},
     multi::many1,
     sequence::{delimited, preceded, separated_pair},
-    IResult, Parser,
+    IResult, Parser as _,
 };
 use std::fmt;
 

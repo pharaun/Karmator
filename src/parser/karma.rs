@@ -5,7 +5,7 @@ use nom::{
     error::{Error, ErrorKind},
     multi::many0,
     sequence::{delimited, pair, terminated},
-    IResult, Parser,
+    IResult, Parser as _,
 };
 use std::matches;
 

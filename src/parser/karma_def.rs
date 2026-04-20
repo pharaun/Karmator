@@ -1,7 +1,7 @@
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::IResult;
-use nom::Parser;
+use nom::Parser as _;
 
 use crate::parser::karma::Karma;
 

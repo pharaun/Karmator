@@ -18,7 +18,7 @@ use nom::{
     combinator::{eof, map, opt, recognize},
     error::{Error, ErrorKind},
     sequence::{delimited, preceded, separated_pair},
-    IResult, Parser,
+    IResult, Parser as _,
 };
 
 const TIME_FORMAT: &str = "%-l:%M%P";

@@ -175,7 +175,7 @@ where
     }
 
     pub fn text(&self) -> String {
-        self.text.clone().unwrap_or(String::new())
+        self.text.clone().unwrap_or_default()
     }
 }
 

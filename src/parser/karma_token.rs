@@ -4,7 +4,7 @@ use nom::{
     combinator::{map, peek},
     error::{Error, ErrorKind},
     multi::many0,
-    IResult, Parser,
+    IResult, Parser as _,
 };
 use std::fmt;
 
