@@ -9,7 +9,6 @@ use std::ops::RangeTo;
 use std::slice::Iter;
 use std::slice;
 
-
 use crate::parser::karma_token::KarmaToken;
 
 // Engine for allowing us to parse on top of tokens
@@ -65,37 +64,39 @@ impl<'a> Input for Tokens<'a> {
     }
 
     #[inline]
-    fn take(&self, count: usize) -> Self {
+    fn take(&self, index: usize) -> Self {
         Tokens {
-            tok: &self.tok[0..count],
-            start: 0,
-            end: count,
+            tok: &self.tok[..index],
+            start: self.start,
+            end: index,
         }
     }
 
     #[inline]
-    fn take_from(&self, count: usize) -> Self {
+    fn take_from(&self, index: usize) -> Self {
         Tokens {
-            tok: &self.tok[count..],
-            start: count,
+            tok: &self.tok[index..],
+            start: index,
             end: self.end,
         }
     }
 
     #[inline]
-    fn take_split(&self, count: usize) -> (Self, Self) {
-        let (prefix, suffix) = self.tok.split_at(count);
-        let first = Tokens {
-            tok: prefix,
-            start: 0,
-            end: prefix.len(),
-        };
-        let second = Tokens {
-            tok: suffix,
-            start: 0,
-            end: suffix.len(),
-        };
-        (second, first)
+    fn take_split(&self, index: usize) -> (Self, Self) {
+        // unclear why its flipped but all examaple i could find had this
+        let (front, back) = self.tok.split_at(index);
+        (
+            Tokens {
+                tok: back,
+                start: index,
+                end: self.end,
+            },
+            Tokens {
+                tok: front,
+                start: self.start,
+                end: index,
+            },
+        )
     }
 
     #[inline]
@@ -126,39 +127,214 @@ impl<'a> Input for Tokens<'a> {
     }
 }
 
+// We Only need one type of token
+#[cfg(test)]
+macro_rules! text {
+    ($data:expr) => {
+        KarmaToken::Text($data.to_string())
+    };
+}
 
-//impl Slice<Range<usize>> for Tokens<'_> {
-//    #[inline]
-//    fn slice(&self, range: Range<usize>) -> Self {
-//        Tokens {
-//            tok: self.tok.slice(range.clone()),
-//            start: self.start + range.start,
-//            end: self.start + range.end,
-//        }
-//    }
-//}
-//
-//impl Slice<RangeTo<usize>> for Tokens<'_> {
-//    #[inline]
-//    fn slice(&self, range: RangeTo<usize>) -> Self {
-//        self.slice(0..range.end)
-//    }
-//}
-//
-//impl Slice<RangeFrom<usize>> for Tokens<'_> {
-//    #[inline]
-//    fn slice(&self, range: RangeFrom<usize>) -> Self {
-//        self.slice(range.start..self.end - self.start)
-//    }
-//}
-//
-//impl Slice<RangeFull> for Tokens<'_> {
-//    #[inline]
-//    fn slice(&self, _: RangeFull) -> Self {
-//        Tokens {
-//            tok: self.tok,
-//            start: self.start,
-//            end: self.end,
-//        }
-//    }
-//}
+#[cfg(test)]
+mod test_tokenizer {
+    use super::*;
+
+    fn token_data() -> Vec<KarmaToken> {
+        vec![
+            text!("A"),
+            text!("B"),
+            text!("C"),
+            text!("D"),
+            text!("E"),
+            text!("F"),
+        ]
+    }
+
+    #[test]
+    fn test_first() {
+        let data = token_data();
+        let tokens = Tokens::new(&data);
+
+        assert_eq!(
+            tokens.first(),
+            Some(text!("A")),
+        );
+    }
+
+    #[test]
+    fn test_last() {
+        let data = token_data();
+        let tokens = Tokens::new(&data);
+
+        assert_eq!(
+            tokens.last(),
+            Some(text!("F")),
+        );
+    }
+
+    #[test]
+    fn test_second_to_last() {
+        let data = token_data();
+        let tokens = Tokens::new(&data);
+
+        assert_eq!(
+            tokens.second_to_last(),
+            Some(text!("E")),
+        );
+    }
+
+    #[test]
+    fn test_is_empty() {
+        let data = token_data();
+        let tokens = Tokens::new(&data);
+
+        assert_eq!(
+            tokens.is_empty(),
+            false,
+        );
+
+        let data = vec![];
+        let tokens = Tokens::new(&data);
+
+        assert_eq!(
+            tokens.is_empty(),
+            true,
+        );
+    }
+
+    #[test]
+    fn test_input_len() {
+        let data = token_data();
+        let tokens = Tokens::new(&data);
+
+        assert_eq!(
+            tokens.input_len(),
+            data.len(),
+        );
+    }
+
+    #[test]
+    fn test_take() {
+        let data = token_data();
+        let tokens = Tokens::new(&data);
+
+        assert_eq!(
+            tokens.take(0),
+            Tokens {
+                tok: &vec![],
+                start: 0,
+                end: 0,
+            }
+        );
+        assert_eq!(
+            tokens.take(1),
+            Tokens {
+                tok: &vec![text!("A")],
+                start: 0,
+                end: 1,
+            }
+        );
+        assert_eq!(
+            tokens.take(data.len()),
+            Tokens {
+                tok: &data,
+                start: 0,
+                end: data.len(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_take_from() {
+        let data = token_data();
+        let tokens = Tokens::new(&data);
+
+        assert_eq!(
+            tokens.take_from(0),
+            Tokens {
+                tok: &data,
+                start: 0,
+                end: data.len(),
+            }
+        );
+        assert_eq!(
+            tokens.take_from(1),
+            Tokens {
+                tok: &data[1..],
+                start: 1,
+                end: data.len(),
+            }
+        );
+        assert_eq!(
+            tokens.take_from(data.len()),
+            Tokens {
+                tok: &vec![],
+                start: data.len(),
+                end: data.len(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_take_split() {
+        let data = token_data();
+        let tokens = Tokens::new(&data);
+
+        // unclear why its flipped but all examaple i could find had this
+        assert_eq!(
+            tokens.take_split(0),
+            (Tokens {
+                tok: &data,
+                start: 0,
+                end: data.len(),
+            }, Tokens {
+                tok: &vec![],
+                start: 0,
+                end: 0,
+            }),
+        );
+        assert_eq!(
+            tokens.take_split(1),
+            (Tokens {
+                tok: &data[1..],
+                start: 1,
+                end: data.len(),
+            }, Tokens {
+                tok: &vec![text!("A")],
+                start: 0,
+                end: 1,
+            }),
+        );
+        assert_eq!(
+            tokens.take_split(data.len()),
+            (Tokens {
+                tok: &vec![],
+                start: data.len(),
+                end: data.len(),
+            }, Tokens {
+                tok: &data,
+                start: 0,
+                end: data.len(),
+            }),
+        );
+    }
+
+    #[test]
+    fn test_position() {
+        let data = token_data();
+        let tokens = Tokens::new(&data);
+
+        assert_eq!(
+            tokens.position(|t| *t == text!("Z")),
+            None,
+        );
+        assert_eq!(
+            tokens.position(|t| *t == text!("A")),
+            Some(0),
+        );
+        assert_eq!(
+            tokens.position(|t| *t == text!("F")),
+            Some(5),
+        );
+    }
+}
