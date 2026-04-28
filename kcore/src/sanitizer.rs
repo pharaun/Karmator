@@ -52,6 +52,7 @@ impl fmt::Display for Segment<'_> {
     }
 }
 
+#[must_use]
 pub fn parse(input: &str) -> Result<Vec<Segment<'_>>, String> {
     let cmd = complete(many1(segment)).parse(input);
 

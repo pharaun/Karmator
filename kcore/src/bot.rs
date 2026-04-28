@@ -185,7 +185,7 @@ where
         // We should implement this as an actual exp backoff before trying to reconnect, its a flat
         // 10s wait between each reconnect, Also after 10 attempt shut down the bot
         if !signal.should_shutdown() {
-            let count = Arc::clone(&reconnect_count).fetch_add(1, Ordering::Relaxed);
+            let count = reconnect_count.fetch_add(1, Ordering::Relaxed);
 
             // Count to 10 but the atomic fetch_add returns the previous so on the 10th retry it'll be == 9
             if count <= 9 {
