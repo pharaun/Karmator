@@ -1,7 +1,6 @@
 use tokio_tungstenite::tungstenite;
 
-use atomic_counter::AtomicCounter as _;
-use atomic_counter::RelaxedCounter;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
@@ -116,7 +115,7 @@ pub async fn process_control_message(
     tx: mpsc::Sender<Reply>,
     can_send: Arc<AtomicBool>,
     reconnect: Arc<AtomicBool>,
-    reconnect_count: Arc<RelaxedCounter>,
+    reconnect_count: Arc<AtomicUsize>,
     last_message_received: Arc<RwLock<Instant>>,
     msg: tungstenite::Message,
 ) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
@@ -162,7 +161,7 @@ pub async fn process_control_message(
             Event::Hello { num_connections: _ } => {
                 // Hold on sending messages till this is received.
                 can_send.store(true, Ordering::Relaxed);
-                reconnect_count.reset();
+                reconnect_count.store(0, Ordering::Relaxed);
 
                 Ok(None)
             }

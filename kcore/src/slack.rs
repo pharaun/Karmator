@@ -260,12 +260,10 @@ impl<S: HttpSender> Client<S> {
                 .await?,
         )?;
 
-        if mess.len() == 1 {
-            mess.first()
-                .ok_or(anyhow!("Shouldn't happen"))
-                .map(|m| Some(m.clone()))
-        } else {
+        if mess.len() != 1 {
             Err(anyhow!("Malformed messages: {mess:?}"))
+        } else {
+            Ok(mess.into_iter().next())
         }
     }
 }

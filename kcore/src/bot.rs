@@ -13,8 +13,7 @@ use serde_json::json;
 
 use log::{debug, error, info, warn};
 
-use atomic_counter::AtomicCounter as _;
-use atomic_counter::RelaxedCounter;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
@@ -42,7 +41,7 @@ where
 
     // Atomic boolean for exiting and re-establishing the connection
     let reconnect = Arc::new(AtomicBool::new(false));
-    let reconnect_count = Arc::new(RelaxedCounter::new(0));
+    let reconnect_count = Arc::new(AtomicUsize::new(0));
 
     // Monotonical clock for heartbeat/ping management
     let last_message_received = Arc::new(RwLock::new(Instant::now()));
@@ -183,13 +182,13 @@ where
             }
         }
 
-        // We exited the inner loop, wait here and do an exp backoff before trying to reconnect
-        // wait for 20s, then increment the reconnect_count by 1, and if it exceeds 10, set the
-        // shutdown flag and exit
+        // We should implement this as an actual exp backoff before trying to reconnect, its a flat
+        // 10s wait between each reconnect, Also after 10 attempt shut down the bot
         if !signal.should_shutdown() {
-            let count = Arc::clone(&reconnect_count).inc();
+            let count = Arc::clone(&reconnect_count).fetch_add(1, Ordering::Relaxed);
 
-            if count <= 10 {
+            // Count to 10 but the atomic fetch_add returns the previous so on the 10th retry it'll be == 9
+            if count <= 9 {
                 info!("Slack Websocket - Reconnecting, try: {count:?}");
                 time::sleep(Duration::from_secs(20)).await;
             } else {
