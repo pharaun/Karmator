@@ -16,7 +16,7 @@ use log::{debug, error, info};
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 
-use crate::santizer;
+use crate::sanitizer;
 use crate::slack::Message;
 
 #[derive(Debug, Deserialize)]
@@ -87,8 +87,8 @@ pub async fn send_simple_message(
         return Err("Empty string, not sending");
     }
 
-    // TODO: track if it got santized or not
-    let text = santizer::santize_output(&text);
+    // TODO: track if it got sanitized or not
+    let text = sanitizer::sanitize_output(&text);
 
     tx.send(Reply::Message(Message {
         channel,

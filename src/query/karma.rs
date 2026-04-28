@@ -25,7 +25,7 @@ pub async fn add_karma<S>(event: &Event<S>, client: Arc<RwLock<Client>>)
 where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
-    match karma::parse(&event.santize().await) {
+    match karma::parse(&event.sanitize().await) {
         Ok(mut karma) if !karma.is_empty() => {
             info!("Parsed Karma: {karma:?}");
             let username = event.get_username().await;

@@ -190,7 +190,7 @@ impl fmt::Display for SegmentLite<'_> {
     }
 }
 
-pub fn santize_output(input: &str) -> String {
+pub fn sanitize_output(input: &str) -> String {
     let res = complete(many1(segment_lite)).parse(input);
 
     res.map(|(_, i)| i.iter().map(ToString::to_string).collect::<String>())
@@ -416,7 +416,7 @@ mod test_segment {
     }
 
     #[test]
-    fn test_santized_output() {
+    fn test_sanitized_output() {
         assert_eq!(
             parse("<!here> for <#CASDF|Weebs> text").map(|i| i
                 .iter()
@@ -455,7 +455,7 @@ mod test_segment {
     #[test]
     fn test_safe_output() {
         assert_eq!(
-            santize_output(">!here <!here bad"),
+            sanitize_output(">!here <!here bad"),
             ">!here <!here bad".to_string()
         );
     }
@@ -463,7 +463,7 @@ mod test_segment {
     #[test]
     fn test_unsafe_output() {
         assert_eq!(
-            santize_output("<!channel> <!here> <!everyone> hi"),
+            sanitize_output("<!channel> <!here> <!everyone> hi"),
             "@channel @here @everyone hi".to_string()
         );
     }

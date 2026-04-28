@@ -13,7 +13,7 @@ use log::{error, info};
 
 use serde::Deserialize;
 
-use crate::query::santizer;
+use crate::query::sanitizer;
 
 use crate::bot::build;
 use crate::bot::tz::timezone;
@@ -167,10 +167,10 @@ where
         .await;
     }
 
-    pub async fn santize(&self) -> String {
+    pub async fn sanitize(&self) -> String {
         match &self.text {
             None => String::new(),
-            Some(text) => santizer(text, &self.slack).await,
+            Some(text) => sanitizer(text, &self.slack).await,
         }
     }
 

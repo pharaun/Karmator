@@ -41,13 +41,13 @@ pub async fn add_reacji<S>(
                 // We have the message content, insert it into the table and get its row id
                 Ok(Some(message_user_id)) => {
                     match future::join3(
-                        event.santize(),
+                        event.sanitize(),
                         event.get_other_username(&message_user_id),
                         event.get_other_user_real_name(&message_user_id),
                     )
                     .await
                     {
-                        (santized_text, Some(ud), Some(rn)) => {
+                        (sanitized_text, Some(ud), Some(rn)) => {
                             add_reacji_message(
                                 Arc::clone(&client),
                                 message_user_id,
@@ -56,7 +56,7 @@ pub async fn add_reacji<S>(
                                 event.channel_id.clone(),
                                 // TODO: should add error check here
                                 event.thread_ts.clone().unwrap(),
-                                santized_text,
+                                sanitized_text,
                             )
                             .await
                             .map_err(|x| x.to_string())
