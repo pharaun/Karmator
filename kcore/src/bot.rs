@@ -155,16 +155,17 @@ where
                     // their timer are *ahead* of the 'now' which is fine, stop checking.
                     if let (Some(lmd), Some(lpd)) = (last_message_delta, last_ping_delta) {
                         // Check if more than 30s has past since the last slack message received
-                        //  - [Yes] Check if more than 30s has past since the send of the last ping
-                        //    - [Yes] Send Ping
-                        //    - [No] Do nothing
-                        //  - [No] Do nothing
-                        //
-                        // Check if more than 2m has past since the last slack message received
-                        //  - [Yes] Reconnect
-                        //  - [No] Do nothing
                         if lmd.as_secs() > 30 {
-                            if lpd.as_secs() > 30 {
+                            // Check if more than 2m has past since the last slack message received
+                            if lmd.as_secs() > 120 {
+                                // Reconnect
+                                info!("Slack Websocket Heartbeat - Last message: {:?}s, reconnecting", lmd.as_secs());
+                                reconnect.store(true, Ordering::Relaxed);
+                                can_send.store(false, Ordering::Relaxed);
+
+                            // Check if more than 30s has past since the send of the last ping
+                            } else if lpd.as_secs() > 30 {
+                                // Send Ping
                                 debug!("Slack Websocket Heartbeat - Last message: {:?}s, Last ping: {:?}s",
                                     lmd.as_secs(),
                                     lpd.as_secs(),
@@ -176,10 +177,6 @@ where
                                     warn!("Slack Websocket Heartbeat - Error sending ping {e:?}");
                                 }
                             }
-                        } else if lmd.as_secs() > 120 {
-                            info!("Slack Websocket Heartbeat - Last message: {:?}s, reconnecting", lmd.as_secs());
-                            reconnect.store(true, Ordering::Relaxed);
-                            can_send.store(false, Ordering::Relaxed);
                         }
                     }
                 },
