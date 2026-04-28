@@ -4,6 +4,7 @@ use log::{error, info};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_postgres::Client;
+use tokio_postgres::IsolationLevel;
 
 use futures_util::future;
 
@@ -91,7 +92,10 @@ async fn add_karma_query(
     karma: Vec<KST>,
 ) -> AResult<()> {
     let mut client = client.write().await;
-    let txn = client.transaction().await?;
+    let txn = client.build_transaction()
+        .isolation_level(IsolationLevel::ReadCommitted)
+        .start()
+        .await?;
 
     let (nick_id, channel_id) = future::try_join(
         add_nick(&txn, user_id, username.clone(), real_name),

@@ -189,27 +189,40 @@ where
     }
 }
 
+async fn upsert_returning_id<C: GenericClient>(
+    client: &C,
+    insert_sql: &str,
+    insert_params: &[&(dyn ToSql + Sync)],
+    select_sql: &str,
+    select_params: &[&(dyn ToSql + Sync)],
+) -> AResult<i64> {
+    // This is tricky to deal with, but this approach should be correct assuming: READ COMMITTED
+    // isolation level remains in effect (The default). If this gets violated will start to see
+    // race on this.
+    let row = client.query_opt(insert_sql, insert_params).await?;
+    if let Some(r) = row {
+        Ok(r.try_get(0)?)
+    } else {
+        let row = client.query_one(select_sql, select_params).await?;
+        Ok(row.try_get(0)?)
+    }
+}
+
 pub async fn add_nick<C: GenericClient>(
     client: &C,
     user_id: String,
     username: KarmaName,
     real_name: KarmaName,
 ) -> AResult<i64> {
-    let row = client
-        .query_opt(
-            "SELECT id FROM nick_metadata WHERE username = $1 ORDER BY id DESC LIMIT 1",
-            &[&user_id],
-        )
-        .await?;
-    if let Some(r) = row {
-        Ok(r.try_get(0)?)
-    } else {
-        let row = client.query_one(
-            "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES ($1, $2, $3, $4) RETURNING id",
-            &[&username, &real_name, &user_id, &"SlackServer"]
-        ).await?;
-        Ok(row.try_get(0)?)
-    }
+    upsert_returning_id(
+        client,
+        "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES ($1, $2, $3, $4)
+        ON CONFLICT(cleaned_nick, full_name, username, hostmask) DO NOTHING
+        RETURNING id",
+        &[&username, &real_name, &user_id, &"SlackServer"],
+        "SELECT id FROM nick_metadata WHERE username = $1 ORDER BY id DESC LIMIT 1",
+        &[&user_id],
+    ).await
 }
 
 pub async fn add_channel_opt<C: GenericClient>(
@@ -223,21 +236,13 @@ pub async fn add_channel_opt<C: GenericClient>(
 }
 
 pub async fn add_channel<C: GenericClient>(client: &C, channel_id: String) -> AResult<i64> {
-    let row = client
-        .query_opt(
-            "SELECT id FROM chan_metadata WHERE channel = $1",
-            &[&channel_id],
-        )
-        .await?;
-    if let Some(r) = row {
-        Ok(r.try_get(0)?)
-    } else {
-        let row = client
-            .query_one(
-                "INSERT INTO chan_metadata (channel) VALUES ($1) RETURNING id",
-                &[&channel_id],
-            )
-            .await?;
-        Ok(row.try_get(0)?)
-    }
+    upsert_returning_id(
+        client,
+        "INSERT INTO chan_metadata (channel) VALUES($1)
+        ON CONFLICT (channel) DO NOTHING
+        RETURNING id",
+        &[&channel_id],
+        "SELECT id FROM chan_metadata WHERE channel = $1",
+        &[&channel_id],
+    ).await
 }
