@@ -69,7 +69,10 @@ pub async fn add_reacji<S: SlackSender>(
                     }
                 }
                 // This is a bot-owned message so abort out
-                Ok(None) => return Ok(()),
+                Ok(None) => {
+                    txn.rollback().await?;
+                    return Ok(())
+                },
                 e => Err(format!(
                     "ERROR: [Reacji] Querying for message failed: {e:?}"
                 )),
