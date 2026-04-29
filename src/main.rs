@@ -39,8 +39,7 @@ async fn main() -> AResult<()> {
     //*******************
     // Signals bits
     //*******************
-    // TODO: Don't need sql_shutdown cuz of deadpool now?
-    let (_, signal) = Signal::new();
+    let signal = Signal::new();
     {
         let mut signal = signal.clone();
         tokio::spawn(async move {

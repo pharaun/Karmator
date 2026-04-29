@@ -13,21 +13,14 @@ use tokio::signal::unix;
 #[derive(Clone)]
 pub struct Signal {
     shutdown: (watch::Sender<bool>, watch::Receiver<bool>),
-    external_shutdown: watch::Receiver<bool>,
 }
 
 impl Signal {
-    pub fn new() -> (watch::Sender<bool>, Self) {
-        let (tx, rx) = watch::channel(false);
+    pub fn new() -> Self {
         info!("Signal installed");
-
-        (
-            tx,
-            Self {
-                shutdown: watch::channel(false),
-                external_shutdown: rx,
-            },
-        )
+        Self {
+            shutdown: watch::channel(false),
+        }
     }
 
     #[cfg(unix)]
@@ -37,7 +30,6 @@ impl Signal {
 
         // This will never exit till shutdown is true
         tokio::select! {
-            _ = self.external_shutdown.wait_for(|v| *v) => (),
             _ = self.shutdown.1.wait_for(|v| *v) => (),
             _ = sig_int.recv() => (),
             _ = sig_term.recv() => (),
@@ -52,7 +44,6 @@ impl Signal {
     pub async fn shutdown_daemon(&mut self) -> AResult<()> {
         // This will never exit till shutdown is true
         tokio::select! {
-            _ = self.external_shutdown.wait_for(|v| *v) => (),
             _ = self.shutdown.1.wait_for(|v| *v) => (),
             _ = signal::ctrl_c() => (),
         };
