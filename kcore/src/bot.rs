@@ -45,29 +45,37 @@ where
 
     // Main server loop, exit if the database dies
     while !signal.should_shutdown() {
-        let (mut ws_write, mut ws_read) = ws_connect(&slack).await?.split();
+        match ws_connect(&slack).await {
+            Ok(websocket) => {
+                let (mut ws_write, mut ws_read) = websocket.split();
 
-        // Reset the connection to waiting for ack from Slack
-        conn_state.pending().await;
+                // Reset the connection to waiting for ack from Slack
+                conn_state.pending().await;
 
-        while !conn_state.should_reconnect() && !signal.should_shutdown() {
-            tokio::select! {
-                // Listens for shutdown signals from the system or the database
-                () = signal.shutdown() => info!("Shutdown signal received"),
+                while !conn_state.should_reconnect() && !signal.should_shutdown() {
+                    tokio::select! {
+                        // Listens for shutdown signals from the system or the database
+                        () = signal.shutdown() => info!("Shutdown signal received"),
 
-                // Process inbound messages
-                ws_msg = ws_read.next() => process_message(&slack, &tx, &conn_state, &user_event_listener, ws_msg).await,
+                        // Process inbound messages
+                        ws_msg = ws_read.next() => process_message(&slack, &tx, &conn_state, &user_event_listener, ws_msg).await,
 
-                // The send may not happen right away, the select! checks the (if x)
-                // part before it checks the queue/etc
-                // TODO: this would be better if instead of exiting the select loop we
-                // gracefully drain the rx queue before exiting
-                Some(message) = rx.recv(), if conn_state.should_send() => send_messages(&slack, &conn_state, &mut ws_write, message).await,
+                        // The send may not happen right away, the select! checks the (if x)
+                        // part before it checks the queue/etc
+                        // TODO: this would be better if instead of exiting the select loop we
+                        // gracefully drain the rx queue before exiting
+                        Some(message) = rx.recv(), if conn_state.should_send() => send_messages(&slack, &conn_state, &mut ws_write, message).await,
 
-                // This is woken up peroidically to force a heartbeat check
-                _ = heartbeat.tick() => heartbeat_tick(&tx, &conn_state).await,
+                        // This is woken up peroidically to force a heartbeat check
+                        _ = heartbeat.tick() => heartbeat_tick(&tx, &conn_state).await,
+                    }
+                }
+            },
+            Err(e) => {
+                conn_state.reconnect();
+                error!("Slack Websocket - Connection failed: {e:?}");
             }
-        }
+        };
 
         if !signal.should_shutdown() {
             // We should implement this as an actual exp backoff before trying to reconnect, its a flat
