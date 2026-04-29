@@ -370,8 +370,7 @@ where
                     } else {
                         match c {
                             "karma" => {
-                                partial(&mut event.clone(), &client, KarmaCol::Received, arg)
-                                    .await;
+                                partial(&mut event.clone(), &client, KarmaCol::Received, arg).await;
                             }
                             "givers" => {
                                 partial(&mut event.clone(), &client, KarmaCol::Given, arg).await;
@@ -497,13 +496,7 @@ where
                 text: None,
             };
 
-            add_reacji(
-                &mut event,
-                pool,
-                &reaction,
-                ReacjiAction::Add,
-            )
-            .await?;
+            add_reacji(&mut event, pool, &reaction, ReacjiAction::Add).await?;
         }
 
         Some(UserEvent::ReactionRemoved {
@@ -523,13 +516,7 @@ where
                 text: None,
             };
 
-            add_reacji(
-                &mut event,
-                pool,
-                &reaction,
-                ReacjiAction::Del,
-            )
-            .await?;
+            add_reacji(&mut event, pool, &reaction, ReacjiAction::Del).await?;
         }
 
         // TODO: improve error logging to log unhandled events or errors in parsing here

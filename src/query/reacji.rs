@@ -1,9 +1,9 @@
 use chrono::prelude::{DateTime, Utc};
 
+use deadpool_postgres::Pool;
 use futures_util::future;
 use tokio_postgres::Client;
 use tokio_postgres::IsolationLevel;
-use deadpool_postgres::Pool;
 
 use anyhow::anyhow;
 use anyhow::Result as AResult;
@@ -31,18 +31,14 @@ where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
     let channel_id = event.channel_id.clone();
-    let message_ts = event.thread_ts.clone().ok_or(anyhow!("The manually constructed message_ts was somehow None"))?;
+    let message_ts = event.thread_ts.clone().ok_or(anyhow!(
+        "The manually constructed message_ts was somehow None"
+    ))?;
 
     if let Some(karma) = reacji_to_karma(input) {
         // TODO: Make robust
         let client = pool.get().await.unwrap();
-        let message_id = match query_reacji_message(
-            &client,
-            &channel_id,
-            &message_ts,
-        )
-        .await
-        {
+        let message_id = match query_reacji_message(&client, &channel_id, &message_ts).await {
             Ok(Some(message_id)) => Ok(Some(message_id)),
             Ok(None) => match event.get_message().await {
                 // We have the message content, insert it into the table and get its row id
@@ -54,19 +50,17 @@ where
                     )
                     .await
                     {
-                        (sanitized_text, Some(ud), Some(rn)) => {
-                            add_reacji_message(
-                                pool,
-                                message_user_id,
-                                KarmaName::new(&ud),
-                                KarmaName::new(&rn),
-                                &channel_id,
-                                &message_ts,
-                                &sanitized_text,
-                            )
-                            .await
-                            .map_err(|x| x.to_string())
-                        }
+                        (sanitized_text, Some(ud), Some(rn)) => add_reacji_message(
+                            pool,
+                            message_user_id,
+                            KarmaName::new(&ud),
+                            KarmaName::new(&rn),
+                            &channel_id,
+                            &message_ts,
+                            &sanitized_text,
+                        )
+                        .await
+                        .map_err(|x| x.to_string()),
                         (_, ud, rn) => {
                             Err(format!("Querying for user/name failed: {:?}", (ud, rn)))
                         }
@@ -96,7 +90,9 @@ where
                             action,
                             mid,
                             karma,
-                        ).await {
+                        )
+                        .await
+                        {
                             Err(anyhow!("Query failed: {e:?}"))
                         } else {
                             Ok(())
@@ -142,7 +138,8 @@ async fn add_reacji_message(
 ) -> AResult<Option<i64>> {
     // TODO: Make robust
     let mut client = pool.get().await.unwrap();
-    let txn = client.build_transaction()
+    let txn = client
+        .build_transaction()
         .isolation_level(IsolationLevel::ReadCommitted)
         .start()
         .await?;
@@ -169,7 +166,7 @@ async fn add_reacji_message(
 
         // Compare
         if sql_nick != nick_id || sql_message != message {
-            warn!("Duplicate Channel+TS - Slack/Sql - Nick {nick_id} / {sql_nick} - Msg: {message} / {sql_message}")
+            warn!("Duplicate Channel+TS - Slack/Sql - Nick {nick_id} / {sql_nick} - Msg: {message} / {sql_message}");
         }
 
         // TODO: have this fail if the check above fails
@@ -196,7 +193,8 @@ async fn add_reacji_query(
 ) -> AResult<Option<i64>> {
     // TODO: Make robust
     let mut client = pool.get().await.unwrap();
-    let txn = client.build_transaction()
+    let txn = client
+        .build_transaction()
         .isolation_level(IsolationLevel::ReadCommitted)
         .start()
         .await?;

@@ -5,11 +5,11 @@ use log::{error, info};
 use anyhow::anyhow;
 use anyhow::Result as AResult;
 
+use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig as RustlsClientConfig;
 use tokio_postgres_rustls::MakeRustlsConnect;
-use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 
 use karmator::bot::user_event;
 use kcore::bot;

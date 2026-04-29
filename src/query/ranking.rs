@@ -1,5 +1,5 @@
-use log::error;
 use deadpool_postgres::GenericClient;
+use log::error;
 
 use futures_util::future;
 

@@ -1,6 +1,6 @@
+use deadpool_postgres::GenericClient;
 use futures_util::future;
 use log::error;
-use deadpool_postgres::GenericClient;
 
 use anyhow::Result as AResult;
 
@@ -61,7 +61,9 @@ async fn top_n_denormalized<C: GenericClient>(
 ) -> AResult<Vec<(String, i64)>> {
     let rows = client
         .query(
-            &format!("SELECT name, {karma_typ} as total FROM {karma_col} ORDER BY total {ord} LIMIT $1"),
+            &format!(
+                "SELECT name, {karma_typ} as total FROM {karma_col} ORDER BY total {ord} LIMIT $1"
+            ),
             &[&limit],
         )
         .await?;

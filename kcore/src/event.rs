@@ -1,7 +1,7 @@
 use tokio_tungstenite::tungstenite;
 
-use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use serde::Deserialize;

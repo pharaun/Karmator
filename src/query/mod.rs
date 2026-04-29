@@ -4,11 +4,11 @@ pub mod ranking;
 pub mod reacji;
 pub mod top_n;
 
+use deadpool_postgres::GenericClient;
 use tokio_postgres::types::to_sql_checked;
 use tokio_postgres::types::IsNull;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::types::Type;
-use deadpool_postgres::GenericClient;
 
 use log::error;
 
@@ -244,5 +244,6 @@ pub async fn add_channel<C: GenericClient>(client: &C, channel_id: String) -> AR
         &[&channel_id],
         "SELECT id FROM chan_metadata WHERE channel = $1",
         &[&channel_id],
-    ).await
+    )
+    .await
 }

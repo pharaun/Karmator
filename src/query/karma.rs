@@ -1,8 +1,8 @@
 use chrono::prelude::{DateTime, Utc};
 
+use deadpool_postgres::Pool;
 use log::{error, info};
 use tokio_postgres::IsolationLevel;
-use deadpool_postgres::Pool;
 
 use futures_util::future;
 
@@ -91,7 +91,8 @@ async fn add_karma_query(
 ) -> AResult<()> {
     // TODO: Make robust
     let mut client = pool.get().await.unwrap();
-    let txn = client.build_transaction()
+    let txn = client
+        .build_transaction()
         .isolation_level(IsolationLevel::ReadCommitted)
         .start()
         .await?;

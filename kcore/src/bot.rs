@@ -13,8 +13,8 @@ use serde_json::json;
 
 use log::{debug, error, info, warn};
 
-use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use std::sync::Arc;
