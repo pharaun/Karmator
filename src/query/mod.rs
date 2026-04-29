@@ -4,7 +4,7 @@ pub mod ranking;
 pub mod reacji;
 pub mod top_n;
 
-use deadpool_postgres::GenericClient;
+use tokio_postgres::Transaction;
 use tokio_postgres::types::to_sql_checked;
 use tokio_postgres::types::IsNull;
 use tokio_postgres::types::ToSql;
@@ -189,8 +189,8 @@ pub async fn sanitizer<S: SlackSender>(input: &str, slack: &SlackClient<S>) -> S
     }
 }
 
-async fn upsert_returning_id<C: GenericClient>(
-    client: &C,
+async fn upsert_returning_id(
+    txn: &Transaction<'_>,
     insert_sql: &str,
     insert_params: &[&(dyn ToSql + Sync)],
     select_sql: &str,
@@ -199,23 +199,23 @@ async fn upsert_returning_id<C: GenericClient>(
     // This is tricky to deal with, but this approach should be correct assuming: READ COMMITTED
     // isolation level remains in effect (The default). If this gets violated will start to see
     // race on this.
-    let row = client.query_opt(insert_sql, insert_params).await?;
+    let row = txn.query_opt(insert_sql, insert_params).await?;
     if let Some(r) = row {
         Ok(r.try_get(0)?)
     } else {
-        let row = client.query_one(select_sql, select_params).await?;
+        let row = txn.query_one(select_sql, select_params).await?;
         Ok(row.try_get(0)?)
     }
 }
 
-pub async fn add_nick<C: GenericClient>(
-    client: &C,
+pub async fn add_nick(
+    txn: &Transaction<'_>,
     user_id: String,
     username: KarmaName,
     real_name: KarmaName,
 ) -> AResult<i64> {
     upsert_returning_id(
-        client,
+        txn,
         "INSERT INTO nick_metadata (cleaned_nick, full_name, username, hostmask) VALUES ($1, $2, $3, $4)
         ON CONFLICT(cleaned_nick, full_name, username, hostmask) DO NOTHING
         RETURNING id",
@@ -225,19 +225,19 @@ pub async fn add_nick<C: GenericClient>(
     ).await
 }
 
-pub async fn add_channel_opt<C: GenericClient>(
-    client: &C,
+pub async fn add_channel_opt(
+    txn: &Transaction<'_>,
     channel_id: Option<String>,
 ) -> AResult<Option<i64>> {
     Ok(match channel_id {
-        Some(cid) => Some(add_channel(client, cid).await?),
+        Some(cid) => Some(add_channel(txn, cid).await?),
         None => None,
     })
 }
 
-pub async fn add_channel<C: GenericClient>(client: &C, channel_id: String) -> AResult<i64> {
+pub async fn add_channel(txn: &Transaction<'_>, channel_id: String) -> AResult<i64> {
     upsert_returning_id(
-        client,
+        txn,
         "INSERT INTO chan_metadata (channel) VALUES($1)
         ON CONFLICT (channel) DO NOTHING
         RETURNING id",

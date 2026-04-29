@@ -2,7 +2,7 @@ use chrono::prelude::{DateTime, Utc};
 
 use deadpool_postgres::Pool;
 use futures_util::future;
-use tokio_postgres::Client;
+use tokio_postgres::Transaction;
 use tokio_postgres::IsolationLevel;
 
 use anyhow::anyhow;
@@ -34,8 +34,14 @@ pub async fn add_reacji<S: SlackSender>(
 
     if let Some(karma) = reacji_to_karma(input) {
         // TODO: Make robust
-        let client = pool.get().await.unwrap();
-        let message_id = match query_reacji_message(&client, &channel_id, &message_ts).await {
+        let mut client = pool.get().await.unwrap();
+        let txn = client
+            .build_transaction()
+            .isolation_level(IsolationLevel::ReadCommitted)
+            .start()
+            .await?;
+
+        let message_id = match query_reacji_message(&txn, &channel_id, &message_ts).await {
             Ok(Some(message_id)) => Ok(Some(message_id)),
             Ok(None) => match event.get_message().await {
                 // We have the message content, insert it into the table and get its row id
@@ -48,7 +54,7 @@ pub async fn add_reacji<S: SlackSender>(
                     .await
                     {
                         (sanitized_text, Some(ud), Some(rn)) => add_reacji_message(
-                            pool,
+                            &txn,
                             message_user_id,
                             KarmaName::new(&ud),
                             KarmaName::new(&rn),
@@ -72,32 +78,36 @@ pub async fn add_reacji<S: SlackSender>(
             Err(e) => Err(format!("Database error: {e:?}")),
         };
 
-        match message_id {
+        let vote_id = match message_id {
             Err(e) => Err(anyhow!("Failed to get reacji message - Error: {e:?}")),
-            Ok(None) => Ok(()), // These are expected error, drop
+            Ok(None) => Ok(None), // These are expected error, drop
             Ok(Some(mid)) => {
                 match future::join(event.get_username(), event.get_user_real_name()).await {
-                    (Some(ud), Some(rn)) => {
-                        if let Err(e) = add_reacji_query(
-                            pool,
-                            Utc::now(),
-                            event.user_id.clone(),
-                            KarmaName::new(&ud),
-                            KarmaName::new(&rn),
-                            action,
-                            mid,
-                            karma,
-                        )
-                        .await
-                        {
-                            Err(anyhow!("Query failed: {e:?}"))
-                        } else {
-                            Ok(())
-                        }
-                    }
+                    (Some(ud), Some(rn)) => add_reacji_vote(
+                        &txn,
+                        Utc::now(),
+                        event.user_id.clone(),
+                        KarmaName::new(&ud),
+                        KarmaName::new(&rn),
+                        action,
+                        mid,
+                        karma,
+                    )
+                    .await
+                    .map_err(|x| anyhow!("Querying for user/name failed: {x:?}")),
                     e => Err(anyhow!("Querying for user/name failed: {e:?}")),
                 }
             }
+        };
+        match vote_id {
+            Err(e) => {
+                txn.rollback().await?;
+                Err(e)
+            },
+            Ok(_) => {
+                txn.commit().await?;
+                Ok(())
+            },
         }
     } else {
         Ok(())
@@ -105,11 +115,11 @@ pub async fn add_reacji<S: SlackSender>(
 }
 
 async fn query_reacji_message(
-    client: &Client,
+    txn: &Transaction<'_>,
     channel_id: &str,
     message_ts: &str,
 ) -> AResult<Option<i64>> {
-    if let Some(row) = client
+    if let Some(row) = txn
         .query_opt(
             "SELECT rm.id FROM reacji_message AS rm
             JOIN chan_metadata AS cm ON rm.chan_id = cm.id
@@ -125,7 +135,7 @@ async fn query_reacji_message(
 }
 
 async fn add_reacji_message(
-    pool: &Pool,
+    txn: &Transaction<'_>,
     user_id: String,
     username: KarmaName,
     real_name: KarmaName,
@@ -133,14 +143,6 @@ async fn add_reacji_message(
     message_ts: &str,
     message: &str,
 ) -> AResult<Option<i64>> {
-    // TODO: Make robust
-    let mut client = pool.get().await.unwrap();
-    let txn = client
-        .build_transaction()
-        .isolation_level(IsolationLevel::ReadCommitted)
-        .start()
-        .await?;
-
     let (nick_id, channel_id) = future::try_join(
         add_nick(&txn, user_id, username.clone(), real_name),
         add_channel(&txn, channel_id.to_owned()),
@@ -174,12 +176,11 @@ async fn add_reacji_message(
             &[&message_ts, &channel_id, &nick_id, &message]
         ).await?.try_get(0)?))
     };
-    txn.commit().await?;
     ret
 }
 
-async fn add_reacji_query(
-    pool: &Pool,
+async fn add_reacji_vote(
+    txn: &Transaction<'_>,
     timestamp: DateTime<Utc>,
     user_id: String,
     username: KarmaName,
@@ -188,14 +189,6 @@ async fn add_reacji_query(
     message_id: i64,
     amount: Karma,
 ) -> AResult<Option<i64>> {
-    // TODO: Make robust
-    let mut client = pool.get().await.unwrap();
-    let txn = client
-        .build_transaction()
-        .isolation_level(IsolationLevel::ReadCommitted)
-        .start()
-        .await?;
-
     let nick_id: i64 = add_nick(&txn, user_id, username.clone(), real_name).await?;
 
     // Insert the reacji into the database
@@ -218,6 +211,5 @@ async fn add_reacji_query(
         .await?
         .try_get(0)?,
     ));
-    txn.commit().await?;
     ret
 }
