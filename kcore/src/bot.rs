@@ -5,7 +5,6 @@ use futures_util::SinkExt as _;
 use futures_util::StreamExt as _;
 
 use tokio::sync::mpsc;
-use tokio::sync::RwLock;
 use tokio::time;
 use tokio::time::MissedTickBehavior;
 
@@ -13,16 +12,11 @@ use serde_json::json;
 
 use log::{debug, error, info, warn};
 
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
-
-use std::sync::Arc;
 use std::time::Duration;
-use std::time::Instant;
 
 use anyhow::Result as AResult;
 
+use crate::connection_state;
 use crate::event;
 use crate::signal;
 use crate::slack;
@@ -36,16 +30,7 @@ where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
     F1: Fn(serde_json::Value, slack::Client<S>, mpsc::Sender<event::Reply>),
 {
-    // Atomic boolean for ensuring send can't happen till the hello is received from slack
-    let can_send = Arc::new(AtomicBool::new(false));
-
-    // Atomic boolean for exiting and re-establishing the connection
-    let reconnect = Arc::new(AtomicBool::new(false));
-    let reconnect_count = Arc::new(AtomicUsize::new(0));
-
-    // Monotonical clock for heartbeat/ping management
-    let last_message_received = Arc::new(RwLock::new(Instant::now()));
-    let last_ping_sent = Arc::new(RwLock::new(Instant::now()));
+    let conn_state = connection_state::ConnectionState::init();
 
     // Interval timers for heartbeat
     let mut heartbeat = time::interval(Duration::from_secs(1));
@@ -65,13 +50,10 @@ where
         // Split the stream
         let (mut ws_write, mut ws_read) = ws_stream.split();
 
-        // Set the can-send to false till its set true by the reciever
-        can_send.store(false, Ordering::Relaxed);
+        // Reset the connection to waiting for ack from Slack
+        conn_state.pending();
 
-        // Set the reconnect to till the system control sets it to true
-        reconnect.store(false, Ordering::Relaxed);
-
-        while !reconnect.load(Ordering::Relaxed) && !signal.should_shutdown() {
+        while !conn_state.should_reconnect() && !signal.should_shutdown() {
             tokio::select! {
                 // Listens for shutdown signals from the system or the database
                 () = signal.shutdown() => info!("Shutdown signal received"),
@@ -81,10 +63,7 @@ where
                         Some(Ok(ws_msg)) => {
                             match event::process_control_message(
                                 tx.clone(),
-                                Arc::clone(&can_send),
-                                Arc::clone(&reconnect),
-                                Arc::clone(&reconnect_count),
-                                Arc::clone(&last_message_received),
+                                &conn_state,
                                 ws_msg,
                             ).await {
                                 // If there's an user event returned spawn off the user event processor
@@ -95,15 +74,13 @@ where
                         },
                         Some(Err(e)) => {
                             error!("Slack Websocket - Connection error: {e:?}");
-                            reconnect.store(true, Ordering::Relaxed);
-                            can_send.store(false, Ordering::Relaxed);
+                            conn_state.reconnect();
                         },
 
                         // Stream is done/closed
                         None => {
                             warn!("Slack Websocket - Stream closed, reconnecting");
-                            reconnect.store(true, Ordering::Relaxed);
-                            can_send.store(false, Ordering::Relaxed);
+                            conn_state.reconnect();
                         },
                     }
                 },
@@ -112,7 +89,7 @@ where
                 // part before it checks the queue/etc
                 // TODO: this would be better if instead of exiting the select loop we
                 // gracefully drain the rx queue before exiting
-                Some(message) = rx.recv(), if can_send.load(Ordering::Relaxed) => {
+                Some(message) = rx.recv(), if conn_state.should_send() => {
                     // Convert this to a string json message to feed into the stream
                     if let Err(e) = match message {
                         event::Reply::Pong(x) => ws_write.send(tungstenite::Message::Pong(x)).await,
@@ -131,36 +108,22 @@ where
                         },
                     } {
                         error!("Slack Websocket - Connection error: {e:?}");
-                        reconnect.store(true, Ordering::Relaxed);
-                        can_send.store(false, Ordering::Relaxed);
+                        conn_state.reconnect();
                     }
                 },
 
                 // This is woken up peroidically to force a heartbeat check
                 _ = heartbeat.tick() => {
-                    let now = Instant::now();
-
-                    let last_message_delta = {
-                        let timer = last_message_received.read().await;
-                        now.checked_duration_since(*timer)
-                    };
-
-                    let last_ping_delta = {
-                        let timer = last_ping_sent.read().await;
-                        now.checked_duration_since(*timer)
-                    };
-
                     // Check the delta, If either or both are None, that means
                     // their timer are *ahead* of the 'now' which is fine, stop checking.
-                    if let (Some(lmd), Some(lpd)) = (last_message_delta, last_ping_delta) {
+                    if let (Some(lmd), Some(lpd)) = conn_state.timer_delta().await {
                         // Check if more than 30s has past since the last slack message received
                         if lmd.as_secs() > 30 {
                             // Check if more than 2m has past since the last slack message received
                             if lmd.as_secs() > 120 {
                                 // Reconnect
                                 info!("Slack Websocket Heartbeat - Last message: {:?}s, reconnecting", lmd.as_secs());
-                                reconnect.store(true, Ordering::Relaxed);
-                                can_send.store(false, Ordering::Relaxed);
+                                conn_state.reconnect();
 
                             // Check if more than 30s has past since the send of the last ping
                             } else if lpd.as_secs() > 30 {
@@ -171,7 +134,7 @@ where
                                 );
                                 if let Err(e) = event::send_slack_ping(
                                     &mut tx.clone(),
-                                    Arc::clone(&last_ping_sent),
+                                    &conn_state,
                                 ).await {
                                     warn!("Slack Websocket Heartbeat - Error sending ping {e:?}");
                                 }
@@ -185,7 +148,7 @@ where
         // We should implement this as an actual exp backoff before trying to reconnect, its a flat
         // 10s wait between each reconnect, Also after 10 attempt shut down the bot
         if !signal.should_shutdown() {
-            let count = reconnect_count.fetch_add(1, Ordering::Relaxed);
+            let count = conn_state.fetch_reconnect_count_add();
 
             // Count to 10 but the atomic fetch_add returns the previous so on the 10th retry it'll be == 9
             if count <= 9 {

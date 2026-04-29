@@ -1,20 +1,14 @@
 use tokio_tungstenite::tungstenite;
 
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
-
 use serde::Deserialize;
 
 use std::result::Result;
-use std::sync::Arc;
-use std::time::Instant;
 
 use log::{debug, error, info};
 
 use tokio::sync::mpsc;
-use tokio::sync::RwLock;
 
+use crate::connection_state::ConnectionState;
 use crate::sanitizer;
 use crate::slack::Message;
 
@@ -100,12 +94,9 @@ pub async fn send_simple_message(
 
 pub async fn send_slack_ping(
     tx: &mut mpsc::Sender<Reply>,
-    last_ping_sent: Arc<RwLock<Instant>>,
+    connection_state: &ConnectionState,
 ) -> Result<(), &'static str> {
-    {
-        let mut timer = last_ping_sent.write().await;
-        *timer = Instant::now();
-    }
+    connection_state.ping_sent().await;
     tx.send(Reply::Ping(tungstenite::Bytes::new()))
         .await
         .map_err(|_| "Error sending")
@@ -113,19 +104,13 @@ pub async fn send_slack_ping(
 
 pub async fn process_control_message(
     tx: mpsc::Sender<Reply>,
-    can_send: Arc<AtomicBool>,
-    reconnect: Arc<AtomicBool>,
-    reconnect_count: Arc<AtomicUsize>,
-    last_message_received: Arc<RwLock<Instant>>,
+    connection_state: &ConnectionState,
     msg: tungstenite::Message,
 ) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
     // Parse incoming message
     let raw_msg = match msg {
         tungstenite::Message::Text(x) => {
-            {
-                let mut timer = last_message_received.write().await;
-                *timer = Instant::now();
-            }
+            connection_state.message_received().await;
             Some(x)
         }
 
@@ -139,9 +124,7 @@ pub async fn process_control_message(
 
         tungstenite::Message::Close(reason) => {
             info!("Slack Websocket - Close reason: {reason:?}");
-
-            reconnect.store(true, Ordering::Relaxed);
-            can_send.store(false, Ordering::Relaxed);
+            connection_state.reconnect();
             None
         }
 
@@ -160,15 +143,13 @@ pub async fn process_control_message(
         match e {
             Event::Hello { num_connections: _ } => {
                 // Hold on sending messages till this is received.
-                can_send.store(true, Ordering::Relaxed);
-                reconnect_count.store(0, Ordering::Relaxed);
+                connection_state.connected();
 
                 Ok(None)
             }
             Event::Disconnect { reason: r } => {
                 // When this is received, reconnect
-                reconnect.store(true, Ordering::Relaxed);
-                can_send.store(false, Ordering::Relaxed);
+                connection_state.reconnect();
 
                 info!("Slack Websocket - Disconnect reason: {r:?}");
 
