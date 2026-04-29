@@ -2,6 +2,7 @@ use tokio_tungstenite::tungstenite;
 
 use serde::Deserialize;
 
+use anyhow::Result as AResult;
 use std::result::Result;
 
 use log::{debug, error, info};
@@ -96,17 +97,18 @@ pub(crate) async fn send_slack_ping(
     tx: &mut mpsc::Sender<Reply>,
     connection_state: &ConnectionState,
 ) -> Result<(), &'static str> {
-    connection_state.ping_sent().await;
     tx.send(Reply::Ping(tungstenite::Bytes::new()))
         .await
-        .map_err(|_| "Error sending")
+        .map_err(|_| "Error sending")?;
+    connection_state.ping_sent().await;
+    Ok(())
 }
 
 pub(crate) async fn process_control_message(
     tx: mpsc::Sender<Reply>,
     connection_state: &ConnectionState,
     msg: tungstenite::Message,
-) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
+) -> AResult<Option<serde_json::Value>> {
     // Parse incoming message
     let raw_msg = match msg {
         tungstenite::Message::Text(x) => {
