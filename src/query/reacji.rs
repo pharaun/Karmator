@@ -1,10 +1,9 @@
 use chrono::prelude::{DateTime, Utc};
 
 use futures_util::future;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use tokio_postgres::Client;
 use tokio_postgres::IsolationLevel;
+use deadpool_postgres::Pool;
 
 use anyhow::Result as AResult;
 
@@ -23,15 +22,17 @@ use crate::bot::user_event::Event;
 
 pub async fn add_reacji<S>(
     event: &mut Event<S>,
-    client: Arc<RwLock<Client>>,
+    pool: &Pool,
     input: &str,
     action: ReacjiAction,
 ) where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
     if let Some(karma) = reacji_to_karma(input) {
+        // TODO: Make robust
+        let client = pool.get().await.unwrap();
         let message_id = match query_reacji_message(
-            Arc::clone(&client),
+            &client,
             event.channel_id.clone(),
             event.thread_ts.clone().unwrap(),
         )
@@ -50,7 +51,7 @@ pub async fn add_reacji<S>(
                     {
                         (sanitized_text, Some(ud), Some(rn)) => {
                             add_reacji_message(
-                                Arc::clone(&client),
+                                pool,
                                 message_user_id,
                                 KarmaName::new(&ud),
                                 KarmaName::new(&rn),
@@ -83,7 +84,7 @@ pub async fn add_reacji<S>(
                 match future::join(event.get_username(), event.get_user_real_name()).await {
                     (Some(ud), Some(rn)) => {
                         if let Err(e) = add_reacji_query(
-                            Arc::clone(&client),
+                            pool,
                             Utc::now(),
                             event.user_id.clone(),
                             KarmaName::new(&ud),
@@ -105,11 +106,11 @@ pub async fn add_reacji<S>(
 }
 
 async fn query_reacji_message(
-    client: Arc<RwLock<Client>>,
+    client: &Client,
     channel_id: String,
     message_ts: String,
 ) -> AResult<Option<i64>> {
-    if let Some(row) = (*client.read().await)
+    if let Some(row) = client
         .query_opt(
             "SELECT rm.id FROM reacji_message AS rm
             JOIN chan_metadata AS cm ON rm.chan_id = cm.id
@@ -125,7 +126,7 @@ async fn query_reacji_message(
 }
 
 async fn add_reacji_message(
-    client: Arc<RwLock<Client>>,
+    pool: &Pool,
     user_id: String,
     username: KarmaName,
     real_name: KarmaName,
@@ -133,7 +134,8 @@ async fn add_reacji_message(
     message_ts: String,
     message: String,
 ) -> AResult<Option<i64>> {
-    let mut client = client.write().await;
+    // TODO: Make robust
+    let mut client = pool.get().await.unwrap();
     let txn = client.build_transaction()
         .isolation_level(IsolationLevel::ReadCommitted)
         .start()
@@ -177,7 +179,7 @@ async fn add_reacji_message(
 }
 
 async fn add_reacji_query(
-    client: Arc<RwLock<Client>>,
+    pool: &Pool,
     timestamp: DateTime<Utc>,
     user_id: String,
     username: KarmaName,
@@ -186,7 +188,8 @@ async fn add_reacji_query(
     message_id: i64,
     amount: Karma,
 ) -> AResult<Option<i64>> {
-    let mut client = client.write().await;
+    // TODO: Make robust
+    let mut client = pool.get().await.unwrap();
     let txn = client.build_transaction()
         .isolation_level(IsolationLevel::ReadCommitted)
         .start()

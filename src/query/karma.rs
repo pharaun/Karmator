@@ -1,10 +1,8 @@
 use chrono::prelude::{DateTime, Utc};
 
 use log::{error, info};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use tokio_postgres::Client;
 use tokio_postgres::IsolationLevel;
+use deadpool_postgres::Pool;
 
 use futures_util::future;
 
@@ -22,7 +20,7 @@ use crate::query::KarmaName;
 
 use crate::bot::user_event::Event;
 
-pub async fn add_karma<S>(event: &Event<S>, client: Arc<RwLock<Client>>)
+pub async fn add_karma<S>(event: &Event<S>, pool: &Pool)
 where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
@@ -52,7 +50,7 @@ where
                 match (username, user_real_name) {
                     (Some(ud), Some(rn)) => {
                         let res = add_karma_query(
-                            Arc::clone(&client),
+                            pool,
                             Utc::now(),
                             event.user_id.clone(),
                             KarmaName::new(&ud),
@@ -83,7 +81,7 @@ where
 }
 
 async fn add_karma_query(
-    client: Arc<RwLock<Client>>,
+    pool: &Pool,
     timestamp: DateTime<Utc>,
     user_id: String,
     username: KarmaName,
@@ -91,7 +89,8 @@ async fn add_karma_query(
     channel_id: Option<String>,
     karma: Vec<KST>,
 ) -> AResult<()> {
-    let mut client = client.write().await;
+    // TODO: Make robust
+    let mut client = pool.get().await.unwrap();
     let txn = client.build_transaction()
         .isolation_level(IsolationLevel::ReadCommitted)
         .start()

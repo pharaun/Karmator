@@ -1,6 +1,6 @@
 use futures_util::future;
 use log::error;
-use tokio_postgres::GenericClient;
+use deadpool_postgres::GenericClient;
 
 use anyhow::Result as AResult;
 

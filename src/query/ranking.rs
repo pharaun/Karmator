@@ -1,5 +1,5 @@
 use log::error;
-use tokio_postgres::GenericClient;
+use deadpool_postgres::GenericClient;
 
 use futures_util::future;
 

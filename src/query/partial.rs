@@ -1,4 +1,4 @@
-use tokio_postgres::GenericClient;
+use deadpool_postgres::GenericClient;
 
 use log::error;
 use std::collections::HashSet;

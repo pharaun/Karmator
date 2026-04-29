@@ -49,6 +49,7 @@ log = "0.4"
 
 # Error handling
 anyhow = "1"
+deadpool-postgres = "0.14.1"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

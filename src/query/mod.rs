@@ -8,7 +8,7 @@ use tokio_postgres::types::to_sql_checked;
 use tokio_postgres::types::IsNull;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::types::Type;
-use tokio_postgres::GenericClient;
+use deadpool_postgres::GenericClient;
 
 use log::error;
 

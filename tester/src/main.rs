@@ -11,7 +11,6 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::sync::watch;
-use tokio::sync::RwLock;
 use tokio::time;
 use tokio_postgres::NoTls;
 use tokio_tungstenite::tungstenite;
@@ -222,7 +221,7 @@ async fn terminal_readline(
     mut signal: signal::Signal,
     shutdown: watch::Sender<bool>,
     websocket: mpsc::Sender<serde_json::Value>,
-    client: Arc<RwLock<tokio_postgres::Client>>,
+    client: Arc<tokio_postgres::Client>,
 ) -> AResult<()> {
     while !signal.should_shutdown() {
         let _ = rl.flush();
@@ -251,7 +250,6 @@ async fn terminal_readline(
                         // Truncate all tables to empty to reset the state
                         Ok(Command("truncate", _)) => {
                             let _ = writeln!(stdout, "Truncating all tables");
-                            let client = client.read().await;
                             let res = client.execute(
                                 "TRUNCATE
                                     votes,
@@ -365,7 +363,7 @@ async fn main() -> AResult<()> {
     // Postgres bits
     //*******************
     let (client, connection) = tokio_postgres::connect(&postgres_url, NoTls).await?;
-    let client = Arc::new(RwLock::new(client));
+    let client = Arc::new(client);
     {
         let sql_shutdown_tx = sql_shutdown_tx.clone();
         tokio::spawn(async move {

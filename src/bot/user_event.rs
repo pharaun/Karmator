@@ -1,11 +1,9 @@
 use tokio::sync::mpsc;
-use tokio::sync::RwLock;
 
-use tokio_postgres::Client;
+use deadpool_postgres::Pool;
 
 use std::result::Result;
 use std::str::FromStr as _;
-use std::sync::Arc;
 
 use anyhow::Result as AResult;
 
@@ -246,7 +244,7 @@ pub async fn process_user_message<S>(
     msg: serde_json::Value,
     slack: slack::Client<S>,
     tx: mpsc::Sender<Reply>,
-    client: Arc<RwLock<Client>>,
+    pool: &Pool,
 ) -> AResult<()>
 where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
@@ -282,6 +280,9 @@ where
             if event.text().is_empty() {
                 return Ok(());
             }
+
+            // TODO: Make robust
+            let client = pool.get().await.unwrap();
 
             // Parse string to see if its a command one
             match event.parse_command() {
@@ -320,13 +321,12 @@ where
                 //  - for now can probs query it as needed, but should
                 //      be cached
                 Ok(command::Command(c @ ("karma" | "givers" | "sidevotes"), arg)) => {
-                    let client = client.read().await;
                     if arg.is_empty() {
                         match c {
                             "karma" => {
                                 top_n(
                                     &mut event.clone(),
-                                    &*client,
+                                    &client,
                                     KarmaCol::Received,
                                     OrdQuery::Desc,
                                     KarmaCol::Received,
@@ -340,7 +340,7 @@ where
                             "givers" => {
                                 top_n(
                                     &mut event.clone(),
-                                    &*client,
+                                    &client,
                                     KarmaCol::Given,
                                     OrdQuery::Desc,
                                     KarmaCol::Given,
@@ -354,7 +354,7 @@ where
                             "sidevotes" => {
                                 top_n(
                                     &mut event.clone(),
-                                    &*client,
+                                    &client,
                                     KarmaCol::Received,
                                     OrdQuery::Desc,
                                     KarmaCol::Given,
@@ -370,11 +370,11 @@ where
                     } else {
                         match c {
                             "karma" => {
-                                partial(&mut event.clone(), &*client, KarmaCol::Received, arg)
+                                partial(&mut event.clone(), &client, KarmaCol::Received, arg)
                                     .await;
                             }
                             "givers" => {
-                                partial(&mut event.clone(), &*client, KarmaCol::Given, arg).await;
+                                partial(&mut event.clone(), &client, KarmaCol::Given, arg).await;
                             }
                             "sidevotes" => event.send_reply("Not supported!").await,
                             _ => (),
@@ -387,12 +387,11 @@ where
                         // Parse the argument
                         let limit = u32::from_str(arg.first().unwrap_or(&"1"));
 
-                        let client = client.read().await;
                         match (c, limit) {
                             ("topkarma", Ok(lim @ 1..=25)) => {
                                 top_n(
                                     &mut event.clone(),
-                                    &*client,
+                                    &client,
                                     KarmaCol::Received,
                                     OrdQuery::Desc,
                                     KarmaCol::Received,
@@ -406,7 +405,7 @@ where
                             ("topgivers", Ok(lim @ 1..=25)) => {
                                 top_n(
                                     &mut event.clone(),
-                                    &*client,
+                                    &client,
                                     KarmaCol::Given,
                                     OrdQuery::Desc,
                                     KarmaCol::Given,
@@ -420,7 +419,7 @@ where
                             ("topsidevotes", Ok(lim @ 1..=25)) => {
                                 top_n(
                                     &mut event.clone(),
-                                    &*client,
+                                    &client,
                                     KarmaCol::Received,
                                     OrdQuery::Desc,
                                     KarmaCol::Given,
@@ -454,10 +453,9 @@ where
                     };
                     if arg.is_empty() {
                         // Rank with yourself
-                        let client = client.read().await;
                         match event.get_username().await {
                             Some(ud) => {
-                                ranking(&mut event.clone(), &*client, t_typ, &ud, "Your").await;
+                                ranking(&mut event.clone(), &client, t_typ, &ud, "Your").await;
                             }
                             _ => {
                                 event
@@ -468,8 +466,7 @@ where
                     } else if arg.len() == 1 {
                         // Rank up with one target
                         let target = arg.first().unwrap_or(&"INVALID");
-                        let client = client.read().await;
-                        ranking(&mut event.clone(), &*client, t_typ, target, target).await;
+                        ranking(&mut event.clone(), &client, t_typ, target, target).await;
                     } else {
                         event
                             .send_reply("Can only rank one karma entry at a time!")
@@ -479,7 +476,7 @@ where
 
                 Ok(command::Command(x, _)) => info!("No handler: {x:?}"),
 
-                Err(_) => add_karma(&event, Arc::clone(&client)).await,
+                Err(_) => add_karma(&event, pool).await,
             }
         }
 
@@ -502,7 +499,7 @@ where
 
             add_reacji(
                 &mut event,
-                Arc::clone(&client),
+                pool,
                 &reaction,
                 ReacjiAction::Add,
             )
@@ -528,7 +525,7 @@ where
 
             add_reacji(
                 &mut event,
-                Arc::clone(&client),
+                pool,
                 &reaction,
                 ReacjiAction::Del,
             )

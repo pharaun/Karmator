@@ -1,5 +1,4 @@
 use std::env;
-use std::sync::Arc;
 
 use log::{error, info};
 
@@ -9,8 +8,8 @@ use anyhow::Result as AResult;
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig as RustlsClientConfig;
-use tokio::sync::RwLock;
 use tokio_postgres_rustls::MakeRustlsConnect;
+use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 
 use karmator::bot::user_event;
 use kcore::bot;
@@ -39,7 +38,8 @@ async fn main() -> AResult<()> {
     //*******************
     // Signals bits
     //*******************
-    let (sql_shutdown_tx, signal) = signal::Signal::new();
+    // TODO: Don't need sql_shutdown cuz of deadpool now?
+    let (_, signal) = signal::Signal::new();
     {
         let mut signal = signal.clone();
         tokio::spawn(async move {
@@ -67,21 +67,14 @@ async fn main() -> AResult<()> {
             .with_no_client_auth();
         MakeRustlsConnect::new(tls_config)
     };
+    let pg_config = postgres_url.parse::<tokio_postgres::Config>()?;
 
-    let (client, connection) = tokio_postgres::connect(&postgres_url, tls).await?;
-    let client = Arc::new(RwLock::new(client));
-
-    tokio::spawn(async move {
-        // If the connection exits its for one of the 2 reasons:
-        // 1. The client got dropped (meaning main loop exited)
-        // 2. There was an error, and we are in a bad state, shutdown
-        if let Err(e) = connection.await {
-            error!("Database Error: {e:?}");
-        }
-        if let Err(e) = sql_shutdown_tx.send(true) {
-            error!("Shutdown Signal Error: {e:?}");
-        }
-    });
+    // Deadpool configuration
+    let mgr_config = ManagerConfig {
+        recycling_method: RecyclingMethod::Verified,
+    };
+    let mgr = Manager::from_config(pg_config, tls, mgr_config);
+    let pool = Pool::builder(mgr).max_size(2).build().unwrap();
 
     //*******************
     // Core bot eventloop
@@ -90,9 +83,9 @@ async fn main() -> AResult<()> {
         slack::Client::new("https://slack.com/api", &app_token, &bot_token, 50),
         signal,
         |event, slack, tx| {
-            let client = Arc::clone(&client);
+            let pool = pool.clone();
             tokio::spawn(async move {
-                if let Err(e) = user_event::process_user_message(event, slack, tx, client).await {
+                if let Err(e) = user_event::process_user_message(event, slack, tx, &pool).await {
                     error!("user_event::process_user_message error: {e:?}");
                 }
             });
