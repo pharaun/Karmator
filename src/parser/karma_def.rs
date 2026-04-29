@@ -37,7 +37,7 @@ pub(super) fn str_to_karma(input: &str) -> Karma {
         "-+" => Karma::Side,
         "±" => Karma::Side,
         "∓" => Karma::Side,
-        _ => panic!("Shouldn't arrive here"),
+        _ => unreachable!("Shouldn't arrive here"),
     }
 }
 

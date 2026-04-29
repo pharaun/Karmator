@@ -172,7 +172,7 @@ async fn add_reacji_message(
             warn!("Duplicate Channel+TS - Slack/Sql - Nick {nick_id} / {sql_nick} - Msg: {message} / {sql_message}")
         }
 
-        // Return one anyway for now
+        // TODO: have this fail if the check above fails
         Ok(Some(id))
     } else {
         Ok(Some(txn.query_one(
