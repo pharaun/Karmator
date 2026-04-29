@@ -33,8 +33,7 @@ pub async fn add_reacji<S: SlackSender>(
     ))?;
 
     if let Some(karma) = reacji_to_karma(input) {
-        // TODO: Make robust
-        let mut client = pool.get().await.unwrap();
+        let mut client = pool.get().await?;
         let txn = client
             .build_transaction()
             .isolation_level(IsolationLevel::ReadCommitted)

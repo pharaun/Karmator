@@ -278,8 +278,7 @@ pub async fn process_user_message<S: SlackSender>(
                 return Ok(());
             }
 
-            // TODO: Make robust
-            let client = pool.get().await.unwrap();
+            let client = pool.get().await?;
 
             // Parse string to see if its a command one
             match event.parse_command() {

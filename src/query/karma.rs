@@ -87,7 +87,7 @@ async fn add_karma_query(
     karma: Vec<KST>,
 ) -> AResult<()> {
     // TODO: Make robust
-    let mut client = pool.get().await.unwrap();
+    let mut client = pool.get().await?;
     let txn = client
         .build_transaction()
         .isolation_level(IsolationLevel::ReadCommitted)
