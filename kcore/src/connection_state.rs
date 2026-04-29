@@ -30,10 +30,15 @@ impl ConnectionState {
         }
     }
 
-    pub(crate) fn pending(&self) {
+    pub(crate) async fn pending(&self) {
         // Connection attempt, waiting ack
         self.can_send.store(false, Ordering::Relaxed);
         self.reconnect.store(false, Ordering::Relaxed);
+
+        // Reset timer to avoid a race between reconnecting and first hello
+        let now = Instant::now();
+        *(self.last_message_received.write().await) = now;
+        *(self.last_ping_sent.write().await) = now;
     }
 
     pub(crate) fn reconnect(&self) {

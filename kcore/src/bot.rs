@@ -51,7 +51,7 @@ where
         let (mut ws_write, mut ws_read) = ws_stream.split();
 
         // Reset the connection to waiting for ack from Slack
-        conn_state.pending();
+        conn_state.pending().await;
 
         while !conn_state.should_reconnect() && !signal.should_shutdown() {
             tokio::select! {
