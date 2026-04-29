@@ -27,7 +27,7 @@ pub async fn default_event_loop<S, F1>(
     user_event_listener: F1,
 ) -> AResult<()>
 where
-    S: slack::HttpSender + Clone + Send + Sync + Sized,
+    S: crate::SlackSender,
     F1: Fn(serde_json::Value, slack::Client<S>, mpsc::Sender<event::Reply>),
 {
     let conn_state = connection_state::ConnectionState::init();

@@ -13,6 +13,9 @@ use log::warn;
 
 use quick_cache::sync::Cache;
 
+pub trait SlackSender: HttpSender + Clone + Send + Sync + Sized {}
+impl SlackSender for ReqwestSender {}
+
 pub trait HttpSender {
     fn send(
         &self,

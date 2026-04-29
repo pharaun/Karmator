@@ -191,7 +191,7 @@ impl fmt::Display for SegmentLite<'_> {
     }
 }
 
-pub fn sanitize_output(input: &str) -> String {
+pub(crate) fn sanitize_output(input: &str) -> String {
     let res = complete(many1(segment_lite)).parse(input);
 
     res.map(|(_, i)| i.iter().map(ToString::to_string).collect::<String>())

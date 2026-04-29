@@ -22,18 +22,19 @@ use crate::query::reacji::add_reacji;
 use crate::query::top_n::top_n;
 use crate::query::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
 
-use kcore::command;
-use kcore::event::send_simple_message;
-use kcore::event::Reply;
-use kcore::slack;
+use kcore::SlackSender;
+use kcore::SlackClient;
+use kcore::SlackTimezone;
+use kcore::SlackReply;
+use kcore::send_text_message;
+use kcore::Reply;
+use kcore::parse_command;
+use kcore::Command;
 
 #[derive(Clone)]
-pub struct Event<S>
-where
-    S: slack::HttpSender + Clone + Send + Sync + Sized,
-{
+pub struct Event<S: SlackSender> {
     // Bot Data
-    slack: slack::Client<S>,
+    slack: SlackClient<S>,
     tx: mpsc::Sender<Reply>,
 
     // User Data
@@ -43,10 +44,7 @@ where
     text: Option<String>,
 }
 
-impl<S> Event<S>
-where
-    S: slack::HttpSender + Clone + Send + Sync + Sized,
-{
+impl<S: SlackSender> Event<S> {
     async fn is_user_bot(&self) -> bool {
         match self.slack.is_user_bot(&self.user_id).await {
             Ok(Some(is_bot)) => is_bot,
@@ -68,14 +66,14 @@ where
         }
     }
 
-    fn parse_command(&self) -> Result<command::Command<'_>, String> {
+    fn parse_command(&self) -> Result<Command<'_>, String> {
         match &self.text {
             None => Err("Empty input".to_owned()),
-            Some(text) => command::parse(text),
+            Some(text) => parse_command(text),
         }
     }
 
-    pub async fn get_user_tz(&self) -> Option<slack::Timezone> {
+    pub async fn get_user_tz(&self) -> Option<SlackTimezone> {
         match self.slack.get_user_tz(&self.user_id).await {
             Ok(tz) => tz,
             Err(e) => {
@@ -127,7 +125,7 @@ where
         match &self.thread_ts {
             None => Err("No timestamp set for reacji event!".to_owned()),
             Some(ts) => match self.slack.get_message(&self.channel_id, ts).await {
-                Ok(Some(slack::ConversationHistoryMessage::Message {
+                Ok(Some(SlackReply::Message {
                     text,
                     user_id: Some(user_id),
                     bot_id: _,
@@ -135,7 +133,7 @@ where
                     self.text = Some(text);
                     Ok(Some(user_id))
                 }
-                Ok(Some(slack::ConversationHistoryMessage::Message {
+                Ok(Some(SlackReply::Message {
                     text: _,
                     user_id: None,
                     bot_id: Some(_),
@@ -143,7 +141,7 @@ where
                     info!("This message was posted by a bot");
                     Ok(None)
                 }
-                Ok(Some(slack::ConversationHistoryMessage::Message {
+                Ok(Some(SlackReply::Message {
                     text: _,
                     user_id: None,
                     bot_id: None,
@@ -156,7 +154,7 @@ where
     // TODO: maybe better to consume the event?
     pub async fn send_reply(&mut self, text: &str) {
         // TODO: log the error
-        let _ = send_simple_message(
+        let _ = send_text_message(
             &mut self.tx,
             self.channel_id.clone(),
             self.thread_ts.clone(),
@@ -240,15 +238,12 @@ fn parse_user_event(s: &serde_json::Value) -> Option<UserEvent> {
     res.ok()
 }
 
-pub async fn process_user_message<S>(
+pub async fn process_user_message<S: SlackSender>(
     msg: serde_json::Value,
-    slack: slack::Client<S>,
+    slack: SlackClient<S>,
     tx: mpsc::Sender<Reply>,
     pool: &Pool,
-) -> AResult<()>
-where
-    S: slack::HttpSender + Clone + Send + Sync + Sized,
-{
+) -> AResult<()> {
     // Check if its a message/certain string, if so, reply
     match parse_user_event(&msg) {
         Some(UserEvent::Message {
@@ -286,7 +281,7 @@ where
 
             // Parse string to see if its a command one
             match event.parse_command() {
-                Ok(command::Command("version", _)) => {
+                Ok(Command("version", _)) => {
                     let ver = build::PKG_VERSION;
                     let dat = build::BUILT_TIME_UTC;
                     let sha = build::GIT_COMMIT_HASH.unwrap_or("Unknown");
@@ -298,21 +293,21 @@ where
                         .await;
                 }
 
-                Ok(command::Command("PING", _)) => {
+                Ok(Command("PING", _)) => {
                     event.send_reply("PONG").await;
                 }
 
-                Ok(command::Command("help", _)) => {
+                Ok(Command("help", _)) => {
                     let help = "Available commands: !version !github !sidevotes !karma !givers !rank !ranksidevote !topkarma !topgivers !topsidevotes !tz";
                     event.send_reply(help).await;
                 }
 
-                Ok(command::Command("github", _)) => {
+                Ok(Command("github", _)) => {
                     let github = "Github repo: https://github.com/pharaun/Karmator";
                     event.send_reply(github).await;
                 }
 
-                Ok(command::Command("tz", arg)) => {
+                Ok(Command("tz", arg)) => {
                     timezone(&mut event.clone(), arg).await;
                 }
 
@@ -320,7 +315,7 @@ where
                 // TODO: Implement a 'slack id' to unix name mapper
                 //  - for now can probs query it as needed, but should
                 //      be cached
-                Ok(command::Command(c @ ("karma" | "givers" | "sidevotes"), arg)) => {
+                Ok(Command(c @ ("karma" | "givers" | "sidevotes"), arg)) => {
                     if arg.is_empty() {
                         match c {
                             "karma" => {
@@ -381,7 +376,7 @@ where
                     }
                 }
 
-                Ok(command::Command(c @ ("topkarma" | "topgivers" | "topsidevotes"), arg)) => {
+                Ok(Command(c @ ("topkarma" | "topgivers" | "topsidevotes"), arg)) => {
                     if arg.len() == 1 {
                         // Parse the argument
                         let limit = u32::from_str(arg.first().unwrap_or(&"1"));
@@ -444,7 +439,7 @@ where
                     }
                 }
 
-                Ok(command::Command(c @ ("rank" | "ranksidevote"), arg)) => {
+                Ok(Command(c @ ("rank" | "ranksidevote"), arg)) => {
                     let t_typ = if c == "rank" {
                         KarmaTyp::Total
                     } else {
@@ -473,7 +468,7 @@ where
                     }
                 }
 
-                Ok(command::Command(x, _)) => info!("No handler: {x:?}"),
+                Ok(Command(x, _)) => info!("No handler: {x:?}"),
 
                 Err(_) => add_karma(&event, pool).await,
             }

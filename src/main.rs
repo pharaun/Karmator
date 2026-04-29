@@ -11,10 +11,11 @@ use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig as RustlsClientConfig;
 use tokio_postgres_rustls::MakeRustlsConnect;
 
-use karmator::bot::user_event;
-use kcore::bot;
-use kcore::signal;
-use kcore::slack;
+use karmator::bot::user_event::process_user_message;
+
+use kcore::default_event_loop;
+use kcore::SlackClient;
+use kcore::Signal;
 
 // TODO:
 // 5. Migrate from batch over to stored procedure for cleaning out votes run (ie repeated votes for
@@ -39,7 +40,7 @@ async fn main() -> AResult<()> {
     // Signals bits
     //*******************
     // TODO: Don't need sql_shutdown cuz of deadpool now?
-    let (_, signal) = signal::Signal::new();
+    let (_, signal) = Signal::new();
     {
         let mut signal = signal.clone();
         tokio::spawn(async move {
@@ -79,13 +80,13 @@ async fn main() -> AResult<()> {
     //*******************
     // Core bot eventloop
     //*******************
-    bot::default_event_loop(
-        slack::Client::new("https://slack.com/api", &app_token, &bot_token, 50),
+    default_event_loop(
+        SlackClient::new("https://slack.com/api", &app_token, &bot_token, 50),
         signal,
         |event, slack, tx| {
             let pool = pool.clone();
             tokio::spawn(async move {
-                if let Err(e) = user_event::process_user_message(event, slack, tx, &pool).await {
+                if let Err(e) = process_user_message(event, slack, tx, &pool).await {
                     error!("user_event::process_user_message error: {e:?}");
                 }
             });

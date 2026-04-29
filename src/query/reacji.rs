@@ -10,8 +10,6 @@ use anyhow::Result as AResult;
 
 use log::warn;
 
-use kcore::slack;
-
 use crate::parser::karma::Karma;
 use crate::parser::reacji_to_karma;
 
@@ -21,15 +19,14 @@ use crate::query::{KarmaName, ReacjiAction};
 
 use crate::bot::user_event::Event;
 
-pub async fn add_reacji<S>(
+use kcore::SlackSender;
+
+pub async fn add_reacji<S: SlackSender>(
     event: &mut Event<S>,
     pool: &Pool,
     input: &str,
     action: ReacjiAction,
-) -> AResult<()>
-where
-    S: slack::HttpSender + Clone + Send + Sync + Sized,
-{
+) -> AResult<()> {
     let channel_id = event.channel_id.clone();
     let message_ts = event.thread_ts.clone().ok_or(anyhow!(
         "The manually constructed message_ts was somehow None"

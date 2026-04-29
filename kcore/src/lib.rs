@@ -1,7 +1,31 @@
-pub mod bot;
-pub mod command;
-pub mod connection_state;
-pub mod event;
-pub mod sanitizer;
-pub mod signal;
-pub mod slack;
+mod bot;
+mod command;
+mod connection_state;
+mod event;
+mod sanitizer;
+mod signal;
+mod slack;
+
+// TODO: Improve the ergonomics of the Slack Api interface
+pub use slack::SlackSender;
+pub use slack::Client as SlackClient;
+pub use slack::Timezone as SlackTimezone;
+pub use slack::ConversationHistoryMessage as SlackReply;
+pub use slack::Message;
+
+// TODO: how to hide these?
+pub use slack::HttpSender;
+pub use slack::ReqwestSender;
+
+pub use event::send_simple_message as send_text_message;
+pub use event::Reply;
+
+pub use bot::default_event_loop;
+pub use signal::Signal;
+
+pub use command::Command;
+pub use command::parse as parse_command;
+
+pub use sanitizer::Segment;
+pub use sanitizer::AtType;
+pub use sanitizer::parse as sanitize_input;

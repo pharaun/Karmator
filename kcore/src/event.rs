@@ -92,7 +92,7 @@ pub async fn send_simple_message(
     .map_err(|_| "Error sending")
 }
 
-pub async fn send_slack_ping(
+pub(crate) async fn send_slack_ping(
     tx: &mut mpsc::Sender<Reply>,
     connection_state: &ConnectionState,
 ) -> Result<(), &'static str> {
@@ -102,7 +102,7 @@ pub async fn send_slack_ping(
         .map_err(|_| "Error sending")
 }
 
-pub async fn process_control_message(
+pub(crate) async fn process_control_message(
     tx: mpsc::Sender<Reply>,
     connection_state: &ConnectionState,
     msg: tungstenite::Message,

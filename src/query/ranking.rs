@@ -5,20 +5,18 @@ use futures_util::future;
 
 use anyhow::Result as AResult;
 
-use kcore::slack;
-
 use crate::bot::user_event::Event;
 use crate::query::{KarmaCol, KarmaName, KarmaTyp};
 
-pub async fn ranking<S, C: GenericClient>(
+use kcore::SlackSender;
+
+pub async fn ranking<S: SlackSender, C: GenericClient>(
     event: &mut Event<S>,
     client: &C,
     ktyp: KarmaTyp,
     target: &str,
     label: &str,
-) where
-    S: slack::HttpSender + Clone + Send + Sync + Sized,
-{
+) {
     let query = future::try_join4(
         ranking_denormalized(client, KarmaCol::Received, ktyp, KarmaName::new(target)),
         count(client, KarmaCol::Received),

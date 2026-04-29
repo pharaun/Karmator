@@ -25,8 +25,11 @@ use unicode_normalization::IsNormalized;
 use unicode_normalization::UnicodeNormalization as _;
 
 use crate::parser::karma::Karma;
-use kcore::sanitizer;
-use kcore::slack;
+
+use kcore::SlackSender;
+use kcore::SlackClient;
+use kcore::sanitize_input;
+use kcore::Segment;
 
 // Normalize any incoming string to be stored in the database
 pub fn normalize(input: &str) -> String {
@@ -149,11 +152,8 @@ impl fmt::Display for KarmaTyp {
     }
 }
 
-pub async fn sanitizer<S>(input: &str, slack: &slack::Client<S>) -> String
-where
-    S: slack::HttpSender + Clone + Send + Sync + Sized,
-{
-    match sanitizer::parse(input).ok() {
+pub async fn sanitizer<S: SlackSender>(input: &str, slack: &SlackClient<S>) -> String {
+    match sanitize_input(input).ok() {
         None => {
             error!("Failed to sanitize: {input:?}");
             input.to_owned()
@@ -166,7 +166,7 @@ where
                 // TODO: do other id reprocessing such as:
                 // 1. channel...
                 match seg {
-                    sanitizer::Segment::User(uid, l) => {
+                    Segment::User(uid, l) => {
                         // Do a user id lookup
                         let username = slack.get_username(uid).await;
 
@@ -175,7 +175,7 @@ where
                             _ => {
                                 // TODO: Log this, but for now fallback to
                                 // just rendering it straight into the db
-                                safe_text.push(sanitizer::Segment::User(uid, l).to_string());
+                                safe_text.push(Segment::User(uid, l).to_string());
                             }
                         }
                     }

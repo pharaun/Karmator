@@ -4,12 +4,12 @@ use log::error;
 
 use anyhow::Result as AResult;
 
-use kcore::slack;
-
 use crate::bot::user_event::Event;
 use crate::query::{KarmaCol, KarmaTyp, OrdQuery};
 
-pub async fn top_n<S, C: GenericClient>(
+use kcore::SlackSender;
+
+pub async fn top_n<S: SlackSender, C: GenericClient>(
     event: &mut Event<S>,
     client: &C,
     kcol1: KarmaCol,
@@ -19,9 +19,7 @@ pub async fn top_n<S, C: GenericClient>(
     ktyp: KarmaTyp,
     label: (&str, &str),
     limit: u32,
-) where
-    S: slack::HttpSender + Clone + Send + Sync + Sized,
-{
+) {
     let query = future::try_join(
         top_n_denormalized(client, kcol1, ktyp, limit, kord1),
         top_n_denormalized(client, kcol2, ktyp, limit, kord2),

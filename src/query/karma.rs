@@ -8,8 +8,6 @@ use futures_util::future;
 
 use anyhow::Result as AResult;
 
-use kcore::slack;
-
 use crate::parser::karma;
 use crate::parser::karma::KST;
 
@@ -20,10 +18,9 @@ use crate::query::KarmaName;
 
 use crate::bot::user_event::Event;
 
-pub async fn add_karma<S>(event: &Event<S>, pool: &Pool)
-where
-    S: slack::HttpSender + Clone + Send + Sync + Sized,
-{
+use kcore::SlackSender;
+
+pub async fn add_karma<S: SlackSender>(event: &Event<S>, pool: &Pool) {
     match karma::parse(&event.sanitize().await) {
         Ok(mut karma) if !karma.is_empty() => {
             info!("Parsed Karma: {karma:?}");
