@@ -4,11 +4,11 @@ pub mod ranking;
 pub mod reacji;
 pub mod top_n;
 
-use tokio_postgres::Transaction;
 use tokio_postgres::types::to_sql_checked;
 use tokio_postgres::types::IsNull;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::types::Type;
+use tokio_postgres::Transaction;
 
 use log::error;
 

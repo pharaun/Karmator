@@ -2,8 +2,8 @@ use chrono::prelude::{DateTime, Utc};
 
 use deadpool_postgres::Pool;
 use futures_util::future;
-use tokio_postgres::Transaction;
 use tokio_postgres::IsolationLevel;
+use tokio_postgres::Transaction;
 
 use anyhow::anyhow;
 use anyhow::Result as AResult;
@@ -71,8 +71,8 @@ pub async fn add_reacji<S: SlackSender>(
                 // This is a bot-owned message so abort out
                 Ok(None) => {
                     txn.rollback().await?;
-                    return Ok(())
-                },
+                    return Ok(());
+                }
                 e => Err(format!(
                     "ERROR: [Reacji] Querying for message failed: {e:?}"
                 )),
@@ -105,11 +105,11 @@ pub async fn add_reacji<S: SlackSender>(
             Err(e) => {
                 txn.rollback().await?;
                 Err(e)
-            },
+            }
             Ok(_) => {
                 txn.commit().await?;
                 Ok(())
-            },
+            }
         }
     } else {
         Ok(())
