@@ -7,12 +7,12 @@ mod signal;
 mod slack;
 
 // TODO: Improve the ergonomics of the Slack Api interface
-pub use slack::SlackSender;
 pub use slack::Client as SlackClient;
-pub use slack::Timezone as SlackTimezone;
-pub use slack::User as SlackUser;
 pub use slack::ConversationHistoryMessage as SlackReply;
 pub use slack::Message;
+pub use slack::SlackSender;
+pub use slack::Timezone as SlackTimezone;
+pub use slack::User as SlackUser;
 
 // TODO: how to hide these?
 pub use slack::HttpSender;
@@ -24,9 +24,9 @@ pub use event::Reply;
 pub use bot::default_event_loop;
 pub use signal::Signal;
 
-pub use command::Command;
 pub use command::parse as parse_command;
+pub use command::Command;
 
-pub use sanitizer::Segment;
-pub use sanitizer::AtType;
 pub use sanitizer::parse as sanitize_input;
+pub use sanitizer::AtType;
+pub use sanitizer::Segment;

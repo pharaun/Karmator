@@ -26,10 +26,10 @@ use unicode_normalization::UnicodeNormalization as _;
 
 use crate::parser::karma::Karma;
 
-use kcore::SlackSender;
-use kcore::SlackClient;
 use kcore::sanitize_input;
 use kcore::Segment;
+use kcore::SlackClient;
+use kcore::SlackSender;
 
 // Normalize any incoming string to be stored in the database
 pub fn normalize(input: &str) -> String {

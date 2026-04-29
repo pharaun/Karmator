@@ -22,14 +22,14 @@ use crate::query::reacji::add_reacji;
 use crate::query::top_n::top_n;
 use crate::query::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
 
-use kcore::SlackSender;
-use kcore::SlackClient;
-use kcore::SlackTimezone;
-use kcore::SlackReply;
-use kcore::send_text_message;
-use kcore::Reply;
 use kcore::parse_command;
+use kcore::send_text_message;
 use kcore::Command;
+use kcore::Reply;
+use kcore::SlackClient;
+use kcore::SlackReply;
+use kcore::SlackSender;
+use kcore::SlackTimezone;
 
 #[derive(Clone)]
 pub struct Event<S: SlackSender> {
