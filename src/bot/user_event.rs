@@ -44,10 +44,12 @@ pub struct Event<S: SlackSender> {
     text: Option<String>,
 }
 
+// TODO: improve this since its just fetching the data over and over, maybe just embed it into the
+// event itself
 impl<S: SlackSender> Event<S> {
     async fn is_user_bot(&self) -> bool {
-        match self.slack.is_user_bot(&self.user_id).await {
-            Ok(Some(is_bot)) => is_bot,
+        match self.slack.get_user(&self.user_id).await {
+            Ok(Some(user)) => user.is_bot,
             Ok(None) => {
                 error!("No info on user: {:?}", &self.user_id);
 
@@ -74,8 +76,8 @@ impl<S: SlackSender> Event<S> {
     }
 
     pub async fn get_user_tz(&self) -> Option<SlackTimezone> {
-        match self.slack.get_user_tz(&self.user_id).await {
-            Ok(tz) => tz,
+        match self.slack.get_user(&self.user_id).await {
+            Ok(user) => user.map(|u| u.timezone),
             Err(e) => {
                 error!(
                     "Api error when querying for user: {:?} - {:?}",
@@ -93,8 +95,8 @@ impl<S: SlackSender> Event<S> {
     }
 
     pub async fn get_other_username(&self, user_id: &str) -> Option<String> {
-        match self.slack.get_username(user_id).await {
-            Ok(un) => un,
+        match self.slack.get_user(user_id).await {
+            Ok(un) => un.map(|u| u.username),
             Err(e) => {
                 error!("Api error when querying for user: {user_id:?} - {e:?}");
 
@@ -109,8 +111,8 @@ impl<S: SlackSender> Event<S> {
     }
 
     pub async fn get_other_user_real_name(&self, user_id: &str) -> Option<String> {
-        match self.slack.get_user_real_name(user_id).await {
-            Ok(rn) => rn,
+        match self.slack.get_user(user_id).await {
+            Ok(rn) => rn.map(|u| u.real_name),
             Err(e) => {
                 error!("Api error when querying for user: {user_id:?} - {e:?}");
 
@@ -229,11 +231,11 @@ pub enum ReactionItem {
     },
 }
 
-fn parse_user_event(s: &serde_json::Value) -> Option<UserEvent> {
-    let res = serde_json::from_value::<UserEvent>(s.clone()).map_err(|e| format!("{e:?}"));
+fn parse_user_event(s: serde_json::Value) -> Option<UserEvent> {
+    let res = serde_json::from_value::<UserEvent>(s).map_err(|e| format!("{e:?}"));
 
     if res.is_err() {
-        error!("parse_event - Error: {res:?}\n{s:?}\n");
+        error!("parse_event - Error: {res:?}");
     }
     res.ok()
 }
@@ -245,7 +247,7 @@ pub async fn process_user_message<S: SlackSender>(
     pool: &Pool,
 ) -> AResult<()> {
     // Check if its a message/certain string, if so, reply
-    match parse_user_event(&msg) {
+    match parse_user_event(msg) {
         Some(UserEvent::Message {
             channel_id: Some(channel_id),
             subtype: None,

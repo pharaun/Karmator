@@ -71,14 +71,14 @@ fn parse_response<T: DeserializeOwned>(key: &str, res: &str) -> AResult<T> {
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
-struct User {
+pub struct User {
     #[serde(rename = "name")]
-    display_name: String,
-    real_name: String,
-    is_bot: bool,
+    pub username: String,
+    pub real_name: String,
+    pub is_bot: bool,
 
     #[serde(flatten)]
-    timezone: Timezone,
+    pub timezone: Timezone,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -191,23 +191,7 @@ impl<S: HttpSender> Client<S> {
         )
     }
 
-    pub async fn is_user_bot(&self, user_id: &str) -> AResult<Option<bool>> {
-        Ok(self.get_user(user_id).await?.map(|u| u.is_bot))
-    }
-
-    pub async fn get_user_real_name(&self, user_id: &str) -> AResult<Option<String>> {
-        Ok(self.get_user(user_id).await?.map(|u| u.real_name))
-    }
-
-    pub async fn get_username(&self, user_id: &str) -> AResult<Option<String>> {
-        Ok(self.get_user(user_id).await?.map(|u| u.display_name))
-    }
-
-    pub async fn get_user_tz(&self, user_id: &str) -> AResult<Option<Timezone>> {
-        Ok(self.get_user(user_id).await?.map(|u| u.timezone))
-    }
-
-    async fn get_user(&self, user_id: &str) -> AResult<Option<User>> {
+    pub async fn get_user(&self, user_id: &str) -> AResult<Option<User>> {
         self.user_cache
             .get_or_insert_async(user_id, async {
                 // TODO: Improve the retry strat instead of straight up failing.
@@ -431,7 +415,7 @@ mod test_slack_client {
 
         // Insert user into cache
         let user = User {
-            display_name: "dn".into(),
+            username: "dn".into(),
             real_name: "rn".into(),
             is_bot: false,
             timezone: Timezone {
@@ -466,7 +450,7 @@ mod test_slack_client {
         let result = client.get_user("whoever").await;
 
         let user = User {
-            display_name: "dn".into(),
+            username: "dn".into(),
             real_name: "rn".into(),
             is_bot: false,
             timezone: Timezone {

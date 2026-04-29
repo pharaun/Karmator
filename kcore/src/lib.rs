@@ -10,6 +10,7 @@ mod slack;
 pub use slack::SlackSender;
 pub use slack::Client as SlackClient;
 pub use slack::Timezone as SlackTimezone;
+pub use slack::User as SlackUser;
 pub use slack::ConversationHistoryMessage as SlackReply;
 pub use slack::Message;
 

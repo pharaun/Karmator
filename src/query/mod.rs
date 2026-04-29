@@ -168,10 +168,10 @@ pub async fn sanitizer<S: SlackSender>(input: &str, slack: &SlackClient<S>) -> S
                 match seg {
                     Segment::User(uid, l) => {
                         // Do a user id lookup
-                        let username = slack.get_username(uid).await;
+                        let username = slack.get_user(uid).await;
 
                         match username {
-                            Ok(Some(name)) => safe_text.push(name),
+                            Ok(Some(name)) => safe_text.push(name.username),
                             _ => {
                                 // TODO: Log this, but for now fallback to
                                 // just rendering it straight into the db
