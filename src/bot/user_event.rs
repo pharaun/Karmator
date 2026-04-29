@@ -325,7 +325,7 @@ where
                         match c {
                             "karma" => {
                                 top_n(
-                                    &mut event.clone(),
+                                    &mut event,
                                     &client,
                                     KarmaCol::Received,
                                     OrdQuery::Desc,
@@ -339,7 +339,7 @@ where
                             }
                             "givers" => {
                                 top_n(
-                                    &mut event.clone(),
+                                    &mut event,
                                     &client,
                                     KarmaCol::Given,
                                     OrdQuery::Desc,
@@ -353,7 +353,7 @@ where
                             }
                             "sidevotes" => {
                                 top_n(
-                                    &mut event.clone(),
+                                    &mut event,
                                     &client,
                                     KarmaCol::Received,
                                     OrdQuery::Desc,
@@ -390,7 +390,7 @@ where
                         match (c, limit) {
                             ("topkarma", Ok(lim @ 1..=25)) => {
                                 top_n(
-                                    &mut event.clone(),
+                                    &mut event,
                                     &client,
                                     KarmaCol::Received,
                                     OrdQuery::Desc,
@@ -404,7 +404,7 @@ where
                             }
                             ("topgivers", Ok(lim @ 1..=25)) => {
                                 top_n(
-                                    &mut event.clone(),
+                                    &mut event,
                                     &client,
                                     KarmaCol::Given,
                                     OrdQuery::Desc,
@@ -418,7 +418,7 @@ where
                             }
                             ("topsidevotes", Ok(lim @ 1..=25)) => {
                                 top_n(
-                                    &mut event.clone(),
+                                    &mut event,
                                     &client,
                                     KarmaCol::Received,
                                     OrdQuery::Desc,
@@ -455,7 +455,7 @@ where
                         // Rank with yourself
                         match event.get_username().await {
                             Some(ud) => {
-                                ranking(&mut event.clone(), &client, t_typ, &ud, "Your").await;
+                                ranking(&mut event, &client, t_typ, &ud, "Your").await;
                             }
                             _ => {
                                 event
@@ -503,7 +503,7 @@ where
                 &reaction,
                 ReacjiAction::Add,
             )
-            .await;
+            .await?;
         }
 
         Some(UserEvent::ReactionRemoved {
@@ -529,7 +529,7 @@ where
                 &reaction,
                 ReacjiAction::Del,
             )
-            .await;
+            .await?;
         }
 
         // TODO: improve error logging to log unhandled events or errors in parsing here

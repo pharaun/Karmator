@@ -5,9 +5,10 @@ use tokio_postgres::Client;
 use tokio_postgres::IsolationLevel;
 use deadpool_postgres::Pool;
 
+use anyhow::anyhow;
 use anyhow::Result as AResult;
 
-use log::error;
+use log::warn;
 
 use kcore::slack;
 
@@ -25,16 +26,20 @@ pub async fn add_reacji<S>(
     pool: &Pool,
     input: &str,
     action: ReacjiAction,
-) where
+) -> AResult<()>
+where
     S: slack::HttpSender + Clone + Send + Sync + Sized,
 {
+    let channel_id = event.channel_id.clone();
+    let message_ts = event.thread_ts.clone().ok_or(anyhow!("The manually constructed message_ts was somehow None"))?;
+
     if let Some(karma) = reacji_to_karma(input) {
         // TODO: Make robust
         let client = pool.get().await.unwrap();
         let message_id = match query_reacji_message(
             &client,
-            event.channel_id.clone(),
-            event.thread_ts.clone().unwrap(),
+            &channel_id,
+            &message_ts,
         )
         .await
         {
@@ -55,10 +60,9 @@ pub async fn add_reacji<S>(
                                 message_user_id,
                                 KarmaName::new(&ud),
                                 KarmaName::new(&rn),
-                                event.channel_id.clone(),
-                                // TODO: should add error check here
-                                event.thread_ts.clone().unwrap(),
-                                sanitized_text,
+                                &channel_id,
+                                &message_ts,
+                                &sanitized_text,
                             )
                             .await
                             .map_err(|x| x.to_string())
@@ -69,7 +73,7 @@ pub async fn add_reacji<S>(
                     }
                 }
                 // This is a bot-owned message so abort out
-                Ok(None) => return,
+                Ok(None) => return Ok(()),
                 e => Err(format!(
                     "ERROR: [Reacji] Querying for message failed: {e:?}"
                 )),
@@ -78,8 +82,8 @@ pub async fn add_reacji<S>(
         };
 
         match message_id {
-            Err(e) => error!("Failed to get reacji message - Error: {e:?}"),
-            Ok(None) => (), // These are expected error, drop
+            Err(e) => Err(anyhow!("Failed to get reacji message - Error: {e:?}")),
+            Ok(None) => Ok(()), // These are expected error, drop
             Ok(Some(mid)) => {
                 match future::join(event.get_username(), event.get_user_real_name()).await {
                     (Some(ud), Some(rn)) => {
@@ -92,23 +96,25 @@ pub async fn add_reacji<S>(
                             action,
                             mid,
                             karma,
-                        )
-                        .await
-                        {
-                            error!("Query failed: {e:?}");
+                        ).await {
+                            Err(anyhow!("Query failed: {e:?}"))
+                        } else {
+                            Ok(())
                         }
                     }
-                    e => error!("Querying for user/name failed: {e:?}"),
+                    e => Err(anyhow!("Querying for user/name failed: {e:?}")),
                 }
             }
         }
+    } else {
+        Ok(())
     }
 }
 
 async fn query_reacji_message(
     client: &Client,
-    channel_id: String,
-    message_ts: String,
+    channel_id: &str,
+    message_ts: &str,
 ) -> AResult<Option<i64>> {
     if let Some(row) = client
         .query_opt(
@@ -130,9 +136,9 @@ async fn add_reacji_message(
     user_id: String,
     username: KarmaName,
     real_name: KarmaName,
-    channel_id: String,
-    message_ts: String,
-    message: String,
+    channel_id: &str,
+    message_ts: &str,
+    message: &str,
 ) -> AResult<Option<i64>> {
     // TODO: Make robust
     let mut client = pool.get().await.unwrap();
@@ -143,7 +149,7 @@ async fn add_reacji_message(
 
     let (nick_id, channel_id) = future::try_join(
         add_nick(&txn, user_id, username.clone(), real_name),
-        add_channel(&txn, channel_id),
+        add_channel(&txn, channel_id.to_owned()),
     )
     .await?;
 
@@ -163,7 +169,7 @@ async fn add_reacji_message(
 
         // Compare
         if sql_nick != nick_id || sql_message != message {
-            error!("Duplicate Channel+TS - Slack/Sql - Nick {nick_id} / {sql_nick} - Msg: {message} / {sql_message}");
+            warn!("Duplicate Channel+TS - Slack/Sql - Nick {nick_id} / {sql_nick} - Msg: {message} / {sql_message}")
         }
 
         // Return one anyway for now
