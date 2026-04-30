@@ -35,7 +35,8 @@ impl HttpSender for ReqwestSender {
 #[derive(Clone)]
 pub struct Client<S: HttpSender = ReqwestSender> {
     url: String,
-    user_cache: Arc<Cache<String, User>>,
+    // Handles user_not_found via mapping to None
+    user_cache: Arc<Cache<String, Option<User>>>,
     app_token: String,
     bot_token: String,
     http: reqwest::Client,
@@ -53,19 +54,24 @@ struct Envelope {
 }
 
 fn parse_response<T: DeserializeOwned>(key: &str, res: &str) -> AResult<T> {
-    let env: Envelope = serde_json::from_str(res)?;
+    match parse_response_envelope(key, res) {
+        Ok(data) => Ok(data),
+        Err(Some(err)) => Err(anyhow!("Slack error: {err}")),
+        Err(None) => Err(anyhow!("Bad Slack API - got {{ok: false}} with no error information")),
+    }
+}
+
+fn parse_response_envelope<T: DeserializeOwned>(key: &str, res: &str) -> Result<T, Option<String>> {
+    let env: Envelope = serde_json::from_str(res).map_err(|e| Some(e.to_string()))?;
 
     if env.ok {
         // There may sometime be warning with a ok response, log it
         if let Some(warning) = env.warning {
             warn!("Slack api response warning: {warning}");
         }
-        Ok(serde_json::from_value(env.data[key].clone())?)
+        Ok(serde_json::from_value(env.data[key].clone()).map_err(|e| Some(e.to_string()))?)
     } else {
-        Err(match env.error {
-            Some(err) => anyhow!("Slack error: {err}"),
-            None => anyhow!("Bad Slack API - got {{ok: false}} with no error information"),
-        })
+        Err(env.error)
     }
 }
 
@@ -195,11 +201,8 @@ impl<S: HttpSender> Client<S> {
         self.user_cache
             .get_or_insert_async(user_id, async {
                 // TODO: Improve the retry strat instead of straight up failing.
-                // TODO: handle the case when a user does not exist:
-                // {"ok": false, "error": "user_not_found"}
-                // Map this to a None result
                 let url = self.get_slack_url_for_method("users.info");
-                parse_response::<User>(
+                match parse_response_envelope::<User>(
                     "user",
                     &self
                         .sender
@@ -213,10 +216,19 @@ impl<S: HttpSender> Client<S> {
                         .await?
                         .text()
                         .await?,
-                )
+                ) {
+                    Ok(user) => Ok(Some(user)),
+                    Err(Some(err)) => {
+                        if err == "user_not_found" {
+                            Ok(None)
+                        } else {
+                            Err(anyhow!("Slack error: {err}"))
+                        }
+                    },
+                    Err(None) => Err(anyhow!("Bad Slack API - got {{ok: false}} with no error information"))?,
+                }
             })
             .await
-            .map(Some)
     }
 
     pub async fn get_message(
@@ -424,7 +436,7 @@ mod test_slack_client {
                 offset: 1234,
             },
         };
-        client.user_cache.insert("whoever".into(), user.clone());
+        client.user_cache.insert("whoever".into(), Some(user.clone()));
 
         let result = client.get_user("whoever").await;
 
@@ -464,7 +476,7 @@ mod test_slack_client {
 
         let ud = client.user_cache.get("whoever");
         match ud {
-            Some(ud) => assert_eq!(ud.clone(), user),
+            Some(ud) => assert_eq!(ud.clone(), Some(user)),
             None => panic!("Should have been in the cache"),
         };
     }
@@ -481,6 +493,29 @@ mod test_slack_client {
         let result = client.get_user("whoever").await;
 
         assert_eq!(format!("{}", result.unwrap_err()), "Slack error: user_gone");
+    }
+
+    #[tokio::test]
+    async fn test_get_user_user_not_found_cached() {
+        let client = client_response(
+            200,
+            r#"{
+            "ok": false,
+            "error": "user_not_found"
+        }"#,
+        );
+        let result = client.get_user("whoever").await;
+
+        // Should return None for a user that is not found
+        assert_eq!(result.unwrap(), None);
+
+        // Validate that its stored in the cache as None
+        let ud = client.user_cache.get("whoever");
+        match ud {
+            Some(None) => (),
+            Some(Some(_)) => panic!("Should have not stored a user here"),
+            None => panic!("Should have stored a None in the cache"),
+        };
     }
 
     #[tokio::test]
