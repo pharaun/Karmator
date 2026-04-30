@@ -74,7 +74,7 @@ async fn main() -> AResult<()> {
         recycling_method: RecyclingMethod::Verified,
     };
     let mgr = Manager::from_config(pg_config, tls, mgr_config);
-    let pool = Pool::builder(mgr).max_size(2).build().unwrap();
+    let pool = Pool::builder(mgr).max_size(8).build().unwrap();
 
     //*******************
     // Core bot eventloop

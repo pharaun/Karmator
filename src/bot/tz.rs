@@ -23,7 +23,7 @@ use nom::{
 
 const TIME_FORMAT: &str = "%-l:%M%P";
 
-pub(super) async fn timezone<S: SlackSender>(event: &mut Event<S>, input: Vec<&str>) {
+pub(super) async fn timezone<S: SlackSender>(event: &Event<S>, input: Vec<&str>) {
     if input.is_empty() {
         // !tz --> utc current time + 3 tz (pacific, eastern, uk)
         let utc_time: DateTime<Utc> = Utc::now();

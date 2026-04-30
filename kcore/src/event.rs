@@ -72,7 +72,7 @@ fn parse_event(s: &str) -> Option<Event> {
 }
 
 pub async fn send_simple_message(
-    tx: &mut mpsc::Sender<Reply>,
+    tx: &mpsc::Sender<Reply>,
     channel: String,
     thread_ts: Option<String>,
     text: String,
@@ -94,7 +94,7 @@ pub async fn send_simple_message(
 }
 
 pub(crate) async fn send_slack_ping(
-    tx: &mut mpsc::Sender<Reply>,
+    tx: &mpsc::Sender<Reply>,
     connection_state: &ConnectionState,
 ) -> Result<(), &'static str> {
     tx.send(Reply::Ping(tungstenite::Bytes::new()))
@@ -105,7 +105,7 @@ pub(crate) async fn send_slack_ping(
 }
 
 pub(crate) async fn process_control_message(
-    tx: mpsc::Sender<Reply>,
+    tx: &mpsc::Sender<Reply>,
     connection_state: &ConnectionState,
     msg: tungstenite::Message,
 ) -> AResult<Option<serde_json::Value>> {

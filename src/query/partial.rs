@@ -4,6 +4,7 @@ use log::error;
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
+use anyhow::anyhow;
 use anyhow::Result as AResult;
 
 use futures_util::pin_mut;
@@ -15,7 +16,7 @@ use crate::query::{KarmaCol, KarmaName};
 use kcore::SlackSender;
 
 pub async fn partial<S: SlackSender, C: GenericClient>(
-    event: &mut Event<S>,
+    event: &Event<S>,
     client: &C,
     kcol: KarmaCol,
     arg: Vec<&str>,
@@ -52,6 +53,12 @@ async fn partial_query<C: GenericClient>(
     karma_col: KarmaCol,
     users: HashSet<KarmaName>,
 ) -> AResult<Vec<(String, i64, i64, i64)>> {
+    // Will cause postgres error due to zero value passed despite a parameterized query,
+    // only use this function if there is at least 1 user.
+    if users.len() == 0 {
+        return Err(anyhow!("Users hash is 0 (no users)"));
+    }
+
     // Hack to insert enough parameterizers into the query
     let p_user = {
         let mut p_user: String = "md5(lower($1))".to_owned();

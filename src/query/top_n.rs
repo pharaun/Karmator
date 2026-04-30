@@ -10,7 +10,7 @@ use crate::query::{KarmaCol, KarmaTyp, OrdQuery};
 use kcore::SlackSender;
 
 pub async fn top_n<S: SlackSender, C: GenericClient>(
-    event: &mut Event<S>,
+    event: &Event<S>,
     client: &C,
     kcol1: KarmaCol,
     kord1: OrdQuery,

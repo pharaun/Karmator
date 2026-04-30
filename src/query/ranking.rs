@@ -11,7 +11,7 @@ use crate::query::{KarmaCol, KarmaName, KarmaTyp};
 use kcore::SlackSender;
 
 pub async fn ranking<S: SlackSender, C: GenericClient>(
-    event: &mut Event<S>,
+    event: &Event<S>,
     client: &C,
     ktyp: KarmaTyp,
     target: &str,

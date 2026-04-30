@@ -116,7 +116,7 @@ async fn process_message<S: SlackSender, F1>(
 {
     match ws_msg {
         Some(Ok(ws_msg)) => {
-            match event::process_control_message(tx.clone(), &connection_state, ws_msg).await {
+            match event::process_control_message(tx, &connection_state, ws_msg).await {
                 // If there's an user event returned spawn off the user event processor
                 Ok(Some(event)) => user_event_listener(event, slack.clone(), tx.clone()),
                 Err(e) => error!("process_control_message error: {e:?}"),
@@ -195,7 +195,7 @@ async fn heartbeat_tick(
                     lmd.as_secs(),
                     lpd.as_secs(),
                 );
-                if let Err(e) = event::send_slack_ping(&mut tx.clone(), &connection_state).await {
+                if let Err(e) = event::send_slack_ping(&tx, &connection_state).await {
                     warn!("Slack Websocket Heartbeat - Error sending ping {e:?}");
                 }
             }

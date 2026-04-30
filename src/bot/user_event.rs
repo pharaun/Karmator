@@ -153,11 +153,10 @@ impl<S: SlackSender> Event<S> {
         }
     }
 
-    // TODO: maybe better to consume the event?
-    pub async fn send_reply(&mut self, text: &str) {
+    pub async fn send_reply(&self, text: &str) {
         // TODO: log the error
         let _ = send_text_message(
-            &mut self.tx,
+            &self.tx,
             self.channel_id.clone(),
             self.thread_ts.clone(),
             format!("<@{}>: {}", &self.user_id, &text),
@@ -257,7 +256,7 @@ pub async fn process_user_message<S: SlackSender>(
             hidden: _,
             ts: _,
         }) => {
-            let mut event = Event {
+            let event = Event {
                 // Bot data
                 slack,
                 tx,
@@ -309,7 +308,7 @@ pub async fn process_user_message<S: SlackSender>(
                 }
 
                 Ok(Command("tz", arg)) => {
-                    timezone(&mut event.clone(), arg).await;
+                    timezone(&event, arg).await;
                 }
 
                 // asdf「asdf」asdf
@@ -321,7 +320,7 @@ pub async fn process_user_message<S: SlackSender>(
                         match c {
                             "karma" => {
                                 top_n(
-                                    &mut event,
+                                    &event,
                                     &client,
                                     KarmaCol::Received,
                                     OrdQuery::Desc,
@@ -335,7 +334,7 @@ pub async fn process_user_message<S: SlackSender>(
                             }
                             "givers" => {
                                 top_n(
-                                    &mut event,
+                                    &event,
                                     &client,
                                     KarmaCol::Given,
                                     OrdQuery::Desc,
@@ -349,7 +348,7 @@ pub async fn process_user_message<S: SlackSender>(
                             }
                             "sidevotes" => {
                                 top_n(
-                                    &mut event,
+                                    &event,
                                     &client,
                                     KarmaCol::Received,
                                     OrdQuery::Desc,
@@ -366,10 +365,10 @@ pub async fn process_user_message<S: SlackSender>(
                     } else {
                         match c {
                             "karma" => {
-                                partial(&mut event.clone(), &client, KarmaCol::Received, arg).await;
+                                partial(&event, &client, KarmaCol::Received, arg).await;
                             }
                             "givers" => {
-                                partial(&mut event.clone(), &client, KarmaCol::Given, arg).await;
+                                partial(&event, &client, KarmaCol::Given, arg).await;
                             }
                             "sidevotes" => event.send_reply("Not supported!").await,
                             _ => (),
@@ -385,7 +384,7 @@ pub async fn process_user_message<S: SlackSender>(
                         match (c, limit) {
                             ("topkarma", Ok(lim @ 1..=25)) => {
                                 top_n(
-                                    &mut event,
+                                    &event,
                                     &client,
                                     KarmaCol::Received,
                                     OrdQuery::Desc,
@@ -399,7 +398,7 @@ pub async fn process_user_message<S: SlackSender>(
                             }
                             ("topgivers", Ok(lim @ 1..=25)) => {
                                 top_n(
-                                    &mut event,
+                                    &event,
                                     &client,
                                     KarmaCol::Given,
                                     OrdQuery::Desc,
@@ -413,7 +412,7 @@ pub async fn process_user_message<S: SlackSender>(
                             }
                             ("topsidevotes", Ok(lim @ 1..=25)) => {
                                 top_n(
-                                    &mut event,
+                                    &event,
                                     &client,
                                     KarmaCol::Received,
                                     OrdQuery::Desc,
@@ -450,7 +449,7 @@ pub async fn process_user_message<S: SlackSender>(
                         // Rank with yourself
                         match event.get_username().await {
                             Some(ud) => {
-                                ranking(&mut event, &client, t_typ, &ud, "Your").await;
+                                ranking(&event, &client, t_typ, &ud, "Your").await;
                             }
                             _ => {
                                 event
@@ -461,7 +460,7 @@ pub async fn process_user_message<S: SlackSender>(
                     } else if arg.len() == 1 {
                         // Rank up with one target
                         let target = arg.first().unwrap_or(&"INVALID");
-                        ranking(&mut event.clone(), &client, t_typ, target, target).await;
+                        ranking(&event, &client, t_typ, target, target).await;
                     } else {
                         event
                             .send_reply("Can only rank one karma entry at a time!")
