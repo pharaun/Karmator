@@ -30,6 +30,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 chrono-tz = "0.10"
 
 # Postgresql
+deadpool-postgres = "0.14.1"
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 tokio-postgres-rustls = "0.13"
 rustls = "0.23"
@@ -49,7 +50,6 @@ log = "0.4"
 
 # Error handling
 anyhow = "1"
-deadpool-postgres = "0.14.1"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
