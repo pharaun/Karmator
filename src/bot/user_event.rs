@@ -323,7 +323,7 @@ pub async fn process_user_message<S: SlackSender>(
                                     OrdQuery::Asc,
                                     KarmaTyp::Total,
                                     ("highest karma", "lowest karma"),
-                                    3u32,
+                                    3u16,
                                 )
                                 .await;
                             }
@@ -337,7 +337,7 @@ pub async fn process_user_message<S: SlackSender>(
                                     OrdQuery::Asc,
                                     KarmaTyp::Total,
                                     ("most positive", "most negative"),
-                                    3u32,
+                                    3u16,
                                 )
                                 .await;
                             }
@@ -351,7 +351,7 @@ pub async fn process_user_message<S: SlackSender>(
                                     OrdQuery::Desc,
                                     KarmaTyp::Side,
                                     ("most sidevotes received", "most sidevotes given"),
-                                    3u32,
+                                    3u16,
                                 )
                                 .await;
                             }
@@ -374,7 +374,7 @@ pub async fn process_user_message<S: SlackSender>(
                 Ok(Command(c @ ("topkarma" | "topgivers" | "topsidevotes"), arg)) => {
                     if arg.len() == 1 {
                         // Parse the argument
-                        let limit = u32::from_str(arg.first().unwrap_or(&"1"));
+                        let limit = u16::from_str(arg.first().unwrap_or(&"1"));
 
                         match (c, limit) {
                             ("topkarma", Ok(lim @ 1..=25)) => {
