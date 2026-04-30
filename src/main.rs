@@ -56,9 +56,8 @@ async fn main() -> AResult<()> {
     //*******************
     let tls = {
         // TODO: Improve this (find alternative for native-tls)
-        let certs: Vec<_> = CertificateDer::pem_file_iter(postgres_pem)
-            .unwrap()
-            .map(|x| x.unwrap())
+        let certs: Vec<_> = CertificateDer::pem_file_iter(postgres_pem)?
+            .map(|x| x.expect("Cert unwrap failed"))
             .collect();
         let mut root_store = rustls::RootCertStore::empty();
         root_store.add_parsable_certificates(certs);
@@ -74,7 +73,7 @@ async fn main() -> AResult<()> {
         recycling_method: RecyclingMethod::Verified,
     };
     let mgr = Manager::from_config(pg_config, tls, mgr_config);
-    let pool = Pool::builder(mgr).max_size(8).build().unwrap();
+    let pool = Pool::builder(mgr).max_size(8).build()?;
 
     //*******************
     // Core bot eventloop

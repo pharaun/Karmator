@@ -99,15 +99,12 @@ pub async fn add_reacji<S: SlackSender>(
                 e => Err(anyhow!("Querying for user/name failed: {e:?}")),
             },
         };
-        match vote_id {
-            Err(e) => {
-                txn.rollback().await?;
-                Err(e)
-            }
-            Ok(_) => {
-                txn.commit().await?;
-                Ok(())
-            }
+        if let Err(e) = vote_id {
+            txn.rollback().await?;
+            Err(e)
+        } else {
+            txn.commit().await?;
+            Ok(())
         }
     } else {
         Ok(())
@@ -144,8 +141,8 @@ async fn add_reacji_message(
     message: &str,
 ) -> AResult<i64> {
     let (nick_id, channel_id) = future::try_join(
-        add_nick(&txn, user_id, username.clone(), real_name),
-        add_channel(&txn, channel_id.to_owned()),
+        add_nick(txn, user_id, username.clone(), real_name),
+        add_channel(txn, channel_id.to_owned()),
     )
     .await?;
 
@@ -171,7 +168,7 @@ async fn add_reacji_vote(
     message_id: i64,
     amount: Karma,
 ) -> AResult<Option<i64>> {
-    let nick_id: i64 = add_nick(&txn, user_id, username.clone(), real_name).await?;
+    let nick_id: i64 = add_nick(txn, user_id, username.clone(), real_name).await?;
 
     // Insert the reacji into the database
     let ret = Ok(Some(

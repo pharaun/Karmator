@@ -15,6 +15,12 @@ pub struct Signal {
     shutdown: (watch::Sender<bool>, watch::Receiver<bool>),
 }
 
+impl Default for Signal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Signal {
     pub fn new() -> Self {
         info!("Signal installed");

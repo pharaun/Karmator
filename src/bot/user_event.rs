@@ -87,7 +87,7 @@ impl<S: SlackSender> Event<S> {
     }
 
     pub fn is_user_bot(&self) -> bool {
-        self.user().map_or(true, |u| u.is_bot)
+        self.user().is_none_or(|u| u.is_bot)
     }
 
     pub fn get_username(&self) -> Option<String> {

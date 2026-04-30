@@ -55,7 +55,7 @@ async fn partial_query<C: GenericClient>(
 ) -> AResult<Vec<(String, i64, i64, i64)>> {
     // Will cause postgres error due to zero value passed despite a parameterized query,
     // only use this function if there is at least 1 user.
-    if users.len() == 0 {
+    if users.is_empty() {
         return Err(anyhow!("Users hash is 0 (no users)"));
     }
 

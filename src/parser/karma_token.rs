@@ -118,7 +118,7 @@ fn karma_run(input: &str) -> IResult<&str, KarmaToken> {
         // Check if there is any possible match at all
         if !v.is_empty() {
             // There is, let's verify if the index of the match is eol
-            let (idx, _) = v.first().unwrap();
+            let (idx, _) = v.first().expect("Checked that it was not empty");
             let offset = candidate.len() - k.len();
 
             if idx == &offset && k.len() >= longest.len() {

@@ -122,11 +122,12 @@ pub struct Message {
 
 impl Client<ReqwestSender> {
     pub fn new(url: &str, app_token: &str, bot_token: &str, capacity: usize) -> Self {
-        Client::with_sender(ReqwestSender, url, app_token, bot_token, capacity)
+        Self::with_sender(ReqwestSender, url, app_token, bot_token, capacity)
     }
 }
 
 impl<S: HttpSender> Client<S> {
+    #[expect(clippy::use_self)]
     pub fn with_sender(
         sender: S,
         url: &str,
