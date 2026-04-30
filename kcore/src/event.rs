@@ -120,11 +120,10 @@ pub(crate) async fn process_control_message(
     msg: tungstenite::Message,
 ) -> AResult<Option<serde_json::Value>> {
     // Parse incoming message
+    connection_state.message_received().await;
+
     let raw_msg = match msg {
-        tungstenite::Message::Text(x) => {
-            connection_state.message_received().await;
-            Some(x)
-        }
+        tungstenite::Message::Text(x) => Some(x),
 
         tungstenite::Message::Ping(x) => {
             match wtx.try_send(WebsocketReply::Pong(x)) {
