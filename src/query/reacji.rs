@@ -83,23 +83,21 @@ pub async fn add_reacji<S: SlackSender>(
         let vote_id = match message_id {
             Err(e) => Err(anyhow!("Failed to get reacji message - Error: {e:?}")),
             Ok(None) => Ok(None), // These are expected error, drop
-            Ok(Some(mid)) => {
-                match (event.get_username(), event.get_user_real_name()) {
-                    (Some(ud), Some(rn)) => add_reacji_vote(
-                        &txn,
-                        Utc::now(),
-                        event.user_id.clone(),
-                        KarmaName::new(&ud),
-                        KarmaName::new(&rn),
-                        action,
-                        mid,
-                        karma,
-                    )
-                    .await
-                    .map_err(|x| anyhow!("Querying for user/name failed: {x:?}")),
-                    e => Err(anyhow!("Querying for user/name failed: {e:?}")),
-                }
-            }
+            Ok(Some(mid)) => match (event.get_username(), event.get_user_real_name()) {
+                (Some(ud), Some(rn)) => add_reacji_vote(
+                    &txn,
+                    Utc::now(),
+                    event.user_id.clone(),
+                    KarmaName::new(&ud),
+                    KarmaName::new(&rn),
+                    action,
+                    mid,
+                    karma,
+                )
+                .await
+                .map_err(|x| anyhow!("Querying for user/name failed: {x:?}")),
+                e => Err(anyhow!("Querying for user/name failed: {e:?}")),
+            },
         };
         match vote_id {
             Err(e) => {
@@ -159,7 +157,8 @@ async fn add_reacji_message(
         &[&message_ts, &channel_id, &nick_id, &message],
         "SELECT id FROM reacji_message WHERE ts = $1 AND chan_id = $2",
         &[&message_ts, &channel_id],
-    ).await
+    )
+    .await
 }
 
 async fn add_reacji_vote(

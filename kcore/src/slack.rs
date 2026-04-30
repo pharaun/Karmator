@@ -58,7 +58,9 @@ fn parse_response<T: DeserializeOwned>(key: &str, res: &str) -> AResult<T> {
     match parse_response_envelope(key, res) {
         Ok(data) => Ok(data),
         Err(Some(err)) => Err(anyhow!("Slack error: {err}")),
-        Err(None) => Err(anyhow!("Bad Slack API - got {{ok: false}} with no error information")),
+        Err(None) => Err(anyhow!(
+            "Bad Slack API - got {{ok: false}} with no error information"
+        )),
     }
 }
 
@@ -120,13 +122,7 @@ pub struct Message {
 
 impl Client<ReqwestSender> {
     pub fn new(url: &str, app_token: &str, bot_token: &str, capacity: usize) -> Self {
-        Client::with_sender(
-            ReqwestSender,
-            url,
-            app_token,
-            bot_token,
-            capacity,
-        )
+        Client::with_sender(ReqwestSender, url, app_token, bot_token, capacity)
     }
 }
 
@@ -228,8 +224,10 @@ impl<S: HttpSender> Client<S> {
                         } else {
                             Err(anyhow!("Slack error: {err}"))
                         }
-                    },
-                    Err(None) => Err(anyhow!("Bad Slack API - got {{ok: false}} with no error information"))?,
+                    }
+                    Err(None) => Err(anyhow!(
+                        "Bad Slack API - got {{ok: false}} with no error information"
+                    ))?,
                 }
             })
             .await
@@ -440,7 +438,9 @@ mod test_slack_client {
                 offset: 1234,
             },
         };
-        client.user_cache.insert("whoever".into(), Some(user.clone()));
+        client
+            .user_cache
+            .insert("whoever".into(), Some(user.clone()));
 
         let result = client.get_user("whoever").await;
 

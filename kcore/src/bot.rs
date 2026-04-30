@@ -70,7 +70,7 @@ where
                         _ = heartbeat.tick() => heartbeat_tick(&tx, &conn_state).await,
                     }
                 }
-            },
+            }
             Err(e) => {
                 conn_state.reconnect();
                 error!("Slack Websocket - Connection failed: {e:?}");
