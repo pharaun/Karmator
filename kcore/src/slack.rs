@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::clone::Clone;
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::anyhow;
 use anyhow::Result as AResult;
@@ -119,19 +120,17 @@ pub struct Message {
 
 impl Client<ReqwestSender> {
     pub fn new(url: &str, app_token: &str, bot_token: &str, capacity: usize) -> Self {
-        Self {
-            url: url.to_owned(),
-            user_cache: Arc::new(Cache::new(capacity)),
-            app_token: app_token.to_owned(),
-            bot_token: bot_token.to_owned(),
-            http: reqwest::Client::new(),
-            sender: ReqwestSender,
-        }
+        Client::with_sender(
+            ReqwestSender,
+            url,
+            app_token,
+            bot_token,
+            capacity,
+        )
     }
 }
 
 impl<S: HttpSender> Client<S> {
-    #[expect(clippy::use_self)]
     pub fn with_sender(
         sender: S,
         url: &str,
@@ -144,7 +143,12 @@ impl<S: HttpSender> Client<S> {
             user_cache: Arc::new(Cache::new(capacity)),
             app_token: app_token.to_owned(),
             bot_token: bot_token.to_owned(),
-            http: reqwest::Client::new(),
+            // Timeout to prevent the core loop from hanging
+            http: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30))
+                .build()
+                .expect("Failed to build HTTP client"),
             sender,
         }
     }
