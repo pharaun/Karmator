@@ -8,13 +8,12 @@ use tokio_postgres::Transaction;
 use anyhow::anyhow;
 use anyhow::Result as AResult;
 
-use log::warn;
-
 use crate::parser::karma::Karma;
 use crate::parser::reacji_to_karma;
 
 use crate::query::add_channel;
 use crate::query::add_nick;
+use crate::query::upsert_returning_id;
 use crate::query::{KarmaName, ReacjiAction};
 
 use crate::bot::user_event::Event;
@@ -62,6 +61,7 @@ pub async fn add_reacji<S: SlackSender>(
                             &sanitized_text,
                         )
                         .await
+                        .map(Some)
                         .map_err(|x| x.to_string()),
                         (_, ud, rn) => {
                             Err(format!("Querying for user/name failed: {:?}", (ud, rn)))
@@ -144,41 +144,22 @@ async fn add_reacji_message(
     channel_id: &str,
     message_ts: &str,
     message: &str,
-) -> AResult<Option<i64>> {
+) -> AResult<i64> {
     let (nick_id, channel_id) = future::try_join(
         add_nick(&txn, user_id, username.clone(), real_name),
         add_channel(&txn, channel_id.to_owned()),
     )
     .await?;
 
-    // Insert the reacji_message content now
-    let rows = txn
-        .query_opt(
-            "SELECT id, nick_id, message FROM reacji_message WHERE ts = $1 AND chan_id = $2",
-            &[&message_ts, &channel_id],
-        )
-        .await;
-
-    let ret = if let Ok(Some(row)) = rows {
-        // Compare the 2 and if its not the same, warn in log, otherwise return
-        let id = row.get(0);
-        let sql_nick: i64 = row.get(1);
-        let sql_message: String = row.get(2);
-
-        // Compare
-        if sql_nick != nick_id || sql_message != message {
-            warn!("Duplicate Channel+TS - Slack/Sql - Nick {nick_id} / {sql_nick} - Msg: {message} / {sql_message}");
-        }
-
-        // TODO: have this fail if the check above fails
-        Ok(Some(id))
-    } else {
-        Ok(Some(txn.query_one(
-            "INSERT INTO reacji_message (ts, chan_id, nick_id, message) VALUES ($1, $2, $3, $4) RETURNING id",
-            &[&message_ts, &channel_id, &nick_id, &message]
-        ).await?.try_get(0)?))
-    };
-    ret
+    upsert_returning_id(
+        txn,
+        "INSERT INTO reacji_message (ts, chan_id, nick_id, message) VALUES ($1, $2, $3, $4)
+        ON CONFLICT (ts, chan_id) DO NOTHING
+        RETURNING id",
+        &[&message_ts, &channel_id, &nick_id, &message],
+        "SELECT id FROM reacji_message WHERE ts = $1 AND chan_id = $2",
+        &[&message_ts, &channel_id],
+    ).await
 }
 
 async fn add_reacji_vote(
