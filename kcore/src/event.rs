@@ -5,7 +5,7 @@ use serde::Deserialize;
 use anyhow::Result as AResult;
 use std::result::Result;
 
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
@@ -71,7 +71,7 @@ fn parse_event(s: &str) -> Option<Event> {
     debug!("Parsed Event: {res:?}");
 
     if res.is_err() {
-        error!("parse_event - Error: {res:?}\n{s:?}\n");
+        warn!("parse_event - Error: {res:?}\n{s:?}\n");
     }
     res.ok()
 }

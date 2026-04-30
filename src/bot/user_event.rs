@@ -8,7 +8,7 @@ use std::str::FromStr as _;
 use anyhow::anyhow;
 use anyhow::Result as AResult;
 
-use log::{error, info};
+use log::{error, info, warn};
 
 use serde::Deserialize;
 
@@ -158,14 +158,15 @@ impl<S: SlackSender> Event<S> {
     }
 
     pub async fn send_reply(&self, text: &str) {
-        // TODO: log the error
-        let _ = send_text_message(
+        if let Err(e) = send_text_message(
             &self.tx,
             self.channel_id.clone(),
             self.thread_ts.clone(),
             format!("<@{}>: {}", &self.user_id, &text),
         )
-        .await;
+        .await {
+            error!("Failed to send message to slack: {e:?}");
+        }
     }
 
     pub async fn sanitize(&self) -> String {
@@ -238,7 +239,7 @@ fn parse_user_event(s: serde_json::Value) -> Option<UserEvent> {
     let res = serde_json::from_value::<UserEvent>(s).map_err(|e| format!("{e:?}"));
 
     if res.is_err() {
-        error!("parse_event - Error: {res:?}");
+        warn!("parse_event - Error: {res:?}");
     }
     res.ok()
 }
