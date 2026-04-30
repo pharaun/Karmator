@@ -24,8 +24,8 @@ pub async fn add_karma<S: SlackSender>(event: &Event<S>, pool: &Pool) {
     match karma::parse(&event.sanitize().await) {
         Ok(mut karma) if !karma.is_empty() => {
             info!("Parsed Karma: {karma:?}");
-            let username = event.get_username().await;
-            let user_real_name = event.get_user_real_name().await;
+            let username = event.get_username();
+            let user_real_name = event.get_user_real_name();
 
             // Filter karma of any entity that is same as
             // username, and check if any got filtered, if

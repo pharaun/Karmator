@@ -49,7 +49,7 @@ pub(super) async fn timezone<S: SlackSender>(event: &Event<S>, input: Vec<&str>)
                     zone: None,
                 },
             )) => {
-                match event.get_user_tz().await {
+                match event.get_user_tz() {
                     None => {
                         event
                             .send_reply("Internal error, unable to get your slack timezone")

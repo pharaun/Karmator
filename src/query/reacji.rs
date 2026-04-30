@@ -84,7 +84,7 @@ pub async fn add_reacji<S: SlackSender>(
             Err(e) => Err(anyhow!("Failed to get reacji message - Error: {e:?}")),
             Ok(None) => Ok(None), // These are expected error, drop
             Ok(Some(mid)) => {
-                match future::join(event.get_username(), event.get_user_real_name()).await {
+                match (event.get_username(), event.get_user_real_name()) {
                     (Some(ud), Some(rn)) => add_reacji_vote(
                         &txn,
                         Utc::now(),

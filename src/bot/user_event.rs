@@ -5,6 +5,7 @@ use deadpool_postgres::Pool;
 use std::result::Result;
 use std::str::FromStr as _;
 
+use anyhow::anyhow;
 use anyhow::Result as AResult;
 
 use log::{error, info};
@@ -30,6 +31,7 @@ use kcore::SlackClient;
 use kcore::SlackReply;
 use kcore::SlackSender;
 use kcore::SlackTimezone;
+use kcore::SlackUser;
 
 #[derive(Clone)]
 pub struct Event<S: SlackSender> {
@@ -40,32 +42,31 @@ pub struct Event<S: SlackSender> {
     // User Data
     pub channel_id: String,
     pub user_id: String,
+    cached_user: Option<SlackUser>,
     pub thread_ts: Option<String>,
     text: Option<String>,
 }
 
-// TODO: improve this since its just fetching the data over and over, maybe just embed it into the
-// event itself
 impl<S: SlackSender> Event<S> {
-    async fn is_user_bot(&self) -> bool {
-        match self.slack.get_user(&self.user_id).await {
-            Ok(Some(user)) => user.is_bot,
-            Ok(None) => {
-                error!("No info on user: {:?}", &self.user_id);
+    async fn new(
+        slack: SlackClient<S>,
+        tx: mpsc::Sender<Reply>,
+        channel_id: String,
+        user_id: String,
+        thread_ts: Option<String>,
+        text: Option<String>,
+    ) -> AResult<Self> {
+        let cached_user = slack.get_user(&user_id).await.map_err(|err| anyhow!("Api error when querying for {user_id:?} - {err:?}"))?;
 
-                // Bail out
-                true
-            }
-            Err(e) => {
-                error!(
-                    "Api error when querying for user: {:?} - {:?}",
-                    &self.user_id, e
-                );
-
-                // Bail out
-                true
-            }
-        }
+        Ok(Self {
+            slack,
+            tx,
+            channel_id,
+            user_id,
+            cached_user,
+            thread_ts,
+            text,
+        })
     }
 
     fn parse_command(&self) -> Result<Command<'_>, String> {
@@ -75,23 +76,27 @@ impl<S: SlackSender> Event<S> {
         }
     }
 
-    pub async fn get_user_tz(&self) -> Option<SlackTimezone> {
-        match self.slack.get_user(&self.user_id).await {
-            Ok(user) => user.map(|u| u.timezone),
-            Err(e) => {
-                error!(
-                    "Api error when querying for user: {:?} - {:?}",
-                    &self.user_id, e
-                );
-
-                // Bail out
-                None
-            }
+    fn user(&self) -> Option<&SlackUser> {
+        if self.cached_user.is_none() {
+            error!("User probs was deleted or deactivated: {:?}", self.user_id);
         }
+        self.cached_user.as_ref()
     }
 
-    pub async fn get_username(&self) -> Option<String> {
-        self.get_other_username(&self.user_id).await
+    pub fn is_user_bot(&self) -> bool {
+        self.user().map_or(true, |u| u.is_bot)
+    }
+
+    pub fn get_username(&self) -> Option<String> {
+        self.user().map(|u| u.username.clone())
+    }
+
+    pub fn get_user_real_name(&self) -> Option<String> {
+        self.user().map(|u| u.real_name.clone())
+    }
+
+    pub fn get_user_tz(&self) -> Option<SlackTimezone> {
+        self.user().map(|u| u.timezone.clone())
     }
 
     pub async fn get_other_username(&self, user_id: &str) -> Option<String> {
@@ -104,10 +109,6 @@ impl<S: SlackSender> Event<S> {
                 None
             }
         }
-    }
-
-    pub async fn get_user_real_name(&self) -> Option<String> {
-        self.get_other_user_real_name(&self.user_id).await
     }
 
     pub async fn get_other_user_real_name(&self, user_id: &str) -> Option<String> {
@@ -256,19 +257,17 @@ pub async fn process_user_message<S: SlackSender>(
             hidden: _,
             ts: _,
         }) => {
-            let event = Event {
-                // Bot data
+            let event = Event::new(
                 slack,
                 tx,
-                // User data
                 channel_id,
                 user_id,
                 thread_ts,
-                text: Some(text),
-            };
+                Some(text),
+            ).await?;
 
             // Check if user is a bot, if so ignore (this applies to myself as well)
-            if event.is_user_bot().await {
+            if event.is_user_bot() {
                 return Ok(());
             }
 
@@ -447,7 +446,7 @@ pub async fn process_user_message<S: SlackSender>(
                     };
                     if arg.is_empty() {
                         // Rank with yourself
-                        match event.get_username().await {
+                        match event.get_username() {
                             Some(ud) => {
                                 ranking(&event, &client, t_typ, &ud, "Your").await;
                             }
@@ -480,16 +479,14 @@ pub async fn process_user_message<S: SlackSender>(
             item: ReactionItem::Message { channel_id, ts },
             ..
         }) => {
-            let mut event = Event {
-                // Bot data
+            let mut event = Event::new(
                 slack,
                 tx,
-                // User data
                 channel_id,
                 user_id,
-                thread_ts: Some(ts),
-                text: None,
-            };
+                Some(ts),
+                None,
+            ).await?;
 
             add_reacji(&mut event, pool, &reaction, ReacjiAction::Add).await?;
         }
@@ -500,16 +497,14 @@ pub async fn process_user_message<S: SlackSender>(
             item: ReactionItem::Message { channel_id, ts },
             ..
         }) => {
-            let mut event = Event {
-                // Bot data
+            let mut event = Event::new(
                 slack,
                 tx,
-                // User data
                 channel_id,
                 user_id,
-                thread_ts: Some(ts),
-                text: None,
-            };
+                Some(ts),
+                None,
+            ).await?;
 
             add_reacji(&mut event, pool, &reaction, ReacjiAction::Del).await?;
         }
