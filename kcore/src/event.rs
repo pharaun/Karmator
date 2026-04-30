@@ -8,6 +8,7 @@ use std::result::Result;
 use log::{debug, error, info};
 
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 
 use crate::connection_state::ConnectionState;
 use crate::sanitizer;
@@ -49,9 +50,7 @@ enum Payload {
 }
 
 #[derive(Debug)]
-pub enum Reply {
-    Message(Message),
-
+pub(crate) enum WebsocketReply {
     // Acknowledge reception of event
     Acknowledge(String),
 
@@ -59,6 +58,12 @@ pub enum Reply {
     Ping(tungstenite::Bytes),
     Pong(tungstenite::Bytes),
 }
+
+#[derive(Debug)]
+pub enum HttpReply {
+    Message(Message),
+}
+
 
 fn parse_event(s: &str) -> Option<Event> {
     let res = serde_json::from_str::<Event>(s).map_err(|e| format!("{e:?}"));
@@ -72,7 +77,7 @@ fn parse_event(s: &str) -> Option<Event> {
 }
 
 pub async fn send_simple_message(
-    tx: &mpsc::Sender<Reply>,
+    tx: &mpsc::Sender<HttpReply>,
     channel: String,
     thread_ts: Option<String>,
     text: String,
@@ -84,7 +89,7 @@ pub async fn send_simple_message(
     // TODO: track if it got sanitized or not
     let text = sanitizer::sanitize_output(&text);
 
-    tx.send(Reply::Message(Message {
+    tx.send(HttpReply::Message(Message {
         channel,
         text,
         thread_ts,
@@ -94,18 +99,23 @@ pub async fn send_simple_message(
 }
 
 pub(crate) async fn send_slack_ping(
-    tx: &mpsc::Sender<Reply>,
+    wtx: &mpsc::Sender<WebsocketReply>,
     connection_state: &ConnectionState,
 ) -> Result<(), &'static str> {
-    tx.send(Reply::Ping(tungstenite::Bytes::new()))
-        .await
-        .map_err(|_| "Error sending")?;
-    connection_state.ping_sent().await;
-    Ok(())
+    match wtx.try_send(WebsocketReply::Ping(tungstenite::Bytes::new())) {
+        Ok(()) => {
+            connection_state.ping_sent().await;
+            Ok(())
+        },
+        // Drop it, if we reach this point the socket is in bad state and the eventual
+        // ping fail will trigger a reconnect
+        Err(TrySendError::Full(_)) => Ok(()),
+        Err(TrySendError::Closed(_)) => Err("Channel Closed"),
+    }
 }
 
 pub(crate) async fn process_control_message(
-    tx: &mpsc::Sender<Reply>,
+    wtx: &mpsc::Sender<WebsocketReply>,
     connection_state: &ConnectionState,
     msg: tungstenite::Message,
 ) -> AResult<Option<serde_json::Value>> {
@@ -117,7 +127,12 @@ pub(crate) async fn process_control_message(
         }
 
         tungstenite::Message::Ping(x) => {
-            tx.send(Reply::Pong(x)).await?;
+            match wtx.try_send(WebsocketReply::Pong(x)) {
+                Ok(()) | Err(TrySendError::Full(_)) => (),
+                Err(TrySendError::Closed(_)) => {
+                    error!("Ping channel closed");
+                },
+            }
             None
         }
 
@@ -162,7 +177,9 @@ pub(crate) async fn process_control_message(
                 accepts_response_payload: _,
                 payload: pay,
             } => {
-                tx.send(Reply::Acknowledge(ei)).await?;
+                // TODO: not sure how to handle this yet, try_send?
+                // TODO: We probs want to cache recently sent acknowledgement to handle reconnects
+                wtx.send(WebsocketReply::Acknowledge(ei)).await?;
 
                 match pay {
                     Payload::EventCallback { event: e } => Ok(Some(e)),

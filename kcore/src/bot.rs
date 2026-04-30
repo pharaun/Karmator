@@ -32,7 +32,7 @@ pub async fn default_event_loop<S: SlackSender, F1>(
     user_event_listener: F1,
 ) -> AResult<()>
 where
-    F1: Fn(serde_json::Value, SlackClient<S>, mpsc::Sender<event::Reply>),
+    F1: Fn(serde_json::Value, SlackClient<S>, mpsc::Sender<event::HttpReply>),
 {
     let conn_state = connection_state::ConnectionState::init();
 
@@ -40,8 +40,11 @@ where
     let mut heartbeat = time::interval(Duration::from_secs(1));
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-    // Message Tx/Rx from the message loop to the downstream handlers
+    // Http Tx/Rx from the message loop for the bot event handlers
     let (tx, mut rx) = mpsc::channel(32);
+
+    // Websocket Tx/Rx from the message loop for managing the websocket
+    let (wtx, mut wrx) = mpsc::channel(32);
 
     // Main server loop, exit if the database dies
     while !signal.should_shutdown() {
@@ -58,16 +61,17 @@ where
                         () = signal.shutdown() => info!("Shutdown signal received"),
 
                         // Process inbound messages
-                        ws_msg = ws_read.next() => process_message(&slack, &tx, &conn_state, &user_event_listener, ws_msg).await,
+                        ws_msg = ws_read.next() => process_message(&slack, &tx, &wtx, &conn_state, &user_event_listener, ws_msg).await,
 
-                        // The send may not happen right away, the select! checks the (if x)
-                        // part before it checks the queue/etc
-                        // TODO: this would be better if instead of exiting the select loop we
-                        // gracefully drain the rx queue before exiting
-                        Some(message) = rx.recv(), if conn_state.should_send() => send_messages(&slack, &conn_state, &mut ws_write, message).await,
+                        // Process outbound control messages
+                        Some(message) = wrx.recv(), if conn_state.should_send() => send_websocket(&conn_state, &mut ws_write, message).await,
+
+                        // Process user event messages
+                        // The send may not happen right away, the select! checks the (if x) part before it checks the queue/etc
+                        Some(message) = rx.recv(), if conn_state.should_send() => send_http(&slack, &conn_state, message).await,
 
                         // This is woken up peroidically to force a heartbeat check
-                        _ = heartbeat.tick() => heartbeat_tick(&tx, &conn_state).await,
+                        _ = heartbeat.tick() => heartbeat_tick(&wtx, &conn_state).await,
                     }
                 }
             }
@@ -107,16 +111,17 @@ async fn ws_connect<S: SlackSender>(
 
 async fn process_message<S: SlackSender, F1>(
     slack: &SlackClient<S>,
-    tx: &mpsc::Sender<crate::Reply>,
+    tx: &mpsc::Sender<event::HttpReply>,
+    wtx: &mpsc::Sender<event::WebsocketReply>,
     connection_state: &connection_state::ConnectionState,
     user_event_listener: F1,
     ws_msg: Option<Result<tungstenite::Message, tungstenite::Error>>,
 ) where
-    F1: Fn(serde_json::Value, SlackClient<S>, mpsc::Sender<event::Reply>),
+    F1: Fn(serde_json::Value, SlackClient<S>, mpsc::Sender<event::HttpReply>),
 {
     match ws_msg {
         Some(Ok(ws_msg)) => {
-            match event::process_control_message(tx, connection_state, ws_msg).await {
+            match event::process_control_message(wtx, connection_state, ws_msg).await {
                 // If there's an user event returned spawn off the user event processor
                 Ok(Some(event)) => user_event_listener(event, slack.clone(), tx.clone()),
                 Err(e) => error!("process_control_message error: {e:?}"),
@@ -136,17 +141,16 @@ async fn process_message<S: SlackSender, F1>(
     }
 }
 
-async fn send_messages<S: SlackSender>(
-    slack: &SlackClient<S>,
+async fn send_websocket(
     connection_state: &connection_state::ConnectionState,
     ws_write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
-    message: crate::Reply,
+    message: event::WebsocketReply,
 ) {
     // Convert this to a string json message to feed into the stream
     if let Err(e) = match message {
-        event::Reply::Pong(x) => ws_write.send(tungstenite::Message::Pong(x)).await,
-        event::Reply::Ping(x) => ws_write.send(tungstenite::Message::Ping(x)).await,
-        event::Reply::Acknowledge(envelope_id) => {
+        event::WebsocketReply::Pong(x) => ws_write.send(tungstenite::Message::Pong(x)).await,
+        event::WebsocketReply::Ping(x) => ws_write.send(tungstenite::Message::Ping(x)).await,
+        event::WebsocketReply::Acknowledge(envelope_id) => {
             ws_write
                 .send(tungstenite::Message::from(
                     json!({
@@ -156,12 +160,25 @@ async fn send_messages<S: SlackSender>(
                 ))
                 .await
         }
-        event::Reply::Message(msg) => {
+    } {
+        error!("Slack Websocket - Connection error: {e:?}");
+        connection_state.reconnect();
+    }
+}
+
+async fn send_http<S: SlackSender>(
+    slack: &SlackClient<S>,
+    connection_state: &connection_state::ConnectionState,
+    message: event::HttpReply,
+) {
+    // Convert this to a string json message to feed into the stream
+    if let Err(e) = match message {
+        event::HttpReply::Message(msg) => {
             if let Err(e) = slack.post_message(msg).await {
                 // Don't propagage error to websocket cuz this is via web api
                 error!("Slack Http - Post message error: {e:?}");
             }
-            Ok(())
+            Ok::<(), anyhow::Error>(())
         }
     } {
         error!("Slack Websocket - Connection error: {e:?}");
@@ -170,7 +187,7 @@ async fn send_messages<S: SlackSender>(
 }
 
 async fn heartbeat_tick(
-    tx: &mpsc::Sender<crate::Reply>,
+    tx: &mpsc::Sender<event::WebsocketReply>,
     connection_state: &connection_state::ConnectionState,
 ) {
     // Check the delta, If either or both are None, that means

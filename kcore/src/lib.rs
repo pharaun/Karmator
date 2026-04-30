@@ -19,7 +19,7 @@ pub use slack::HttpSender;
 pub use slack::ReqwestSender;
 
 pub use event::send_simple_message as send_text_message;
-pub use event::Reply;
+pub use event::HttpReply as Reply;
 
 pub use bot::default_event_loop;
 pub use signal::Signal;
