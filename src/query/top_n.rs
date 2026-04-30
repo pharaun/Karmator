@@ -18,7 +18,7 @@ pub async fn top_n<S: SlackSender, C: GenericClient>(
     kord2: OrdQuery,
     ktyp: KarmaTyp,
     label: (&str, &str),
-    limit: u16,
+    limit: u32,
 ) {
     let query = future::try_join(
         top_n_denormalized(client, kcol1, ktyp, limit, kord1),
@@ -54,7 +54,7 @@ async fn top_n_denormalized<C: GenericClient>(
     client: &C,
     karma_col: KarmaCol,
     karma_typ: KarmaTyp,
-    limit: u16,
+    limit: u32,
     ord: OrdQuery,
 ) -> AResult<Vec<(String, i64)>> {
     let rows = client
@@ -62,7 +62,7 @@ async fn top_n_denormalized<C: GenericClient>(
             &format!(
                 "SELECT name, {karma_typ} as total FROM {karma_col} ORDER BY total {ord} LIMIT $1"
             ),
-            &[&(limit as i32)],
+            &[&(limit as i64)],
         )
         .await?;
 
