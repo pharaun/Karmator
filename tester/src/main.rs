@@ -1,5 +1,4 @@
 use std::env;
-use std::sync::Arc;
 use std::io::Write;
 
 use log::{debug, info, warn, error};
@@ -10,10 +9,10 @@ use anyhow::Result as AResult;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use tokio::sync::watch;
 use tokio::time;
 use tokio_postgres::NoTls;
 use tokio_tungstenite::tungstenite;
+use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 
 use rustyline_async::Readline;
 use rustyline_async::ReadlineEvent;
@@ -26,17 +25,21 @@ use serde_json::json;
 
 use http::response;
 
-use kcore::slack;
-use kcore::slack::HttpSender;
-use kcore::signal;
-use kcore::bot;
-use kcore::command::Command;
+use kcore::default_event_loop;
+use kcore::Signal;
+use kcore::SlackClient;
+use kcore::SlackSender;
+use kcore::HttpSender;
+use kcore::Command;
+
 use karmator::bot::user_event;
 
 
 // Fake HTTP server for dealing with slack http api calls
 #[derive(Clone)]
 struct FakeSender;
+
+impl SlackSender for FakeSender {}
 
 impl HttpSender for FakeSender {
     async fn send(&self, request: reqwest::RequestBuilder) -> AResult<reqwest::Response> {
@@ -100,7 +103,7 @@ enum ServerState {
 // Fake Websocket server for sending the bot "messages" from slack
 async fn websocket_server(
     readyness: oneshot::Sender<()>,
-    mut signal: signal::Signal,
+    mut signal: Signal,
     mut websocket: mpsc::Receiver<serde_json::Value>,
 ) -> AResult<()> {
     // Socket + event loop for listening to connection attempts
@@ -218,11 +221,11 @@ async fn websocket_server(
 async fn terminal_readline(
     mut rl: rustyline_async::Readline,
     mut stdout: rustyline_async::SharedWriter,
-    mut signal: signal::Signal,
-    shutdown: watch::Sender<bool>,
+    mut signal: Signal,
     websocket: mpsc::Sender<serde_json::Value>,
-    client: Arc<tokio_postgres::Client>,
+    pool: &Pool,
 ) -> AResult<()> {
+    let client = pool.get().await?;
     while !signal.should_shutdown() {
         let _ = rl.flush();
         tokio::select! {
@@ -234,7 +237,7 @@ async fn terminal_readline(
                     rl.add_history_entry(line.clone());
                     line.insert_str(0, "!");
 
-                    match kcore::command::parse(&line) {
+                    match kcore::parse_command(&line) {
                         // Send string as it is to the bot via websocket
                         Ok(Command("send", arg)) => {
                             let _ = websocket.send(
@@ -307,15 +310,15 @@ async fn terminal_readline(
                     }
                 },
                 Ok(ReadlineEvent::Eof) => {
-                    let _ = shutdown.send(true);
+                    let _ = signal.shutdown_now();
                     let _ = writeln!(stdout, "Exiting...");
                 },
                 Ok(ReadlineEvent::Interrupted) => {
-                    let _ = shutdown.send(true);
+                    let _ = signal.shutdown_now();
                     let _ = writeln!(stdout, "^C");
                 },
                 Err(err) => {
-                    let _ = shutdown.send(true);
+                    let _ = signal.shutdown_now();
                     let _ = writeln!(stdout, "Received err: {:?}", err);
                     let _ = writeln!(stdout, "Exiting...");
                 },
@@ -349,7 +352,7 @@ async fn main() -> AResult<()> {
     //*******************
     // Signals bits
     //*******************
-    let (sql_shutdown_tx, signal) = signal::Signal::new();
+    let signal = Signal::new();
     {
         let mut signal = signal.clone();
         tokio::spawn(async move {
@@ -362,15 +365,14 @@ async fn main() -> AResult<()> {
     //*******************
     // Postgres bits
     //*******************
-    let (client, connection) = tokio_postgres::connect(&postgres_url, NoTls).await?;
-    let client = Arc::new(client);
-    {
-        let sql_shutdown_tx = sql_shutdown_tx.clone();
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {error!("Database Error: {:?}", e);}
-            if let Err(e) = sql_shutdown_tx.send(true) {error!("Shutdown Signal Error: {:?}", e);}
-        });
-    }
+    let pg_config = postgres_url.parse::<tokio_postgres::Config>()?;
+
+    // Deadpool configuration
+    let mgr_config = ManagerConfig {
+        recycling_method: RecyclingMethod::Verified,
+    };
+    let mgr = Manager::from_config(pg_config, NoTls, mgr_config);
+    let pool = Pool::builder(mgr).max_size(8).build()?;
 
     //*******************
     // Terminal bits
@@ -378,14 +380,12 @@ async fn main() -> AResult<()> {
     let (ws_tx, ws_rx) = mpsc::channel(10);
     {
         let signal = signal.clone();
-        let sql_shutdown_tx = sql_shutdown_tx.clone();
-        let client = client.clone();
+        let pool = pool.clone();
         tokio::spawn(async move {
             // If this exits, something went wrong
-            if let Err(e) = terminal_readline(rl, stdout, signal, sql_shutdown_tx.clone(), ws_tx, client).await {
+            if let Err(e) = terminal_readline(rl, stdout, signal, ws_tx, &pool).await {
                 error!("Websocket Error: {:?}", e);
             }
-            if let Err(e) = sql_shutdown_tx.send(true) {error!("Shutdown Signal Error: {:?}", e);}
         });
     }
 
@@ -394,11 +394,9 @@ async fn main() -> AResult<()> {
     //*******************
     {
         let signal = signal.clone();
-        let sql_shutdown_tx = sql_shutdown_tx.clone();
         tokio::spawn(async move {
             // If this exits something went wrong
             if let Err(e) = websocket_server(tx, signal, ws_rx).await {error!("Websocket Error: {:?}", e);}
-            if let Err(e) = sql_shutdown_tx.send(true) {error!("Shutdown Signal Error: {:?}", e);}
         });
     }
 
@@ -409,14 +407,14 @@ async fn main() -> AResult<()> {
     // TODO: have it be a more sophsicated readyness check that makes sure sql, terminal,
     // websockets are all ready to go?
     let _ = rx.await;
-
-    bot::default_event_loop(
-        slack::Client::with_sender(FakeSender, "http://localhost", "app-token", "bot-token", 10),
+    let pool = pool.clone();
+    default_event_loop(
+        SlackClient::with_sender(FakeSender, "http://localhost", "app-token", "bot-token", 10),
         signal,
         |event, slack, tx| {
-            let client = client.clone();
+            let pool = pool.clone();
             tokio::spawn(async move {
-                if let Err(e) = user_event::process_user_message(event, slack, tx, client).await {
+                if let Err(e) = user_event::process_user_message(event, slack, tx, &pool).await {
                     error!("user_event::process_user_message error: {:?}", e);
                 };
             });
