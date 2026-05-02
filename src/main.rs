@@ -14,8 +14,8 @@ use tokio_postgres_rustls::MakeRustlsConnect;
 use karmator::bot::user_event::process_user_message;
 
 use kcore::default_event_loop;
-use kcore::SlackClient;
 use kcore::Signal;
+use kcore::SlackClient;
 
 // TODO:
 // 5. Migrate from batch over to stored procedure for cleaning out votes run (ie repeated votes for

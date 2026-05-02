@@ -1,39 +1,38 @@
 use std::env;
 use std::io::Write;
 
-use log::{debug, info, warn, error};
+use log::{debug, error, info, warn};
 
 use anyhow::anyhow;
 use anyhow::Result as AResult;
 
+use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::time;
 use tokio_postgres::NoTls;
 use tokio_tungstenite::tungstenite;
-use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 
 use rustyline_async::Readline;
 use rustyline_async::ReadlineEvent;
 
-use futures_util::StreamExt;
-use futures_util::SinkExt;
 use futures_util::FutureExt;
+use futures_util::SinkExt;
+use futures_util::StreamExt;
 
 use serde_json::json;
 
 use http::response;
 
 use kcore::default_event_loop;
+use kcore::Command;
 use kcore::Signal;
-use kcore::Watcher;
 use kcore::SlackClient;
 use kcore::SlackSender;
-use kcore::Command;
+use kcore::Watcher;
 
 use karmator::bot::user_event;
-
 
 // Fake HTTP server for dealing with slack http api calls
 #[derive(Clone)]
@@ -46,16 +45,20 @@ impl SlackSender for FakeSender {
                 "/apps.connections.open" => {
                     let response = r#"{"ok": true, "url": "ws://127.0.0.1:8080"}"#;
                     Ok(response::Builder::new().status(200).body(response)?.into())
-                },
+                }
                 "/chat.postMessage" => {
                     info!(
                         "postMessage body: {:?}",
-                        request.body().map(|x| x.as_bytes()).flatten().map(|x| std::str::from_utf8(x))
+                        request
+                            .body()
+                            .map(|x| x.as_bytes())
+                            .flatten()
+                            .map(|x| std::str::from_utf8(x))
                     );
 
                     let response = r#"{"ok": true, "ts": "123.123"}"#;
                     Ok(response::Builder::new().status(200).body(response)?.into())
-                },
+                }
                 "/users.info" => {
                     let response = r#"{
                         "ok": true,
@@ -69,7 +72,7 @@ impl SlackSender for FakeSender {
                         }
                     }"#;
                     Ok(response::Builder::new().status(200).body(response)?.into())
-                },
+                }
                 "/conversations.history" => {
                     let response = r#"{
                         "ok": true,
@@ -80,11 +83,11 @@ impl SlackSender for FakeSender {
                         }]
                     }"#;
                     Ok(response::Builder::new().status(200).body(response)?.into())
-                },
+                }
                 x => {
                     error!("Unsupported FakeSender url: {:?}", x);
                     Err(anyhow!("Unsupported FakeSender url: {:?}", x))
-                },
+                }
             }
         } else {
             Err(anyhow!("Bad request"))
@@ -94,7 +97,10 @@ impl SlackSender for FakeSender {
 
 #[derive(Debug, PartialEq)]
 enum ServerState {
-    Hello, Event, Disconnect, Exit
+    Hello,
+    Event,
+    Disconnect,
+    Exit,
 }
 
 // Fake Websocket server for sending the bot "messages" from slack
@@ -197,7 +203,7 @@ async fn websocket_server(
                             state = ServerState::Disconnect;
                         }
                     }
-                },
+                }
                 ServerState::Disconnect => {
                     let response = r#"{"type": "disconnect", "reason": "refresh_requested"}"#;
                     let _ = ws_write.send(tungstenite::Message::from(response)).await;
@@ -205,7 +211,7 @@ async fn websocket_server(
                     // Sleep for a second then exit
                     time::sleep(time::Duration::from_secs(1)).await;
                     state = ServerState::Exit;
-                },
+                }
 
                 // Do nothing, we are done, exit event loop
                 ServerState::Exit => (),
@@ -323,7 +329,6 @@ async fn terminal_readline(
         }
     }
     Ok(())
-
 }
 
 // TODO: Figure out how to flesh out the bits we need for running tests in a useful way and then
@@ -331,7 +336,8 @@ async fn terminal_readline(
 // things, but otherwise setting things up to be ran in tests.
 #[tokio::main]
 async fn main() -> AResult<()> {
-    let postgres_url = env::var("POSTGRES_URL").map_err(|_| anyhow!("POSTGRES_URL env var must be set"))?;
+    let postgres_url =
+        env::var("POSTGRES_URL").map_err(|_| anyhow!("POSTGRES_URL env var must be set"))?;
 
     // Initial terminal setup
     let (rl, stdout) = Readline::new("> ".to_string()).unwrap();
@@ -341,7 +347,8 @@ async fn main() -> AResult<()> {
         log::LevelFilter::Debug,
         simplelog::Config::default(),
         stdout.clone(),
-    ).unwrap();
+    )
+    .unwrap();
 
     // Block till server is ready
     let (tx, rx) = oneshot::channel();
@@ -385,7 +392,9 @@ async fn main() -> AResult<()> {
         let watcher = signal.get_shutdown_watcher();
         tokio::spawn(async move {
             // If this exits something went wrong
-            if let Err(e) = websocket_server(tx, watcher, ws_rx).await {error!("Websocket Error: {:?}", e);}
+            if let Err(e) = websocket_server(tx, watcher, ws_rx).await {
+                error!("Websocket Error: {:?}", e);
+            }
         });
     }
 
@@ -408,7 +417,8 @@ async fn main() -> AResult<()> {
                 };
             });
         },
-    ).await?;
+    )
+    .await?;
 
     Ok(())
 }

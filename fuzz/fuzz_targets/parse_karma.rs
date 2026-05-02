@@ -1,13 +1,13 @@
 #![no_main]
-use libfuzzer_sys::fuzz_target;
 use arbitrary::{Arbitrary, Unstructured};
+use libfuzzer_sys::fuzz_target;
 
 extern crate karmator;
 
 // Dummy struct to get a string
 #[derive(Arbitrary)]
 struct Dummy {
-    dat: String
+    dat: String,
 }
 
 fuzz_target!(|data: &[u8]| {

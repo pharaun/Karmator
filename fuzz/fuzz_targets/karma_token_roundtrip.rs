@@ -1,6 +1,6 @@
 #![no_main]
-use libfuzzer_sys::fuzz_target;
 use arbitrary::{Arbitrary, Unstructured};
+use libfuzzer_sys::fuzz_target;
 
 extern crate karmator;
 use karmator::parser::test_all_token as kt;
@@ -16,11 +16,19 @@ fuzz_target!(|data: &[u8]| {
 
     if let Ok(value) = Dummy::arbitrary(&mut unstructured) {
         let cmd = value.dat;
-        let dat = cmd.iter().map(|k| k.to_string()).collect::<Vec<String>>().join("");
+        let dat = cmd
+            .iter()
+            .map(|k| k.to_string())
+            .collect::<Vec<String>>()
+            .join("");
 
         let new_cmd = kt::all_token(&dat);
         let new_dat = new_cmd.map(|(i, k)| {
-            let nk = k.iter().map(|k| k.to_string()).collect::<Vec<String>>().join("");
+            let nk = k
+                .iter()
+                .map(|k| k.to_string())
+                .collect::<Vec<String>>()
+                .join("");
             (i, nk)
         });
 
