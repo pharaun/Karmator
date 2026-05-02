@@ -18,6 +18,30 @@ use log::warn;
 
 use quick_cache::sync::Cache;
 
+// Rate limit notes:
+// 1. rate limit is per method per workspace (over a minute long window)
+//
+// apps.connections.open - 50/m
+// chat.postMessage - 1/s per channel plus a workspace wide limit of "several hundred a minute"
+// users.info - 100/m
+// conversations.history - 50/m
+//
+// 2. example:
+// HTTP/1.1 429 Too Many Requests
+// Retry-After: 30
+// {
+//   "ok": false,
+//   "error": "ratelimited"
+// }
+//
+// 3. Separate the http stack from the core async stack (or do a sleep, where it skips over and do
+//    other processing async wise)
+//
+// 4. optional: per method queue with wrinkles of user.info + conv.history are behind caches so hit
+//      cache first before then querying slack
+//
+// 5. if any 400, except 429 fail the request (cuz its client side issue)
+// 6. if any 500, exp back off and retry with jitter
 pub trait HttpSender: Clone + Send + Sync + Sized {
     fn send(&self, request: RequestBuilder) -> impl Future<Output = AResult<Response>> + Send;
 }
@@ -38,6 +62,7 @@ pub struct Client<S: HttpSender = ReqwestSender> {
     user_cache: Arc<Cache<String, Option<User>>>,
     app_token: String,
     bot_token: String,
+    // TODO: abstract this into the ReqwestSender
     http: reqwest::Client,
     sender: S,
 }
