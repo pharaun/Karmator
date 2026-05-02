@@ -9,14 +9,11 @@ mod slack;
 // TODO: Improve the ergonomics of the Slack Api interface
 pub use slack::Client as SlackClient;
 pub use slack::ConversationHistoryMessage as SlackReply;
+pub use slack::HttpSender as SlackSender;
 pub use slack::Message;
-pub use slack::SlackSender;
+pub use slack::ReqwestSender;
 pub use slack::Timezone as SlackTimezone;
 pub use slack::User as SlackUser;
-
-// TODO: how to hide these?
-pub use slack::HttpSender;
-pub use slack::ReqwestSender;
 
 pub use event::send_simple_message as send_text_message;
 pub use event::HttpReply as Reply;

@@ -7,6 +7,10 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
+use reqwest::header;
+use reqwest::RequestBuilder;
+use reqwest::Response;
+
 use anyhow::anyhow;
 use anyhow::Result as AResult;
 
@@ -14,21 +18,15 @@ use log::warn;
 
 use quick_cache::sync::Cache;
 
-pub trait SlackSender: HttpSender + Clone + Send + Sync + Sized {}
-impl SlackSender for ReqwestSender {}
-
-pub trait HttpSender {
-    fn send(
-        &self,
-        request: reqwest::RequestBuilder,
-    ) -> impl Future<Output = AResult<reqwest::Response>> + Send;
+pub trait HttpSender: Clone + Send + Sync + Sized {
+    fn send(&self, request: RequestBuilder) -> impl Future<Output = AResult<Response>> + Send;
 }
 
 #[derive(Clone)]
 pub struct ReqwestSender;
 impl HttpSender for ReqwestSender {
     // TODO: Better support rate limiting - https://api.slack.com/apis/rate-limits
-    async fn send(&self, request: reqwest::RequestBuilder) -> AResult<reqwest::Response> {
+    async fn send(&self, request: RequestBuilder) -> AResult<Response> {
         request.send().await.map_err(Into::into)
     }
 }
@@ -140,8 +138,16 @@ impl<S: HttpSender> Client<S> {
             user_cache: Arc::new(Cache::new(capacity)),
             app_token: app_token.to_owned(),
             bot_token: bot_token.to_owned(),
-            // Timeout to prevent the core loop from hanging
             http: reqwest::Client::builder()
+                .default_headers({
+                    let mut headers = header::HeaderMap::new();
+                    headers.insert(
+                        header::CONTENT_TYPE,
+                        header::HeaderValue::from_static("application/json;charset=utf-8"),
+                    );
+                    headers
+                })
+                // Timeout to prevent the core loop from hanging
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(30))
                 .build()
@@ -150,25 +156,10 @@ impl<S: HttpSender> Client<S> {
         }
     }
 
-    fn get_slack_url_for_method(&self, method: &str) -> String {
-        format!("{}/{}", self.url, method)
-    }
-
     pub async fn socket_connect(&self, debug: bool) -> AResult<String> {
-        let url = self.get_slack_url_for_method("apps.connections.open");
         let conn: String = parse_response(
             "url",
-            &self
-                .sender
-                .send(
-                    self.http
-                        .post(url)
-                        .header("Content-type", "application/x-www-form-urlencoded")
-                        .header("Authorization", format!("Bearer {}", self.app_token)),
-                )
-                .await?
-                .text()
-                .await?,
+            &self.post("apps.connections.open", &self.app_token).await?,
         )?;
 
         Ok(if debug {
@@ -180,20 +171,14 @@ impl<S: HttpSender> Client<S> {
 
     // TODO: maybe retry if the post_message fails
     pub async fn post_message(&self, message: Message) -> AResult<String> {
-        let url = self.get_slack_url_for_method("chat.postMessage");
         parse_response(
             "ts",
             &self
-                .sender
-                .send(
-                    self.http
-                        .post(url)
-                        .header("Content-type", "application/json")
-                        .header("Authorization", format!("Bearer {}", self.bot_token))
-                        .body(serde_json::to_string(&message)?),
+                .post_body(
+                    "chat.postMessage",
+                    &self.bot_token,
+                    serde_json::to_string(&message)?,
                 )
-                .await?
-                .text()
                 .await?,
         )
     }
@@ -202,20 +187,10 @@ impl<S: HttpSender> Client<S> {
         self.user_cache
             .get_or_insert_async(user_id, async {
                 // TODO: Improve the retry strat instead of straight up failing.
-                let url = self.get_slack_url_for_method("users.info");
                 match parse_response_envelope::<User>(
                     "user",
                     &self
-                        .sender
-                        .send(
-                            self.http
-                                .get(url)
-                                .header("Content-type", "application/json")
-                                .header("Authorization", format!("Bearer {}", self.bot_token))
-                                .query(&vec![("user", &user_id)]),
-                        )
-                        .await?
-                        .text()
+                        .get_query("users.info", &self.bot_token, &vec![("user", &user_id)])
                         .await?,
                 ) {
                     Ok(user) => Ok(Some(user)),
@@ -239,35 +214,65 @@ impl<S: HttpSender> Client<S> {
         channel_id: &str,
         message_ts: &str,
     ) -> AResult<Option<ConversationHistoryMessage>> {
-        let url = self.get_slack_url_for_method("conversations.history");
         let params = vec![
-            Some(("channel", channel_id.to_owned())),
-            Some(("latest", message_ts.to_owned())),
-            Some(("inclusive", "true".to_owned())),
-            Some(("limit", "1".to_owned())),
+            ("channel", channel_id),
+            ("latest", message_ts),
+            ("inclusive", "true"),
+            ("limit", "1"),
         ];
         let mess: Vec<ConversationHistoryMessage> = parse_response(
             "messages",
             &self
-                .sender
-                .send(
-                    self.http
-                        .get(url)
-                        .header("Content-type", "application/json")
-                        .header("Authorization", format!("Bearer {}", self.bot_token))
-                        .query(&params),
-                )
-                .await?
-                .text()
+                .get_query("conversations.history", &self.bot_token, &params)
                 .await?,
         )?;
-
         match mess.len() {
             0 => Ok(None),
             1 => Ok(mess.into_iter().next()),
             _ => Err(anyhow!("Malformed messages: {mess:?}")),
         }
     }
+
+    async fn get_query<T: Serialize + ?Sized>(
+        &self,
+        method: &str,
+        token: &str,
+        query: &T,
+    ) -> AResult<String> {
+        let url = format!("{}/{}", self.url, method);
+        Ok(self
+            .sender
+            .send(self.http.get(url).bearer_auth(token).query(query))
+            .await?
+            .text()
+            .await?)
+    }
+
+    async fn post_body<B: Into<reqwest::Body>>(
+        &self,
+        method: &str,
+        token: &str,
+        body: B,
+    ) -> AResult<String> {
+        let url = format!("{}/{}", self.url, method);
+        Ok(self
+            .sender
+            .send(self.http.post(url).bearer_auth(token).body(body))
+            .await?
+            .text()
+            .await?)
+    }
+
+    async fn post(&self, method: &str, token: &str) -> AResult<String> {
+        let url = format!("{}/{}", self.url, method);
+        Ok(self
+            .sender
+            .send(self.http.post(url).bearer_auth(token))
+            .await?
+            .text()
+            .await?)
+    }
+
 }
 
 #[cfg(test)]
@@ -275,9 +280,10 @@ mod test_slack_client {
     use super::*;
     use http::response;
 
+    #[derive(Clone)]
     struct FakeSender(u16, &'static str);
     impl HttpSender for FakeSender {
-        async fn send(&self, _request: reqwest::RequestBuilder) -> AResult<reqwest::Response> {
+        async fn send(&self, _request: RequestBuilder) -> AResult<Response> {
             Ok(response::Builder::new().status(self.0).body(self.1)?.into())
         }
     }
@@ -287,9 +293,10 @@ mod test_slack_client {
         Client::with_sender(sender, "http://localhost/api", "app_token", "bot_token", 10)
     }
 
+    #[derive(Clone)]
     struct PanicSender;
     impl HttpSender for PanicSender {
-        async fn send(&self, _request: reqwest::RequestBuilder) -> AResult<reqwest::Response> {
+        async fn send(&self, _request: RequestBuilder) -> AResult<Response> {
             panic!("Shouldn't hit http");
         }
     }

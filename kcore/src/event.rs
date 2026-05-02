@@ -64,7 +64,6 @@ pub enum HttpReply {
     Message(Message),
 }
 
-
 fn parse_event(s: &str) -> Option<Event> {
     let res = serde_json::from_str::<Event>(s).map_err(|e| format!("{e:?}"));
 
@@ -106,7 +105,7 @@ pub(crate) async fn send_slack_ping(
         Ok(()) => {
             connection_state.ping_sent().await;
             Ok(())
-        },
+        }
         // Drop it, if we reach this point the socket is in bad state and the eventual
         // ping fail will trigger a reconnect
         Err(TrySendError::Full(_)) => Ok(()),
@@ -130,7 +129,7 @@ pub(crate) async fn process_control_message(
                 Ok(()) | Err(TrySendError::Full(_)) => (),
                 Err(TrySendError::Closed(_)) => {
                     error!("Ping channel closed");
-                },
+                }
             }
             None
         }

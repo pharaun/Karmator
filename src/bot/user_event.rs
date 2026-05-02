@@ -164,7 +164,8 @@ impl<S: SlackSender> Event<S> {
             self.thread_ts.clone(),
             format!("<@{}>: {}", &self.user_id, &text),
         )
-        .await {
+        .await
+        {
             error!("Failed to send message to slack: {e:?}");
         }
     }
