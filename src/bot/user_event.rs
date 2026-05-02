@@ -1,5 +1,3 @@
-use tokio::sync::mpsc;
-
 use deadpool_postgres::Pool;
 
 use std::result::Result;
@@ -26,7 +24,6 @@ use crate::query::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
 use kcore::parse_command;
 use kcore::send_text_message;
 use kcore::Command;
-use kcore::Reply;
 use kcore::SlackClient;
 use kcore::SlackReply;
 use kcore::SlackSender;
@@ -37,7 +34,6 @@ use kcore::SlackUser;
 pub struct Event<S: SlackSender> {
     // Bot Data
     slack: SlackClient<S>,
-    tx: mpsc::Sender<Reply>,
 
     // User Data
     pub channel_id: String,
@@ -50,7 +46,6 @@ pub struct Event<S: SlackSender> {
 impl<S: SlackSender> Event<S> {
     async fn new(
         slack: SlackClient<S>,
-        tx: mpsc::Sender<Reply>,
         channel_id: String,
         user_id: String,
         thread_ts: Option<String>,
@@ -63,7 +58,6 @@ impl<S: SlackSender> Event<S> {
 
         Ok(Self {
             slack,
-            tx,
             channel_id,
             user_id,
             cached_user,
@@ -159,7 +153,7 @@ impl<S: SlackSender> Event<S> {
 
     pub async fn send_reply(&self, text: &str) {
         if let Err(e) = send_text_message(
-            &self.tx,
+            &self.slack,
             self.channel_id.clone(),
             self.thread_ts.clone(),
             format!("<@{}>: {}", &self.user_id, &text),
@@ -248,7 +242,6 @@ fn parse_user_event(s: serde_json::Value) -> Option<UserEvent> {
 pub async fn process_user_message<S: SlackSender>(
     msg: serde_json::Value,
     slack: SlackClient<S>,
-    tx: mpsc::Sender<Reply>,
     pool: &Pool,
 ) -> AResult<()> {
     // Check if its a message/certain string, if so, reply
@@ -262,7 +255,7 @@ pub async fn process_user_message<S: SlackSender>(
             hidden: _,
             ts: _,
         }) => {
-            let event = Event::new(slack, tx, channel_id, user_id, thread_ts, Some(text)).await?;
+            let event = Event::new(slack, channel_id, user_id, thread_ts, Some(text)).await?;
 
             // Check if user is a bot, if so ignore (this applies to myself as well)
             if event.is_user_bot() {
@@ -477,7 +470,7 @@ pub async fn process_user_message<S: SlackSender>(
             item: ReactionItem::Message { channel_id, ts },
             ..
         }) => {
-            let mut event = Event::new(slack, tx, channel_id, user_id, Some(ts), None).await?;
+            let mut event = Event::new(slack, channel_id, user_id, Some(ts), None).await?;
 
             add_reacji(&mut event, pool, &reaction, ReacjiAction::Add).await?;
         }
@@ -488,7 +481,7 @@ pub async fn process_user_message<S: SlackSender>(
             item: ReactionItem::Message { channel_id, ts },
             ..
         }) => {
-            let mut event = Event::new(slack, tx, channel_id, user_id, Some(ts), None).await?;
+            let mut event = Event::new(slack, channel_id, user_id, Some(ts), None).await?;
 
             add_reacji(&mut event, pool, &reaction, ReacjiAction::Del).await?;
         }

@@ -81,10 +81,10 @@ async fn main() -> AResult<()> {
     default_event_loop(
         SlackClient::new("https://slack.com/api", &app_token, &bot_token, 50),
         signal,
-        |event, slack, tx| {
+        |event, slack| {
             let pool = pool.clone();
             tokio::spawn(async move {
-                if let Err(e) = process_user_message(event, slack, tx, &pool).await {
+                if let Err(e) = process_user_message(event, slack, &pool).await {
                     error!("user_event::process_user_message error: {e:?}");
                 }
             });

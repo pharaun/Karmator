@@ -14,9 +14,7 @@ pub use slack::Message;
 pub use slack::ReqwestSender;
 pub use slack::Timezone as SlackTimezone;
 pub use slack::User as SlackUser;
-
-pub use event::send_simple_message as send_text_message;
-pub use event::HttpReply as Reply;
+pub use slack::send_simple_message as send_text_message;
 
 pub use bot::default_event_loop;
 pub use signal::Signal;

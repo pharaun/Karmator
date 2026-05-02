@@ -11,8 +11,6 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 
 use crate::connection_state::ConnectionState;
-use crate::sanitizer;
-use crate::slack::Message;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
@@ -59,11 +57,6 @@ pub(crate) enum WebsocketReply {
     Pong(tungstenite::Bytes),
 }
 
-#[derive(Debug)]
-pub enum HttpReply {
-    Message(Message),
-}
-
 fn parse_event(s: &str) -> Option<Event> {
     let res = serde_json::from_str::<Event>(s).map_err(|e| format!("{e:?}"));
 
@@ -73,28 +66,6 @@ fn parse_event(s: &str) -> Option<Event> {
         warn!("parse_event - Error: {res:?}\n{s:?}\n");
     }
     res.ok()
-}
-
-pub async fn send_simple_message(
-    tx: &mpsc::Sender<HttpReply>,
-    channel: String,
-    thread_ts: Option<String>,
-    text: String,
-) -> Result<(), &'static str> {
-    if text.is_empty() {
-        return Err("Empty string, not sending");
-    }
-
-    // TODO: track if it got sanitized or not
-    let text = sanitizer::sanitize_output(&text);
-
-    tx.send(HttpReply::Message(Message {
-        channel,
-        text,
-        thread_ts,
-    }))
-    .await
-    .map_err(|_| "Error sending")
 }
 
 pub(crate) async fn send_slack_ping(

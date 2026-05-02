@@ -18,6 +18,8 @@ use log::warn;
 
 use quick_cache::sync::Cache;
 
+use crate::sanitizer;
+
 // Rate limit notes:
 // 1. rate limit is per method per workspace (over a minute long window)
 //
@@ -42,6 +44,13 @@ use quick_cache::sync::Cache;
 //
 // 5. if any 400, except 429 fail the request (cuz its client side issue)
 // 6. if any 500, exp back off and retry with jitter
+//
+// 7. All http api calls are now spawned off to its own task via the process user content tokio
+//    spawn, this should now enable a simpler way of handling retries/backoff, by sleeping the
+//    current task till its able to proceed.
+//
+// 8. does need to deal with shared synchronization a bit for backing off if needed but we already
+//    have a struct for this so we can put the synchronization primitives in there
 pub trait HttpSender: Clone + Send + Sync + Sized {
     fn send(&self, request: RequestBuilder) -> impl Future<Output = AResult<Response>> + Send;
 }
@@ -141,6 +150,26 @@ pub struct Message {
     pub(crate) channel: String,
     pub(crate) text: String,
     pub(crate) thread_ts: Option<String>,
+}
+
+pub async fn send_simple_message<S: HttpSender>(
+    slack: &Client<S>,
+    channel: String,
+    thread_ts: Option<String>,
+    text: String,
+) -> AResult<String> {
+    if text.is_empty() {
+        return Err(anyhow!("Empty string, not sending"));
+    }
+
+    // TODO: track if it got sanitized or not
+    let text = sanitizer::sanitize_output(&text);
+
+    slack.post_message(Message {
+        channel,
+        text,
+        thread_ts,
+    }).await.map_err(|e| anyhow!("Slack Http - Post message error: {e:?}"))
 }
 
 impl Client<ReqwestSender> {
