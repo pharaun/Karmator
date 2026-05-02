@@ -12,6 +12,9 @@ use tokio::sync::mpsc::error::TrySendError;
 
 use crate::connection_state::ConnectionState;
 
+// Other unhandled types (interactive events):
+// Reply with data: slash_commands, view_submission, block_suggestion
+// Acknowlegement: block_actions, app_home_opened
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
@@ -27,8 +30,7 @@ enum Event {
         reason: String,
     },
 
-    // TODO: Find any other types that we need to be aware of so that we can
-    // acknowledge them then forward it to the library user's code
+    // Regular events
     EventsApi {
         envelope_id: String,
         accepts_response_payload: bool,

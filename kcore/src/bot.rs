@@ -80,18 +80,18 @@ where
         }
 
         if !watcher.should_shutdown() {
-            // We should implement this as an actual exp backoff before trying to reconnect, its a flat
-            // 20s wait between each reconnect, Also after 10 attempt shut down the bot
-            let count = conn_state.fetch_reconnect_count_add();
-
-            // Count to 10 but the atomic fetch_add returns the previous so on the 10th retry it'll be == 9
-            if count <= 9 {
-                info!("Slack Websocket - Reconnecting, try: {count:?}");
-                time::sleep(Duration::from_secs(20)).await;
-            } else {
-                error!("Slack Websocket - Exceeded 10 retries, shutting down");
-                watcher.shutdown_now();
-                break;
+            // Backoff timer is implemented in conn_state, its reset on entering reconnect state
+            // - When it returns None we have ran out of attempts and we should give up now
+            match conn_state.fetch_next_backoff() {
+                Some(durt) => {
+                    info!("Slack Websocket - Reconnecting, sleeping for: {durt:?}");
+                    time::sleep(durt).await;
+                },
+                None => {
+                    error!("Slack Websocket - Exceeded ~1 minutes of retries, shutting down");
+                    watcher.shutdown_now();
+                    break;
+                }
             }
         }
     }

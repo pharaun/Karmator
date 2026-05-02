@@ -1,32 +1,41 @@
 use tokio::sync::RwLock;
 
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use std::sync::Mutex;
 
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+use backoff::ExponentialBackoff;
+use backoff::exponential::ExponentialBackoffBuilder;
+use backoff::backoff::Backoff;
+
 pub(crate) struct ConnectionState {
     // Atomic boolean for ensuring send can't happen till the hello is received from slack
-    can_send: Arc<AtomicBool>,
+    can_send: AtomicBool,
     // Atomic boolean for exiting and re-establishing the connection
-    reconnect: Arc<AtomicBool>,
-    reconnect_count: Arc<AtomicUsize>,
+    reconnect: AtomicBool,
+    reconnect_backoff: Mutex<ExponentialBackoff>,
     // Monotonical clock for heartbeat/ping management
-    last_message_received: Arc<RwLock<Instant>>,
-    last_ping_sent: Arc<RwLock<Instant>>,
+    last_message_received: RwLock<Instant>,
+    last_ping_sent: RwLock<Instant>,
 }
 
 impl ConnectionState {
     pub(crate) fn init() -> Self {
         Self {
-            can_send: Arc::new(AtomicBool::new(false)),
-            reconnect: Arc::new(AtomicBool::new(false)),
-            reconnect_count: Arc::new(AtomicUsize::new(0)),
-            last_message_received: Arc::new(RwLock::new(Instant::now())),
-            last_ping_sent: Arc::new(RwLock::new(Instant::now())),
+            can_send: AtomicBool::new(false),
+            reconnect: AtomicBool::new(false),
+            reconnect_backoff: Mutex::new(ExponentialBackoffBuilder::new()
+                .with_initial_interval(Duration::from_millis(500))
+                .with_randomization_factor(0.5)
+                .with_multiplier(1.5)
+                .with_max_interval(Duration::from_secs(20))
+                .with_max_elapsed_time(Some(Duration::from_secs(60)))
+                .build()),
+            last_message_received: RwLock::new(Instant::now()),
+            last_ping_sent: RwLock::new(Instant::now()),
         }
     }
 
@@ -45,6 +54,7 @@ impl ConnectionState {
         // Need to reconnect,
         self.reconnect.store(true, Ordering::Relaxed);
         self.can_send.store(false, Ordering::Relaxed);
+        self.reconnect_backoff.lock().expect("Poisoned mutex").reset();
     }
 
     pub(crate) fn should_reconnect(&self) -> bool {
@@ -54,15 +64,14 @@ impl ConnectionState {
     pub(crate) fn connected(&self) {
         // Acknowledgement of connection
         self.can_send.store(true, Ordering::Relaxed);
-        self.reconnect_count.store(0, Ordering::Relaxed);
     }
 
     pub(crate) fn should_send(&self) -> bool {
         self.can_send.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn fetch_reconnect_count_add(&self) -> usize {
-        self.reconnect_count.fetch_add(1, Ordering::Relaxed)
+    pub(crate) fn fetch_next_backoff(&self) -> Option<Duration> {
+        self.reconnect_backoff.lock().expect("Poisoned mutex").next_backoff()
     }
 
     pub(crate) async fn message_received(&self) {
