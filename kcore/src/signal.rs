@@ -40,7 +40,7 @@ impl Watcher {
 }
 
 pub struct Signal {
-    pub watcher: Watcher,
+    watcher: Watcher,
     #[cfg(unix)]
     sig_int: unix::Signal,
     #[cfg(unix)]
@@ -67,7 +67,7 @@ impl Signal {
     }
 
     #[cfg(unix)]
-    pub async fn shutdown_signal(&mut self) -> AResult<()> {
+    pub(crate) async fn shutdown_signal(&mut self) -> AResult<()> {
         // This will never exit till shutdown is true
         tokio::select! {
             _ = self.watcher.shutdown.1.wait_for(|v| *v) => (),
@@ -81,7 +81,7 @@ impl Signal {
     }
 
     #[cfg(windows)]
-    pub async fn shutdown_signal(&mut self) -> AResult<()> {
+    pub(crate) async fn shutdown_signal(&mut self) -> AResult<()> {
         // This will never exit till shutdown is true
         tokio::select! {
             _ = self.watcher.shutdown.1.wait_for(|v| *v) => (),
