@@ -165,11 +165,14 @@ pub async fn send_simple_message<S: HttpSender>(
     // TODO: track if it got sanitized or not
     let text = sanitizer::sanitize_output(&text);
 
-    slack.post_message(Message {
-        channel,
-        text,
-        thread_ts,
-    }).await.map_err(|e| anyhow!("Slack Http - Post message error: {e:?}"))
+    slack
+        .post_message(Message {
+            channel,
+            text,
+            thread_ts,
+        })
+        .await
+        .map_err(|e| anyhow!("Slack Http - Post message error: {e:?}"))
 }
 
 impl Client<ReqwestSender> {
@@ -326,7 +329,6 @@ impl<S: HttpSender> Client<S> {
             .text()
             .await?)
     }
-
 }
 
 #[cfg(test)]

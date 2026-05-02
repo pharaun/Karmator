@@ -36,6 +36,9 @@ where
 {
     let conn_state = connection_state::ConnectionState::init();
 
+    // Shutdown watcher
+    let mut watcher = signal.get_shutdown_watcher();
+
     // Interval timers for heartbeat
     let mut heartbeat = time::interval(Duration::from_secs(1));
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -44,7 +47,7 @@ where
     let (wtx, mut wrx) = mpsc::channel(32);
 
     // Main server loop, exit if the database dies
-    while !signal.should_shutdown() {
+    while !watcher.should_shutdown() {
         match ws_connect(&slack).await {
             Ok(websocket) => {
                 let (mut ws_write, mut ws_read) = websocket.split();
@@ -52,15 +55,17 @@ where
                 // Reset the connection to waiting for ack from Slack
                 conn_state.pending().await;
 
-                while !conn_state.should_reconnect() && !signal.should_shutdown() {
+                while !conn_state.should_reconnect() && !watcher.should_shutdown() {
                     tokio::select! {
                         // Listens for shutdown signals from the system or the database
-                        () = signal.shutdown() => info!("Shutdown signal received"),
+                        _ = signal.shutdown_signal() => info!("Shutdown signal received"),
 
                         // Process inbound messages
                         ws_msg = ws_read.next() => process_message(&slack, &wtx, &conn_state, &user_event_listener, ws_msg).await,
 
                         // Process outbound control messages
+                        // NOTE: If should_send is false this will be disabled till heartbeat ticks
+                        // (~1s delay) or any other arm of the select fires.
                         Some(message) = wrx.recv(), if conn_state.should_send() => send_websocket(&conn_state, &mut ws_write, message).await,
 
                         // This is woken up peroidically to force a heartbeat check
@@ -74,7 +79,7 @@ where
             }
         }
 
-        if !signal.should_shutdown() {
+        if !watcher.should_shutdown() {
             // We should implement this as an actual exp backoff before trying to reconnect, its a flat
             // 20s wait between each reconnect, Also after 10 attempt shut down the bot
             let count = conn_state.fetch_reconnect_count_add();
@@ -85,7 +90,7 @@ where
                 time::sleep(Duration::from_secs(20)).await;
             } else {
                 error!("Slack Websocket - Exceeded 10 retries, shutting down");
-                signal.shutdown_now();
+                watcher.shutdown_now();
                 break;
             }
         }

@@ -1,6 +1,6 @@
 use std::env;
 
-use log::{error, info};
+use log::error;
 
 use anyhow::anyhow;
 use anyhow::Result as AResult;
@@ -14,8 +14,8 @@ use tokio_postgres_rustls::MakeRustlsConnect;
 use karmator::bot::user_event::process_user_message;
 
 use kcore::default_event_loop;
-use kcore::Signal;
 use kcore::SlackClient;
+use kcore::Signal;
 
 // TODO:
 // 5. Migrate from batch over to stored procedure for cleaning out votes run (ie repeated votes for
@@ -36,20 +36,8 @@ async fn main() -> AResult<()> {
     let bot_token =
         env::var("SLACK_BOT_TOKEN").map_err(|_| anyhow!("SLACK_BOT_TOKEN env var must be set"))?;
 
-    //*******************
-    // Signals bits
-    //*******************
-    let signal = Signal::new();
-    {
-        let mut signal = signal.clone();
-        tokio::spawn(async move {
-            // If this exits, then shutdown got invoked and this is no longer needed
-            if let Err(e) = signal.shutdown_daemon().await {
-                error!("Signal Error: {e:?}");
-            }
-            info!("Shutdown listener exited, shutdown is invoked");
-        });
-    }
+    // Shutdown signal
+    let signal = Signal::new()?;
 
     //*******************
     // Postgres bits
