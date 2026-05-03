@@ -62,7 +62,7 @@ async fn top_n_denormalized<C: GenericClient>(
             &format!(
                 "SELECT name, {karma_typ} as total FROM {karma_col} ORDER BY total {ord} LIMIT $1"
             ),
-            &[&(limit as i64)],
+            &[&i64::from(limit)],
         )
         .await?;
 

@@ -7,9 +7,9 @@ use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
 
-use backoff::ExponentialBackoff;
+use backoff::backoff::Backoff as _;
 use backoff::exponential::ExponentialBackoffBuilder;
-use backoff::backoff::Backoff;
+use backoff::ExponentialBackoff;
 
 pub(crate) struct ConnectionState {
     // Atomic boolean for ensuring send can't happen till the hello is received from slack
@@ -27,15 +27,17 @@ impl ConnectionState {
         Self {
             can_send: AtomicBool::new(false),
             reconnect: AtomicBool::new(false),
-            reconnect_backoff: Mutex::new(ExponentialBackoffBuilder::new()
-                .with_initial_interval(Duration::from_millis(500))
-                .with_randomization_factor(0.5)
-                .with_multiplier(1.5)
-                // Reevaulate this and maybe back off to a much longer, tho the existing logic was
-                // already doing 10 tries of 20s each
-                .with_max_interval(Duration::from_secs(20))
-                .with_max_elapsed_time(Some(Duration::from_secs(60)))
-                .build()),
+            reconnect_backoff: Mutex::new(
+                ExponentialBackoffBuilder::new()
+                    .with_initial_interval(Duration::from_millis(500))
+                    .with_randomization_factor(0.5)
+                    .with_multiplier(1.5)
+                    // Reevaulate this and maybe back off to a much longer, tho the existing logic was
+                    // already doing 10 tries of 20s each
+                    .with_max_interval(Duration::from_secs(20))
+                    .with_max_elapsed_time(Some(Duration::from_mins(1)))
+                    .build(),
+            ),
             last_message_received: RwLock::new(Instant::now()),
             last_ping_sent: RwLock::new(Instant::now()),
         }
@@ -56,7 +58,10 @@ impl ConnectionState {
         // Need to reconnect,
         self.reconnect.store(true, Ordering::Relaxed);
         self.can_send.store(false, Ordering::Relaxed);
-        self.reconnect_backoff.lock().expect("Poisoned mutex").reset();
+        self.reconnect_backoff
+            .lock()
+            .expect("Poisoned mutex")
+            .reset();
     }
 
     pub(crate) fn special_reconnect(&self) {
@@ -79,7 +84,10 @@ impl ConnectionState {
     }
 
     pub(crate) fn fetch_next_backoff(&self) -> Option<Duration> {
-        self.reconnect_backoff.lock().expect("Poisoned mutex").next_backoff()
+        self.reconnect_backoff
+            .lock()
+            .expect("Poisoned mutex")
+            .next_backoff()
     }
 
     pub(crate) async fn message_received(&self) {

@@ -10,8 +10,8 @@ use futures_util::StreamExt as _;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::time;
-use tokio::time::MissedTickBehavior;
 use tokio::time::timeout;
+use tokio::time::MissedTickBehavior;
 
 use serde_json::json;
 
@@ -84,19 +84,16 @@ where
         if !watcher.should_shutdown() {
             // Backoff timer is implemented in conn_state, its reset on entering reconnect state
             // - When it returns None we have ran out of attempts and we should give up now
-            match conn_state.fetch_next_backoff() {
-                Some(durt) => {
-                    info!("Slack Websocket - Reconnecting, sleeping for: {durt:?}");
-                    tokio::select! {
-                        _ = watcher.shutdown() => (),
-                        _ = time::sleep(durt) => (),
-                    }
-                },
-                None => {
-                    error!("Slack Websocket - Exceeded ~1 minutes of retries, shutting down");
-                    watcher.shutdown_now();
-                    break;
+            if let Some(durt) = conn_state.fetch_next_backoff() {
+                info!("Slack Websocket - Reconnecting, sleeping for: {durt:?}");
+                tokio::select! {
+                    () = watcher.shutdown() => (),
+                    () = time::sleep(durt) => (),
                 }
+            } else {
+                error!("Slack Websocket - Exceeded ~1 minutes of retries, shutting down");
+                watcher.shutdown_now();
+                break;
             }
         }
     }
@@ -109,7 +106,7 @@ async fn ws_connect<S: SlackSender>(
 ) -> AResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     let ws_url = slack.socket_connect(false).await?;
     let (ws_stream, _) = tokio::select! {
-        _ = watcher.shutdown() => Err(anyhow!("Shutdown triggered")),
+        () = watcher.shutdown() => Err(anyhow!("Shutdown triggered")),
         s = timeout(Duration::from_millis(500), connect_async(ws_url)) => s?.map_err(|e| anyhow!("Error: {e:?}")),
     }?;
     info!("Slack Websocket - connection established");
