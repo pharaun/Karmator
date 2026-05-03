@@ -306,8 +306,14 @@ async fn websocket_server(
                         let response = r#"{"type": "disconnect", "reason": "refresh_requested"}"#;
                         let _ = ws_write.send(tungstenite::Message::from(response)).await;
 
-                        // Sleep for a defined amount of time (1s default) then exit
-                        time::sleep(time::Duration::from_secs(1)).await;
+                        tokio::select! {
+                            _ = watcher.shutdown() => {
+                                info!("Shutdown signal received");
+                                state = ServerState::Exit;
+                            },
+                            // Sleep for a defined amount of time (1s default) then exit
+                            _ = time::sleep(time::Duration::from_secs(1)) => (),
+                        }
                     }
 
                     // Do nothing, we are done, exit event loop

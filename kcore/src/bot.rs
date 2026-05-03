@@ -19,6 +19,7 @@ use log::{debug, error, info, warn};
 
 use std::time::Duration;
 
+use anyhow::anyhow;
 use anyhow::Result as AResult;
 
 use crate::connection_state;
@@ -49,7 +50,7 @@ where
 
     // Main server loop, exit if the database dies
     while !watcher.should_shutdown() {
-        match ws_connect(&slack).await {
+        match ws_connect(&slack, &mut watcher).await {
             Ok(websocket) => {
                 let (mut ws_write, mut ws_read) = websocket.split();
 
@@ -86,7 +87,10 @@ where
             match conn_state.fetch_next_backoff() {
                 Some(durt) => {
                     info!("Slack Websocket - Reconnecting, sleeping for: {durt:?}");
-                    time::sleep(durt).await;
+                    tokio::select! {
+                        _ = watcher.shutdown() => (),
+                        _ = time::sleep(durt) => (),
+                    }
                 },
                 None => {
                     error!("Slack Websocket - Exceeded ~1 minutes of retries, shutting down");
@@ -101,9 +105,13 @@ where
 
 async fn ws_connect<S: SlackSender>(
     slack: &SlackClient<S>,
+    watcher: &mut signal::Watcher,
 ) -> AResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     let ws_url = slack.socket_connect(false).await?;
-    let (ws_stream, _) = timeout(Duration::from_millis(500), connect_async(ws_url)).await??;
+    let (ws_stream, _) = tokio::select! {
+        _ = watcher.shutdown() => Err(anyhow!("Shutdown triggered")),
+        s = timeout(Duration::from_millis(500), connect_async(ws_url)) => s?.map_err(|e| anyhow!("Error: {e:?}")),
+    }?;
     info!("Slack Websocket - connection established");
     Ok(ws_stream)
 }
