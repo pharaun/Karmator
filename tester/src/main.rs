@@ -1,5 +1,8 @@
 use std::env;
 use std::io::Write;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::RwLock;
 
 use log::{debug, error, info, warn};
 
@@ -38,12 +41,14 @@ use karmator::bot::user_event;
 #[derive(Clone)]
 pub struct Reconnect {
     reconnect: (watch::Sender<bool>, watch::Receiver<bool>),
+    duration: Arc<RwLock<time::Duration>>,
 }
 
 impl Reconnect {
     fn new() -> Self {
         Self {
             reconnect: watch::channel(false),
+            duration: Arc::new(RwLock::new(time::Duration::from_secs(1))),
         }
     }
 
@@ -53,7 +58,8 @@ impl Reconnect {
         }
     }
 
-    pub fn reconnect_now(&mut self) {
+    pub fn reconnect_now(&mut self, duration: time::Duration) {
+        *self.duration.write().unwrap() = duration;
         if let Err(e) = self.reconnect.0.send(true) {
             error!("Signal reconnect error: {e:?}");
         }
@@ -63,6 +69,10 @@ impl Reconnect {
         if let Err(e) = self.reconnect.0.send(false) {
             error!("Signal reconnect error: {e:?}");
         }
+    }
+
+    pub fn duration(&self) -> time::Duration {
+        *self.duration.read().unwrap()
     }
 }
 
@@ -132,8 +142,32 @@ impl SlackSender for FakeSender {
 enum ServerState {
     Hello,
     Event,
-    Disconnect,
+    SlackDisconnect,
+    NetDisconnect(time::Duration),
     Exit,
+}
+
+impl ServerState {
+    fn exit_outter_loop(&self) -> bool {
+        match self {
+            ServerState::Exit => true,
+            _ => false,
+        }
+    }
+
+    fn exit_accept_loop(&self) -> bool {
+        match self {
+            ServerState::Exit | ServerState::NetDisconnect(_) => true,
+            _ => false,
+        }
+    }
+
+    fn exit_inner_loop(&self) -> bool {
+        match self {
+            ServerState::Exit | ServerState::NetDisconnect(_) | ServerState::SlackDisconnect => true,
+            _ => false,
+        }
+    }
 }
 
 // Fake Websocket server for sending the bot "messages" from slack
@@ -144,121 +178,148 @@ async fn websocket_server(
     mut reconnect: Reconnect,
 ) -> AResult<()> {
     // Socket + event loop for listening to connection attempts
-    let socket = TcpListener::bind("127.0.0.1:8080").await.unwrap();
     let _ = readyness.send(());
+    let mut socket = TcpListener::bind("127.0.0.1:8080").await.unwrap();
 
     // Interval timers for routine disconnect
     let mut disbeat = time::interval(time::Duration::from_secs(240));
     disbeat.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
     disbeat.tick().await;
 
-    let mut state;
-    while let Ok((stream, _)) = socket.accept().await {
-        let ws_stream = tokio_tungstenite::accept_async(stream).await.unwrap();
-        let (mut ws_write, mut ws_read) = ws_stream.split();
-
-        state = ServerState::Hello;
-        info!("Slack Websocket - server established");
-
-        while state != ServerState::Exit && !watcher.should_shutdown() {
-            debug!("Current Server State: {:?}", state);
-            match state {
-                ServerState::Hello => {
-                    let response = r#"{"type": "hello", "num_connections": 1}"#;
-                    let _ = ws_write.send(tungstenite::Message::from(response)).await;
-
-                    state = ServerState::Event;
+    let mut state = ServerState::Hello;
+    while !state.exit_outter_loop() && !watcher.should_shutdown() {
+        debug!("Outter Current Server State: {:?}", state);
+        match state {
+            ServerState::NetDisconnect(durt) => {
+                info!("Slack Websocket - server disconnecting for: {durt:?}");
+                tokio::select! {
+                    _ = watcher.shutdown() => {
+                        info!("Shutdown signal received");
+                        state = ServerState::Exit;
+                    },
+                    _ = time::sleep(durt) => {
+                        info!("Slept for {durt:?}");
+                        // Recreate socket
+                        drop(socket);
+                        socket = TcpListener::bind("127.0.0.1:8080").await.unwrap();
+                        state = ServerState::Hello;
+                    },
                 }
-                ServerState::Event => {
-                    tokio::select! {
-                        _ = watcher.shutdown() => {
-                            info!("Shutdown signal received");
-                            state = ServerState::Exit;
-                        },
+            },
+            _ => (),
+        };
 
-                        ws_msg = ws_read.next() => {
-                            match ws_msg {
-                                Some(Ok(tungstenite::Message::Text(msg))) => {
-                                    // Expect an acknowledgement for an event sent
-                                    //
-                                    // Expect an acknowledgement (if not, send again after a delay)
-                                    // {"envelope_id": <$unique_identifier_string>}
-                                    //
-                                    // If one is not gotten after sufficient time, go back to resend recent event
-                                    //
-                                    // Either transition into Event or Disconnect, for now Disconnect
-                                    info!("Client message: {:?}", msg);
-                                },
-                                Some(Ok(tungstenite::Message::Ping(x))) => {
-                                    debug!("Client Ping: {:?}", x);
-                                    let _ = ws_write.send(tungstenite::Message::Pong(x)).await;
-                                },
-                                Some(Ok(tungstenite::Message::Pong(x))) => {
-                                    debug!("Client Pong: {:?}", x);
-                                },
-                                Some(Ok(tungstenite::Message::Close(reason))) => {
-                                    info!("Client close reason: {:?}", reason);
-                                    state = ServerState::Exit;
-                                },
-                                Some(Ok(ws_msg)) => {
-                                    info!("Server Unknown Event: {:?}", ws_msg);
-                                },
-                                Some(Err(e)) => {
-                                    error!("Server Event - Error: {:?}", e);
-                                    state = ServerState::Exit;
-                                }
-                                None => {
-                                    warn!("Server Event - Disconnection");
-                                    state = ServerState::Exit;
-                                },
-                            }
-                        },
+        while !state.exit_accept_loop() && let Ok((stream, _)) = socket.accept().await {
+            debug!("Accept Current Server State: {:?}", state);
+            let ws_stream = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let (mut ws_write, mut ws_read) = ws_stream.split();
 
-                        // Send the string as it was received from the repl
-                        // TODO: generate a unique envelope_id and validate acknowledgements
-                        Some(msg) = websocket.recv() => {
-                            info!("Sending to bot: {:?}", msg);
-                            let _ = ws_write.send(tungstenite::Message::from(
-                                json!({
-                                    "type": "events_api",
-                                    "envelope_id": "asdf",
-                                    "payload": {
-                                        "type": "event_callback",
-                                        "event": msg
+            info!("Slack Websocket - server established");
+            state = ServerState::Hello;
+
+            while !state.exit_inner_loop() && !watcher.should_shutdown() {
+                debug!("Inner Current Server State: {:?}", state);
+                match state {
+                    ServerState::Hello => {
+                        let response = r#"{"type": "hello", "num_connections": 1}"#;
+                        let _ = ws_write.send(tungstenite::Message::from(response)).await;
+
+                        state = ServerState::Event;
+                    }
+                    ServerState::Event => {
+                        tokio::select! {
+                            _ = watcher.shutdown() => {
+                                info!("Shutdown signal received");
+                                state = ServerState::Exit;
+                            },
+
+                            ws_msg = ws_read.next() => {
+                                match ws_msg {
+                                    Some(Ok(tungstenite::Message::Text(msg))) => {
+                                        // Expect an acknowledgement for an event sent
+                                        //
+                                        // Expect an acknowledgement (if not, send again after a delay)
+                                        // {"envelope_id": <$unique_identifier_string>}
+                                        //
+                                        // If one is not gotten after sufficient time, go back to resend recent event
+                                        //
+                                        // Either transition into Event or Disconnect, for now Disconnect
+                                        info!("Client message: {:?}", msg);
                                     },
-                                    "accepts_response_payload": false,
-                                }).to_string()
-                            )).await;
-                        },
+                                    Some(Ok(tungstenite::Message::Ping(x))) => {
+                                        debug!("Client Ping: {:?}", x);
+                                        let _ = ws_write.send(tungstenite::Message::Pong(x)).await;
+                                    },
+                                    Some(Ok(tungstenite::Message::Pong(x))) => {
+                                        debug!("Client Pong: {:?}", x);
+                                    },
+                                    Some(Ok(tungstenite::Message::Close(reason))) => {
+                                        info!("Client close reason: {:?}", reason);
+                                        state = ServerState::Exit;
+                                    },
+                                    Some(Ok(ws_msg)) => {
+                                        info!("Server Unknown Event: {:?}", ws_msg);
+                                    },
+                                    Some(Err(e)) => {
+                                        error!("Server Event - Error: {:?}", e);
+                                        state = ServerState::Exit;
+                                    }
+                                    None => {
+                                        warn!("Server Event - Disconnection");
+                                        state = ServerState::Exit;
+                                    },
+                                }
+                            },
 
-                        _ = reconnect.reconnect() => {
-                            // Reconnect triggered (there's disbeat too but this is a forced one)
-                            info!("Forced Reconnect tester");
-                            state = ServerState::Disconnect;
-                            reconnect.reset_now();
-                        },
+                            // Send the string as it was received from the repl
+                            // TODO: generate a unique envelope_id and validate acknowledgements
+                            Some(msg) = websocket.recv() => {
+                                info!("Sending to bot: {:?}", msg);
+                                let _ = ws_write.send(tungstenite::Message::from(
+                                    json!({
+                                        "type": "events_api",
+                                        "envelope_id": "asdf",
+                                        "payload": {
+                                            "type": "event_callback",
+                                            "event": msg
+                                        },
+                                        "accepts_response_payload": false,
+                                    }).to_string()
+                                )).await;
+                            },
 
-                        // This is woken up peroidically to force a reconnection
-                        _ = disbeat.tick() => {
-                            info!("Perodic Reconnect tester");
-                            state = ServerState::Disconnect;
+                            _ = reconnect.reconnect() => {
+                                // Reconnect triggered (there's disbeat too but this is a forced one)
+                                info!("Forced Reconnect tester {:?}", reconnect.duration());
+                                state = ServerState::NetDisconnect(reconnect.duration());
+                                reconnect.reset_now();
+                            },
+
+                            // This is woken up peroidically to force a reconnection
+                            _ = disbeat.tick() => {
+                                info!("Perodic Reconnect tester");
+                                state = ServerState::SlackDisconnect;
+                            }
                         }
                     }
-                }
-                ServerState::Disconnect => {
-                    let response = r#"{"type": "disconnect", "reason": "refresh_requested"}"#;
-                    let _ = ws_write.send(tungstenite::Message::from(response)).await;
+                    ServerState::SlackDisconnect => {
+                        let response = r#"{"type": "disconnect", "reason": "refresh_requested"}"#;
+                        let _ = ws_write.send(tungstenite::Message::from(response)).await;
 
-                    // Sleep for a second then exit
-                    time::sleep(time::Duration::from_secs(1)).await;
-                    state = ServerState::Exit;
-                }
+                        // Sleep for a defined amount of time (1s default) then exit
+                        time::sleep(time::Duration::from_secs(1)).await;
+                    }
 
-                // Do nothing, we are done, exit event loop
-                ServerState::Exit => (),
+                    // Do nothing, we are done, exit event loop
+                    ServerState::Exit => (),
+
+                    // Do nothing, exit the event loop to force a socket re-connect
+                    ServerState::NetDisconnect(_) => (),
+                }
             }
         }
     }
+    info!("Exiting the websocket_server");
     Ok(())
 }
 
@@ -346,12 +407,13 @@ async fn terminal_readline(
                                 })
                             ).await;
                         },
-                        Ok(Command("reconnect", _)) => {
-                            let _ = writeln!(stdout, "Triggering websocket reconnect");
-                            reconnect.reconnect_now();
+                        Ok(Command("reconnect", arg)) => {
+                            let time = time::Duration::from_secs(u64::from_str(arg.first().unwrap_or(&"1"))?);
+                            let _ = writeln!(stdout, "Triggering websocket reconnect - sleeping for {time:?}");
+                            reconnect.reconnect_now(time);
                         },
                         Ok(Command("help", _)) => {
-                            let _ = writeln!(stdout, "Commands available: help, send [arg], truncate, addReacji [arg], delReacji [arg], reconnect");
+                            let _ = writeln!(stdout, "Commands available: help, send [arg], truncate, addReacji [arg], delReacji [arg], reconnect [secs]");
                         },
                         _ => {
                             let _ = writeln!(stdout, "Command not found: \"{}\"", line);

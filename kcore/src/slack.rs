@@ -213,6 +213,10 @@ impl<S: HttpSender> Client<S> {
         }
     }
 
+    // TODO: probs want to cache this for a little bit or restructure the websocket logic
+    // so that it can reconnect a few time to the same url then try a new one to prevent spamming
+    // slack for this
+    // apps.connections.open - 50/m (ie keep it around for at least a few second)
     pub async fn socket_connect(&self, debug: bool) -> AResult<String> {
         let conn: String = parse_response(
             "url",

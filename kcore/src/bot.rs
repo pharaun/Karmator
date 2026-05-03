@@ -11,6 +11,7 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::time;
 use tokio::time::MissedTickBehavior;
+use tokio::time::timeout;
 
 use serde_json::json;
 
@@ -74,7 +75,7 @@ where
                 }
             }
             Err(e) => {
-                conn_state.reconnect();
+                conn_state.special_reconnect();
                 error!("Slack Websocket - Connection failed: {e:?}");
             }
         }
@@ -102,7 +103,7 @@ async fn ws_connect<S: SlackSender>(
     slack: &SlackClient<S>,
 ) -> AResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     let ws_url = slack.socket_connect(false).await?;
-    let (ws_stream, _) = connect_async(ws_url).await?;
+    let (ws_stream, _) = timeout(Duration::from_millis(500), connect_async(ws_url)).await??;
     info!("Slack Websocket - connection established");
     Ok(ws_stream)
 }
@@ -126,13 +127,13 @@ async fn process_message<S: SlackSender, F1>(
             }
         }
         Some(Err(e)) => {
-            error!("Slack Websocket - Connection error: {e:?}");
+            error!("Slack Websocket - Process - Connection error: {e:?}");
             connection_state.reconnect();
         }
 
         // Stream is done/closed
         None => {
-            warn!("Slack Websocket - Stream closed, reconnecting");
+            warn!("Slack Websocket - Process - Stream closed, reconnecting");
             connection_state.reconnect();
         }
     }

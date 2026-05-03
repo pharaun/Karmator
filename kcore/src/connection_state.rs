@@ -31,6 +31,8 @@ impl ConnectionState {
                 .with_initial_interval(Duration::from_millis(500))
                 .with_randomization_factor(0.5)
                 .with_multiplier(1.5)
+                // Reevaulate this and maybe back off to a much longer, tho the existing logic was
+                // already doing 10 tries of 20s each
                 .with_max_interval(Duration::from_secs(20))
                 .with_max_elapsed_time(Some(Duration::from_secs(60)))
                 .build()),
@@ -55,6 +57,12 @@ impl ConnectionState {
         self.reconnect.store(true, Ordering::Relaxed);
         self.can_send.store(false, Ordering::Relaxed);
         self.reconnect_backoff.lock().expect("Poisoned mutex").reset();
+    }
+
+    pub(crate) fn special_reconnect(&self) {
+        // Need to reconnect,
+        self.reconnect.store(true, Ordering::Relaxed);
+        self.can_send.store(false, Ordering::Relaxed);
     }
 
     pub(crate) fn should_reconnect(&self) -> bool {

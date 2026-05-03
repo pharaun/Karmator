@@ -3,7 +3,7 @@ name = "karmator-tester"
 version = "0.1.0"
 authors = ["Anja Berens <pharaun666@gmail.com>"]
 publish = false
-edition = "2021"
+edition = "2024"
 
 # Prevent this from interfering with workspaces
 [workspace]
