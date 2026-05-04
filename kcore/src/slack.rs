@@ -5,11 +5,15 @@ use serde::Serialize;
 use std::clone::Clone;
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
+use std::time::Instant;
 
 use reqwest::header;
 use reqwest::RequestBuilder;
 use reqwest::Response;
+
+use async_singleflight::Group;
 
 use anyhow::anyhow;
 use anyhow::Result as AResult;
@@ -67,13 +71,73 @@ impl HttpSender for ReqwestSender {
 #[derive(Clone)]
 pub struct Client<S: HttpSender = ReqwestSender> {
     url: String,
-    // Handles user_not_found via mapping to None
+    // Endpoint Caches
     user_cache: Arc<Cache<String, Option<User>>>,
+    socket_url_cache: TtlCache<String>,
+    // Tokens
     app_token: String,
     bot_token: String,
     // TODO: abstract this into the ReqwestSender
     http: reqwest::Client,
     sender: S,
+}
+
+#[derive(Clone)]
+struct TtlCache<V: Clone> {
+    entity: Arc<Mutex<TtlEntity<V>>>,
+    group: Arc<Group<String, V, anyhow::Error>>,
+}
+
+struct TtlEntity<V: Clone> {
+    value: V,
+    expiry: Instant,
+}
+
+impl<V: Clone> TtlEntity<V> {
+    fn new(v: V, duration: Duration) -> Self {
+        Self {
+            value: v,
+            expiry: Instant::now() + duration,
+        }
+    }
+
+    fn is_expired(&self) -> bool {
+        Instant::now() > self.expiry
+    }
+}
+
+impl<V: Clone> TtlCache<V> {
+    fn new(v: V, duration: Duration) -> Self {
+        Self {
+            entity: Arc::new(Mutex::new(TtlEntity::new(v, duration))),
+            group: Arc::new(Group::new()),
+        }
+    }
+
+    // TODO: initial experimental implementation, this is probs a very wrong
+    // impl, dig around at other caching examples to see their logic with locking
+    // but for now this "works" but I have a suspection
+    async fn get_or_insert(
+        &self,
+        duration: Duration,
+        with: impl Future<Output = AResult<V>> + Send,
+    ) -> AResult<V> {
+        let expired = { self.entity.lock().expect("Poisoned mutex").is_expired() };
+
+        if expired {
+            match self.group.work("key", with).await {
+                Ok(v) => {
+                    *self.entity.lock().expect("Poisoned mutex") =
+                        TtlEntity::new(v.clone(), duration);
+                    Ok(v)
+                }
+                Err(Some(e)) => Err(e),
+                Err(None) => Err(anyhow!("Leader failed")),
+            }
+        } else {
+            Ok(self.entity.lock().expect("Poisoned mutex").value.clone())
+        }
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -193,6 +257,8 @@ impl<S: HttpSender> Client<S> {
         Self {
             url: url.to_owned(),
             user_cache: Arc::new(Cache::new(capacity)),
+            // Set it to the past and expired already
+            socket_url_cache: TtlCache::new(String::new(), Duration::from_secs(0)),
             app_token: app_token.to_owned(),
             bot_token: bot_token.to_owned(),
             http: reqwest::Client::builder()
@@ -220,7 +286,13 @@ impl<S: HttpSender> Client<S> {
     pub async fn socket_connect(&self, debug: bool) -> AResult<String> {
         let conn: String = parse_response(
             "url",
-            &self.post("apps.connections.open", &self.app_token).await?,
+            &self
+                .socket_url_cache
+                .get_or_insert(
+                    Duration::from_secs(10),
+                    self.post("apps.connections.open", &self.app_token),
+                )
+                .await?,
         )?;
 
         Ok(if debug {
