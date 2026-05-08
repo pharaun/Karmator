@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use std::clone::Clone;
 use std::future::Future;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -73,7 +74,7 @@ pub struct Client<S: HttpSender = ReqwestSender> {
     url: String,
     // Endpoint Caches
     user_cache: Arc<Cache<String, Option<User>>>,
-    socket_url_cache: TtlCache<String>,
+    socket_url_cache: TtlValue<String>,
     // Tokens
     app_token: String,
     bot_token: String,
@@ -82,36 +83,33 @@ pub struct Client<S: HttpSender = ReqwestSender> {
     sender: S,
 }
 
+fn calc_expiry(base: Instant, duration: Duration) -> Duration {
+    (Instant::now() + duration).duration_since(base)
+}
+
 #[derive(Clone)]
-struct TtlCache<V: Clone> {
-    entity: Arc<Mutex<TtlEntity<V>>>,
+struct TtlValue<V: Clone> {
+    base: Instant,
+    expiry: Arc<AtomicU64>,
+    value: Arc<Mutex<V>>,
     group: Arc<Group<String, V, anyhow::Error>>,
 }
 
-struct TtlEntity<V: Clone> {
-    value: V,
-    expiry: Instant,
-}
-
-impl<V: Clone> TtlEntity<V> {
+impl<V: Clone + Send + Sync> TtlValue<V> {
     fn new(v: V, duration: Duration) -> Self {
+        let base = Instant::now();
+        let expiry = calc_expiry(base, duration).as_secs();
+
         Self {
-            value: v,
-            expiry: Instant::now() + duration,
+            base,
+            expiry: Arc::new(AtomicU64::new(expiry)),
+            value: Arc::new(Mutex::new(v)),
+            group: Arc::new(Group::new()),
         }
     }
 
     fn is_expired(&self) -> bool {
-        Instant::now() > self.expiry
-    }
-}
-
-impl<V: Clone> TtlCache<V> {
-    fn new(v: V, duration: Duration) -> Self {
-        Self {
-            entity: Arc::new(Mutex::new(TtlEntity::new(v, duration))),
-            group: Arc::new(Group::new()),
-        }
+        self.expiry.load(Ordering::Relaxed) <= calc_expiry(self.base, Duration::ZERO).as_secs()
     }
 
     // TODO: initial experimental implementation, this is probs a very wrong
@@ -122,21 +120,27 @@ impl<V: Clone> TtlCache<V> {
         duration: Duration,
         with: impl Future<Output = AResult<V>> + Send,
     ) -> AResult<V> {
-        let expired = { self.entity.lock().expect("Poisoned mutex").is_expired() };
-
-        if expired {
-            match self.group.work("key", with).await {
-                Ok(v) => {
-                    *self.entity.lock().expect("Poisoned mutex") =
-                        TtlEntity::new(v.clone(), duration);
-                    Ok(v)
-                }
-                Err(Some(e)) => Err(e),
-                Err(None) => Err(anyhow!("Leader failed")),
-            }
-        } else {
-            Ok(self.entity.lock().expect("Poisoned mutex").value.clone())
+        if !self.is_expired() {
+            return Ok(self.value.lock().expect("Poisoned mutex").clone());
         }
+
+        self.group
+            .work("key", async {
+                let val = with.await?;
+                {
+                    *self.value.lock().expect("Poisoned mutex") = val.clone();
+                }
+                self.expiry.store(
+                    calc_expiry(self.base, duration).as_secs(),
+                    Ordering::Release,
+                );
+                Ok(val)
+            })
+            .await
+            .map_err(|e| match e {
+                Some(e) => e,
+                None => anyhow!("Leader failed"),
+            })
     }
 }
 
@@ -258,7 +262,7 @@ impl<S: HttpSender> Client<S> {
             url: url.to_owned(),
             user_cache: Arc::new(Cache::new(capacity)),
             // Set it to the past and expired already
-            socket_url_cache: TtlCache::new(String::new(), Duration::from_secs(0)),
+            socket_url_cache: TtlValue::new(String::new(), Duration::from_secs(0)),
             app_token: app_token.to_owned(),
             bot_token: bot_token.to_owned(),
             http: reqwest::Client::builder()
