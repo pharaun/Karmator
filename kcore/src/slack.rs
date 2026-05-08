@@ -6,7 +6,7 @@ use std::clone::Clone;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::RwLock;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -83,33 +83,41 @@ pub struct Client<S: HttpSender = ReqwestSender> {
     sender: S,
 }
 
-fn calc_expiry(base: Instant, duration: Duration) -> Duration {
-    (Instant::now() + duration).duration_since(base)
+fn calc_expiry(base: Instant, duration: Duration) -> u64 {
+    (Instant::now() + duration)
+        .saturating_duration_since(base)
+        .as_secs()
 }
 
 #[derive(Clone)]
 struct TtlValue<V: Clone> {
     base: Instant,
-    expiry: Arc<AtomicU64>,
-    value: Arc<Mutex<V>>,
-    group: Arc<Group<String, V, anyhow::Error>>,
+    inner: Arc<TtlInner<V>>,
+}
+
+struct TtlInner<V: Clone> {
+    expiry: AtomicU64,
+    value: RwLock<V>,
+    group: Group<String, V, anyhow::Error>,
 }
 
 impl<V: Clone + Send + Sync> TtlValue<V> {
     fn new(v: V, duration: Duration) -> Self {
         let base = Instant::now();
-        let expiry = calc_expiry(base, duration).as_secs();
+        let expiry = calc_expiry(base, duration);
 
         Self {
             base,
-            expiry: Arc::new(AtomicU64::new(expiry)),
-            value: Arc::new(Mutex::new(v)),
-            group: Arc::new(Group::new()),
+            inner: Arc::new(TtlInner {
+                expiry: AtomicU64::new(expiry),
+                value: RwLock::new(v),
+                group: Group::new(),
+            }),
         }
     }
 
     fn is_expired(&self) -> bool {
-        self.expiry.load(Ordering::Relaxed) <= calc_expiry(self.base, Duration::ZERO).as_secs()
+        self.inner.expiry.load(Ordering::Acquire) <= calc_expiry(self.base, Duration::ZERO)
     }
 
     // TODO: initial experimental implementation, this is probs a very wrong
@@ -121,26 +129,26 @@ impl<V: Clone + Send + Sync> TtlValue<V> {
         with: impl Future<Output = AResult<V>> + Send,
     ) -> AResult<V> {
         if !self.is_expired() {
-            return Ok(self.value.lock().expect("Poisoned mutex").clone());
+            return Ok(self.inner.value.read().expect("Poisoned").clone());
         }
 
-        self.group
+        self.inner
+            .group
             .work("key", async {
+                if !self.is_expired() {
+                    return Ok(self.inner.value.read().expect("Poisoned").clone());
+                }
                 let val = with.await?;
                 {
-                    *self.value.lock().expect("Poisoned mutex") = val.clone();
+                    *self.inner.value.write().expect("Poisoned") = val.clone();
                 }
-                self.expiry.store(
-                    calc_expiry(self.base, duration).as_secs(),
-                    Ordering::Release,
-                );
+                self.inner
+                    .expiry
+                    .store(calc_expiry(self.base, duration), Ordering::Release);
                 Ok(val)
             })
             .await
-            .map_err(|e| match e {
-                Some(e) => e,
-                None => anyhow!("Leader failed"),
-            })
+            .map_err(|e| e.unwrap_or_else(|| anyhow!("Leader Failed")))
     }
 }
 
