@@ -91,7 +91,7 @@ where
                     () = time::sleep(durt) => (),
                 }
             } else {
-                error!("Slack Websocket - Exceeded ~1 minutes of retries, shutting down");
+                error!("Slack Websocket - rate limit cap, shutting down");
                 watcher.shutdown_now();
                 break;
             }

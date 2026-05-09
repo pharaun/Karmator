@@ -1,5 +1,6 @@
 use tokio::sync::RwLock;
 
+use std::num::NonZeroU32;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
@@ -7,9 +8,14 @@ use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
 
+use log::error;
+
 use backoff::backoff::Backoff as _;
 use backoff::exponential::ExponentialBackoffBuilder;
 use backoff::ExponentialBackoff;
+
+use governor::DefaultDirectRateLimiter;
+use governor::Quota;
 
 pub(crate) struct ConnectionState {
     // Atomic boolean for ensuring send can't happen till the hello is received from slack
@@ -17,6 +23,8 @@ pub(crate) struct ConnectionState {
     // Atomic boolean for exiting and re-establishing the connection
     reconnect: AtomicBool,
     reconnect_backoff: Mutex<ExponentialBackoff>,
+    reconnect_limiter: DefaultDirectRateLimiter,
+    reconnect_latch: AtomicBool,
     // Monotonical clock for heartbeat/ping management
     last_message_received: RwLock<Instant>,
     last_ping_sent: RwLock<Instant>,
@@ -35,9 +43,14 @@ impl ConnectionState {
                     // Reevaulate this and maybe back off to a much longer, tho the existing logic was
                     // already doing 10 tries of 20s each
                     .with_max_interval(Duration::from_secs(20))
-                    .with_max_elapsed_time(Some(Duration::from_mins(1)))
+                    //                    .with_max_elapsed_time(Some(Duration::from_mins(1)))
                     .build(),
             ),
+            reconnect_limiter: DefaultDirectRateLimiter::direct(
+                Quota::per_minute(NonZeroU32::new(5).expect("greater than zero"))
+                    .allow_burst(NonZeroU32::new(5).expect("greater than zero")),
+            ),
+            reconnect_latch: AtomicBool::new(false),
             last_message_received: RwLock::new(Instant::now()),
             last_ping_sent: RwLock::new(Instant::now()),
         }
@@ -62,6 +75,12 @@ impl ConnectionState {
             .lock()
             .expect("Poisoned mutex")
             .reset();
+
+        // Check the rate limit quota to catch disconnect loop,
+        // if quota exceeded, latch.
+        if self.reconnect_limiter.check().is_err() {
+            self.reconnect_latch.store(true, Ordering::Relaxed);
+        }
     }
 
     pub(crate) fn special_reconnect(&self) {
@@ -84,10 +103,17 @@ impl ConnectionState {
     }
 
     pub(crate) fn fetch_next_backoff(&self) -> Option<Duration> {
-        self.reconnect_backoff
-            .lock()
-            .expect("Poisoned mutex")
-            .next_backoff()
+        // Check if the reconnect latch is activated, if so then we have reconnected and
+        // disconnected too often, something isn't right with our code or slack. Exit.
+        if self.reconnect_latch.load(Ordering::Relaxed) {
+            error!("Reconnected and failed too fast, quota hit");
+            None
+        } else {
+            self.reconnect_backoff
+                .lock()
+                .expect("Poisoned mutex")
+                .next_backoff()
+        }
     }
 
     pub(crate) async fn message_received(&self) {

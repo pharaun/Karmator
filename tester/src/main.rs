@@ -76,6 +76,36 @@ impl Reconnect {
     }
 }
 
+#[derive(Clone)]
+pub struct Crash {
+    crash: (watch::Sender<bool>, watch::Receiver<bool>),
+}
+
+impl Crash {
+    fn new() -> Self {
+        Self {
+            crash: watch::channel(false),
+        }
+    }
+
+    pub async fn crash(&mut self) {
+        if let Err(e) = self.crash.1.wait_for(|v| *v == true).await {
+            error!("Signal crash error: {e:?}");
+        }
+    }
+
+    pub fn crash_now(&mut self) {
+        if let Err(e) = self.crash.0.send(true) {
+            error!("Signal crash error: {e:?}");
+        }
+    }
+
+    pub fn reset_now(&mut self) {
+        if let Err(e) = self.crash.0.send(false) {
+            error!("Signal crash error: {e:?}");
+        }
+    }
+}
 
 // Fake HTTP server for dealing with slack http api calls
 #[derive(Clone)]
@@ -176,6 +206,7 @@ async fn websocket_server(
     mut watcher: Watcher,
     mut websocket: mpsc::Receiver<serde_json::Value>,
     mut reconnect: Reconnect,
+    mut crash: Crash,
 ) -> AResult<()> {
     // Socket + event loop for listening to connection attempts
     let _ = readyness.send(());
@@ -295,6 +326,13 @@ async fn websocket_server(
                                 reconnect.reset_now();
                             },
 
+                            _ = crash.crash() => {
+                                // Crash loop triggered, force the webserver into a connect, then
+                                // immedidate disconnect loop
+                                info!("Forced Crash tester");
+                                state = ServerState::SlackDisconnect;
+                            },
+
                             // This is woken up peroidically to force a reconnection
                             _ = disbeat.tick() => {
                                 info!("Perodic Reconnect tester");
@@ -335,6 +373,7 @@ async fn terminal_readline(
     mut watcher: Watcher,
     websocket: mpsc::Sender<serde_json::Value>,
     mut reconnect: Reconnect,
+    mut crash: Crash,
     pool: &Pool,
 ) -> AResult<()> {
     let client = pool.get().await?;
@@ -418,8 +457,17 @@ async fn terminal_readline(
                             let _ = writeln!(stdout, "Triggering websocket reconnect - sleeping for {time:?}");
                             reconnect.reconnect_now(time);
                         },
+                        Ok(Command("crash", _)) => {
+                            // Normally during a normal failure to connect to slack, the quota
+                            // limit shouldn't kick in, but if it ends up in a slack crash loop
+                            // where it connects to slack, and slack disconnects it immedidately,
+                            // it should exit after some amount of attempts since something is very
+                            // wrong.
+                            let _ = writeln!(stdout, "Triggering a slack crashloop");
+                            crash.crash_now();
+                        },
                         Ok(Command("help", _)) => {
-                            let _ = writeln!(stdout, "Commands available: help, send [arg], truncate, addReacji [arg], delReacji [arg], reconnect [secs]");
+                            let _ = writeln!(stdout, "Commands available: help, send [arg], truncate, addReacji [arg], delReacji [arg], reconnect [secs], crash");
                         },
                         _ => {
                             let _ = writeln!(stdout, "Command not found: \"{}\"", line);
@@ -470,6 +518,9 @@ async fn main() -> AResult<()> {
     // Force websocket server to drop connection
     let reconnect = Reconnect::new();
 
+    // Force websocket server to enter a crash loop
+    let crash = Crash::new();
+
     //*******************
     // Signals bits
     //*******************
@@ -495,9 +546,10 @@ async fn main() -> AResult<()> {
         let watcher = signal.get_shutdown_watcher();
         let pool = pool.clone();
         let reconnect = reconnect.clone();
+        let crash = crash.clone();
         tokio::spawn(async move {
             // If this exits, something went wrong
-            if let Err(e) = terminal_readline(rl, stdout, watcher, ws_tx, reconnect, &pool).await {
+            if let Err(e) = terminal_readline(rl, stdout, watcher, ws_tx, reconnect, crash, &pool).await {
                 error!("Websocket Error: {:?}", e);
             }
         });
@@ -509,9 +561,10 @@ async fn main() -> AResult<()> {
     {
         let watcher = signal.get_shutdown_watcher();
         let reconnect = reconnect.clone();
+        let crash = crash.clone();
         tokio::spawn(async move {
             // If this exits something went wrong
-            if let Err(e) = websocket_server(tx, watcher, ws_rx, reconnect).await {
+            if let Err(e) = websocket_server(tx, watcher, ws_rx, reconnect, crash).await {
                 error!("Websocket Error: {:?}", e);
             }
         });

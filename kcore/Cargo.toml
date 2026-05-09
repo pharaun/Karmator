@@ -22,8 +22,11 @@ tokio-tungstenite = { version = "0.29", features = ["connect", "rustls-tls-webpk
 # Slack web api
 reqwest = { version = "0.13", features = ["json", "query"] }
 quick_cache = { version = "0.6", default-features = false, features = ["ahash"] }
-backoff = { version = "0.4.0", features = ["tokio"] }
 async_singleflight = "0.6.2"
+
+# Rate limiting + backoff on failure
+backoff = { version = "0.4.0", features = ["tokio"] }
+governor = "0.10.4"
 
 # Logging
 log = "0.4"
