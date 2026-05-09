@@ -1,99 +1,44 @@
-use tokio::sync::watch;
-
-use log::{error, info};
-
-use anyhow::Result as AResult;
-
-#[cfg(windows)]
-use tokio::signal;
+use tokio_util::sync::CancellationToken;
 
 #[cfg(unix)]
-use tokio::signal::unix;
+pub async fn wait_for_signal(watcher: CancellationToken) {
+    use tokio::signal::unix::signal;
+    use tokio::signal::unix::SignalKind;
 
-#[derive(Clone)]
-pub struct Watcher {
-    shutdown: (watch::Sender<bool>, watch::Receiver<bool>),
+    let mut sig_int = signal(SignalKind::interrupt()).expect("Unix Signal");
+    let mut sig_term = signal(SignalKind::terminate()).expect("Unix Signal");
+
+    // Wait for a cancellation request or a signal
+    tokio::select! {
+        _ = watcher.cancelled() => (),
+        _ = sig_int.recv() => (),
+        _ = sig_term.recv() => (),
+    };
+
+    // In case that the reason we exited the select! was cuz of a signal,
+    // go ahead and trigger the shutdown token
+    watcher.cancel();
 }
 
-impl Watcher {
-    fn new() -> Self {
-        Self {
-            shutdown: watch::channel(false),
-        }
-    }
+#[cfg(windows)]
+pub async fn wait_for_signal(watcher: CancellationToken) {
+    use tokio::signal::windows;
 
-    pub async fn shutdown(&mut self) {
-        if let Err(e) = self.shutdown.1.wait_for(|v| *v).await {
-            error!("Signal shutdown error: {e:?}");
-        }
-    }
+    let mut ctrl_c = windows::ctrl_c().expect("Windows Signal");
+    let mut ctrl_break = windows::ctrl_break().expect("Windows Signal");
+    let mut ctrl_close = windows::ctrl_close().expect("Windows Signal");
+    let mut ctrl_shutdown = windows::ctrl_shutdown().expect("Windows Signal");
 
-    pub fn should_shutdown(&self) -> bool {
-        *self.shutdown.1.borrow()
-    }
+    // Wait for a cancellation request or a signal
+    tokio::select! {
+        _ = watcher.cancelled() => (),
+        _ = ctrl_c.recv() => (),
+        _ = ctrl_break.recv() => (),
+        _ = ctrl_close.recv() => (),
+        _ = ctrl_shutdown.recv() => (),
+    };
 
-    pub fn shutdown_now(&mut self) {
-        if let Err(e) = self.shutdown.0.send(true) {
-            error!("Signal shutdown error: {e:?}");
-        }
-    }
-}
-
-pub struct Signal {
-    watcher: Watcher,
-    #[cfg(unix)]
-    sig_int: unix::Signal,
-    #[cfg(unix)]
-    sig_term: unix::Signal,
-}
-
-impl Signal {
-    #[cfg(windows)]
-    pub fn new() -> AResult<Self> {
-        info!("Signal installed");
-        Ok(Self {
-            watcher: Watcher::new(),
-        })
-    }
-
-    #[cfg(unix)]
-    pub fn new() -> AResult<Self> {
-        info!("Signal installed");
-        Ok(Self {
-            watcher: Watcher::new(),
-            sig_int: unix::signal(unix::SignalKind::interrupt())?,
-            sig_term: unix::signal(unix::SignalKind::terminate())?,
-        })
-    }
-
-    #[cfg(unix)]
-    pub(crate) async fn shutdown_signal(&mut self) -> AResult<()> {
-        // This will never exit till shutdown is true
-        tokio::select! {
-            _ = self.watcher.shutdown.1.wait_for(|v| *v) => (),
-            _ = self.sig_int.recv() => (),
-            _ = self.sig_term.recv() => (),
-        };
-
-        // We returned from the select, shutdown has been invoked.
-        self.watcher.shutdown.0.send(true)?;
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    pub(crate) async fn shutdown_signal(&mut self) -> AResult<()> {
-        // This will never exit till shutdown is true
-        tokio::select! {
-            _ = self.watcher.shutdown.1.wait_for(|v| *v) => (),
-            _ = signal::ctrl_c() => (),
-        };
-
-        // We returned from the select, shutdown has been invoked.
-        self.watcher.shutdown.0.send(true)?;
-        Ok(())
-    }
-
-    pub fn get_shutdown_watcher(&self) -> Watcher {
-        self.watcher.clone()
-    }
+    // In case that the reason we exited the select! was cuz of a signal,
+    // go ahead and trigger the shutdown token
+    watcher.cancel();
 }

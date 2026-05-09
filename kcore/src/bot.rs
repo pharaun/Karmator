@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 use tokio::time;
 use tokio::time::timeout;
 use tokio::time::MissedTickBehavior;
+use tokio_util::sync::CancellationToken;
 
 use serde_json::json;
 
@@ -24,22 +25,18 @@ use anyhow::Result as AResult;
 
 use crate::connection_state;
 use crate::event;
-use crate::signal;
 use crate::SlackClient;
 use crate::SlackSender;
 
 pub async fn default_event_loop<S: SlackSender, F1>(
     slack: SlackClient<S>,
-    mut signal: signal::Signal,
+    watcher: &CancellationToken,
     user_event_listener: F1,
 ) -> AResult<()>
 where
     F1: Fn(serde_json::Value, SlackClient<S>),
 {
     let conn_state = connection_state::ConnectionState::init();
-
-    // Shutdown watcher
-    let mut watcher = signal.get_shutdown_watcher();
 
     // Interval timers for heartbeat
     let mut heartbeat = time::interval(Duration::from_secs(1));
@@ -49,18 +46,18 @@ where
     let (wtx, mut wrx) = mpsc::channel(32);
 
     // Main server loop, exit if the database dies
-    while !watcher.should_shutdown() {
-        match ws_connect(&slack, &mut watcher).await {
+    while !watcher.is_cancelled() {
+        match ws_connect(&slack, watcher).await {
             Ok(websocket) => {
                 let (mut ws_write, mut ws_read) = websocket.split();
 
                 // Reset the connection to waiting for ack from Slack
                 conn_state.pending().await;
 
-                while !conn_state.should_reconnect() && !watcher.should_shutdown() {
+                while !conn_state.should_reconnect() && !watcher.is_cancelled() {
                     tokio::select! {
                         // Listens for shutdown signals from the system or the database
-                        _ = signal.shutdown_signal() => info!("Shutdown signal received"),
+                        _ = watcher.cancelled() => info!("Shutdown signal received"),
 
                         // Process inbound messages
                         ws_msg = ws_read.next() => process_message(&slack, &wtx, &conn_state, &user_event_listener, ws_msg).await,
@@ -81,18 +78,18 @@ where
             }
         }
 
-        if !watcher.should_shutdown() {
+        if !watcher.is_cancelled() {
             // Backoff timer is implemented in conn_state, its reset on entering reconnect state
             // - When it returns None we have ran out of attempts and we should give up now
             if let Some(durt) = conn_state.fetch_next_backoff() {
                 info!("Slack Websocket - Reconnecting, sleeping for: {durt:?}");
                 tokio::select! {
-                    () = watcher.shutdown() => (),
+                    _ = watcher.cancelled() => (),
                     () = time::sleep(durt) => (),
                 }
             } else {
                 error!("Slack Websocket - rate limit cap, shutting down");
-                watcher.shutdown_now();
+                watcher.cancel();
                 break;
             }
         }
@@ -102,11 +99,11 @@ where
 
 async fn ws_connect<S: SlackSender>(
     slack: &SlackClient<S>,
-    watcher: &mut signal::Watcher,
+    watcher: &CancellationToken,
 ) -> AResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     let ws_url = slack.socket_connect(false).await?;
     let (ws_stream, _) = tokio::select! {
-        () = watcher.shutdown() => Err(anyhow!("Shutdown triggered")),
+        _ = watcher.cancelled() => Err(anyhow!("Shutdown triggered")),
         s = timeout(Duration::from_secs(5), connect_async(ws_url)) => s?.map_err(|e| anyhow!("Error: {e:?}")),
     }?;
     info!("Slack Websocket - connection established");

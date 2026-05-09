@@ -10,11 +10,12 @@ use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig as RustlsClientConfig;
 use tokio_postgres_rustls::MakeRustlsConnect;
+use tokio_util::sync::CancellationToken;
 
 use karmator::bot::user_event::process_user_message;
 
 use kcore::default_event_loop;
-use kcore::Signal;
+use kcore::wait_for_signal;
 use kcore::SlackClient;
 
 // TODO:
@@ -36,8 +37,11 @@ async fn main() -> AResult<()> {
     let bot_token =
         env::var("SLACK_BOT_TOKEN").map_err(|_| anyhow!("SLACK_BOT_TOKEN env var must be set"))?;
 
+    //*******************
     // Shutdown signal
-    let signal = Signal::new()?;
+    //*******************
+    let watcher = CancellationToken::new();
+    tokio::spawn(wait_for_signal(watcher.clone()));
 
     //*******************
     // Postgres bits
@@ -68,7 +72,7 @@ async fn main() -> AResult<()> {
     //*******************
     default_event_loop(
         SlackClient::new("https://slack.com/api", &app_token, &bot_token, 50),
-        signal,
+        &watcher,
         |event, slack| {
             let pool = pool.clone();
             tokio::spawn(async move {

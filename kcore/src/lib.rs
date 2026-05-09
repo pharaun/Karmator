@@ -18,8 +18,7 @@ pub use slack::Timezone as SlackTimezone;
 pub use slack::User as SlackUser;
 
 pub use bot::default_event_loop;
-pub use signal::Signal;
-pub use signal::Watcher;
+pub use signal::wait_for_signal;
 
 pub use command::parse as parse_command;
 pub use command::Command;

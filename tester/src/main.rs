@@ -17,6 +17,7 @@ use tokio::sync::watch;
 use tokio::time;
 use tokio_postgres::NoTls;
 use tokio_tungstenite::tungstenite;
+use tokio_util::sync::CancellationToken;
 
 use rustyline_async::Readline;
 use rustyline_async::ReadlineEvent;
@@ -31,10 +32,9 @@ use http::response;
 
 use kcore::default_event_loop;
 use kcore::Command;
-use kcore::Signal;
+use kcore::wait_for_signal;
 use kcore::SlackClient;
 use kcore::SlackSender;
-use kcore::Watcher;
 
 use karmator::bot::user_event;
 
@@ -203,7 +203,7 @@ impl ServerState {
 // Fake Websocket server for sending the bot "messages" from slack
 async fn websocket_server(
     readyness: oneshot::Sender<()>,
-    mut watcher: Watcher,
+    watcher: CancellationToken,
     mut websocket: mpsc::Receiver<serde_json::Value>,
     mut reconnect: Reconnect,
     mut crash: Crash,
@@ -218,13 +218,13 @@ async fn websocket_server(
     disbeat.tick().await;
 
     let mut state = ServerState::Hello;
-    while !state.exit_outter_loop() && !watcher.should_shutdown() {
+    while !state.exit_outter_loop() && !watcher.is_cancelled() {
         debug!("Outter Current Server State: {:?}", state);
         match state {
             ServerState::NetDisconnect(durt) => {
                 info!("Slack Websocket - server disconnecting for: {durt:?}");
                 tokio::select! {
-                    _ = watcher.shutdown() => {
+                    _ = watcher.cancelled() => {
                         info!("Shutdown signal received");
                         state = ServerState::Exit;
                     },
@@ -248,7 +248,7 @@ async fn websocket_server(
             info!("Slack Websocket - server established");
             state = ServerState::Hello;
 
-            while !state.exit_inner_loop() && !watcher.should_shutdown() {
+            while !state.exit_inner_loop() && !watcher.is_cancelled() {
                 debug!("Inner Current Server State: {:?}", state);
                 match state {
                     ServerState::Hello => {
@@ -259,7 +259,7 @@ async fn websocket_server(
                     }
                     ServerState::Event => {
                         tokio::select! {
-                            _ = watcher.shutdown() => {
+                            _ = watcher.cancelled() => {
                                 info!("Shutdown signal received");
                                 state = ServerState::Exit;
                             },
@@ -345,7 +345,7 @@ async fn websocket_server(
                         let _ = ws_write.send(tungstenite::Message::from(response)).await;
 
                         tokio::select! {
-                            _ = watcher.shutdown() => {
+                            _ = watcher.cancelled() => {
                                 info!("Shutdown signal received");
                                 state = ServerState::Exit;
                             },
@@ -370,17 +370,17 @@ async fn websocket_server(
 async fn terminal_readline(
     mut rl: rustyline_async::Readline,
     mut stdout: rustyline_async::SharedWriter,
-    mut watcher: Watcher,
+    watcher: CancellationToken,
     websocket: mpsc::Sender<serde_json::Value>,
     mut reconnect: Reconnect,
     mut crash: Crash,
     pool: &Pool,
 ) -> AResult<()> {
     let client = pool.get().await?;
-    while !watcher.should_shutdown() {
+    while !watcher.is_cancelled() {
         let _ = rl.flush();
         tokio::select! {
-            _ = watcher.shutdown() => info!("Shutdown signal received"),
+            _ = watcher.cancelled() => info!("Shutdown signal received"),
 
             command = rl.readline().fuse() => match command {
                 Ok(ReadlineEvent::Line(line)) => {
@@ -475,15 +475,15 @@ async fn terminal_readline(
                     }
                 },
                 Ok(ReadlineEvent::Eof) => {
-                    let _ = watcher.shutdown_now();
+                    let _ = watcher.cancel();
                     let _ = writeln!(stdout, "Exiting...");
                 },
                 Ok(ReadlineEvent::Interrupted) => {
-                    let _ = watcher.shutdown_now();
+                    let _ = watcher.cancel();
                     let _ = writeln!(stdout, "^C");
                 },
                 Err(err) => {
-                    let _ = watcher.shutdown_now();
+                    let _ = watcher.cancel();
                     let _ = writeln!(stdout, "Received err: {:?}", err);
                     let _ = writeln!(stdout, "Exiting...");
                 },
@@ -524,7 +524,8 @@ async fn main() -> AResult<()> {
     //*******************
     // Signals bits
     //*******************
-    let signal = Signal::new()?;
+    let watcher = CancellationToken::new();
+    tokio::spawn(wait_for_signal(watcher.clone()));
 
     //*******************
     // Postgres bits
@@ -543,7 +544,7 @@ async fn main() -> AResult<()> {
     //*******************
     let (ws_tx, ws_rx) = mpsc::channel(10);
     {
-        let watcher = signal.get_shutdown_watcher();
+        let watcher = watcher.clone();
         let pool = pool.clone();
         let reconnect = reconnect.clone();
         let crash = crash.clone();
@@ -559,7 +560,7 @@ async fn main() -> AResult<()> {
     // Websocket bits
     //*******************
     {
-        let watcher = signal.get_shutdown_watcher();
+        let watcher = watcher.clone();
         let reconnect = reconnect.clone();
         let crash = crash.clone();
         tokio::spawn(async move {
@@ -580,7 +581,7 @@ async fn main() -> AResult<()> {
     let pool = pool.clone();
     default_event_loop(
         SlackClient::with_sender(FakeSender, "http://localhost", "app-token", "bot-token", 10),
-        signal,
+        &watcher,
         |event, slack| {
             let pool = pool.clone();
             tokio::spawn(async move {
