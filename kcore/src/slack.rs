@@ -210,7 +210,7 @@ impl<S: HttpSender> Client<S> {
                     headers
                 })
                 // Timeout to prevent the core loop from hanging
-                .connect_timeout(Duration::from_secs(10))
+                .connect_timeout(Duration::from_secs(5))
                 .timeout(Duration::from_secs(30))
                 .build()
                 .expect("Failed to build HTTP client"),
@@ -225,7 +225,7 @@ impl<S: HttpSender> Client<S> {
             &self
                 .socket_url_cache
                 .get_or_insert(
-                    Duration::from_secs(10),
+                    Duration::from_secs(15),
                     self.post("apps.connections.open", &self.app_token),
                 )
                 .await?,

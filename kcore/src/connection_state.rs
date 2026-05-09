@@ -37,13 +37,11 @@ impl ConnectionState {
             reconnect: AtomicBool::new(false),
             reconnect_backoff: Mutex::new(
                 ExponentialBackoffBuilder::new()
-                    .with_initial_interval(Duration::from_millis(500))
+                    .with_initial_interval(Duration::from_secs(1))
                     .with_randomization_factor(0.5)
-                    .with_multiplier(1.5)
-                    // Reevaulate this and maybe back off to a much longer, tho the existing logic was
-                    // already doing 10 tries of 20s each
-                    .with_max_interval(Duration::from_secs(20))
-                    //                    .with_max_elapsed_time(Some(Duration::from_mins(1)))
+                    .with_multiplier(2.0)
+                    .with_max_interval(Duration::from_mins(1))
+                    .with_max_elapsed_time(Some(Duration::from_mins(15)))
                     .build(),
             ),
             reconnect_limiter: DefaultDirectRateLimiter::direct(

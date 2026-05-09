@@ -107,7 +107,7 @@ async fn ws_connect<S: SlackSender>(
     let ws_url = slack.socket_connect(false).await?;
     let (ws_stream, _) = tokio::select! {
         () = watcher.shutdown() => Err(anyhow!("Shutdown triggered")),
-        s = timeout(Duration::from_millis(500), connect_async(ws_url)) => s?.map_err(|e| anyhow!("Error: {e:?}")),
+        s = timeout(Duration::from_secs(5), connect_async(ws_url)) => s?.map_err(|e| anyhow!("Error: {e:?}")),
     }?;
     info!("Slack Websocket - connection established");
     Ok(ws_stream)
