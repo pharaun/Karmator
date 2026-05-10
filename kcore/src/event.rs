@@ -148,9 +148,12 @@ pub(crate) async fn process_control_message(
                 accepts_response_payload: _,
                 payload: pay,
             } => {
-                // TODO: not sure how to handle this yet, try_send?
                 // TODO: We probs want to cache recently sent acknowledgement to handle reconnects
-                wtx.send(WebsocketReply::Acknowledge(ei)).await?;
+                match wtx.try_send(WebsocketReply::Acknowledge(ei)) {
+                    Ok(()) => (),
+                    Err(TrySendError::Full(_)) => error!("Send queue full, in a bad state"),
+                    Err(TrySendError::Closed(_)) => error!("Send channel closed"),
+                };
 
                 match pay {
                     Payload::EventCallback { event: e } => Ok(Some(e)),

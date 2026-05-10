@@ -101,7 +101,10 @@ async fn ws_connect<S: SlackSender>(
     slack: &SlackClient<S>,
     watcher: &CancellationToken,
 ) -> AResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
-    let ws_url = slack.socket_connect(false).await?;
+    let ws_url = tokio::select! {
+        _ = watcher.cancelled() => Err(anyhow!("Shutdown triggered")),
+        s = slack.socket_connect(false) => s,
+    }?;
     let (ws_stream, _) = tokio::select! {
         _ = watcher.cancelled() => Err(anyhow!("Shutdown triggered")),
         s = timeout(Duration::from_secs(5), connect_async(ws_url)) => s?.map_err(|e| anyhow!("Error: {e:?}")),
