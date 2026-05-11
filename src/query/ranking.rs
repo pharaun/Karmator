@@ -59,22 +59,10 @@ async fn ranking_denormalized<C: GenericClient>(
     karma_typ: KarmaTyp,
     user: KarmaName,
 ) -> AResult<Option<i64>> {
-    // Default won't work here, override
-    let karma_typ_inv = match karma_typ {
-        KarmaTyp::Total => "kcol2.up - kcol2.down",
-        KarmaTyp::Side => "kcol2.side",
-    };
-
     Ok(client.query_one(&format!(
-        "SELECT CASE WHEN (
-            EXISTS (SELECT TRUE FROM {karma_col} WHERE md5(lower(name)) = md5(lower($1)))
-        ) THEN (
-            SELECT (COUNT(name) + 1) FROM {karma_col} WHERE (
-                {karma_typ}
-            ) > (
-                SELECT ({karma_typ_inv}) FROM {karma_col} AS kcol2 WHERE md5(lower(kcol2.name)) = md5(lower($1))
-            )
-        ) ELSE NULL END"),
+        "SELECT rank FROM (
+            SELECT name, RANK() OVER (ORDER BY ({karma_typ}) DESC) as rank FROM {karma_col}
+        ) WHERE md5(lower(name)) = md5(lower($1))"),
         &[&user]).await?.try_get(0)?
     )
 }
