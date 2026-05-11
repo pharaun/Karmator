@@ -158,6 +158,7 @@ async fn add_reacji_message(
     .await
 }
 
+#[expect(clippy::too_many_arguments)]
 async fn add_reacji_vote(
     txn: &Transaction<'_>,
     timestamp: DateTime<Utc>,

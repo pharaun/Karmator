@@ -10,7 +10,7 @@ pub async fn wait_for_signal(watcher: CancellationToken) {
 
     // Wait for a cancellation request or a signal
     tokio::select! {
-        _ = watcher.cancelled() => (),
+        () = watcher.cancelled() => (),
         _ = sig_int.recv() => (),
         _ = sig_term.recv() => (),
     };

@@ -57,7 +57,7 @@ where
                 while !conn_state.should_reconnect() && !watcher.is_cancelled() {
                     tokio::select! {
                         // Listens for shutdown signals from the system or the database
-                        _ = watcher.cancelled() => info!("Shutdown signal received"),
+                        () = watcher.cancelled() => info!("Shutdown signal received"),
 
                         // Process inbound messages
                         ws_msg = ws_read.next() => process_message(&slack, &wtx, &conn_state, &user_event_listener, ws_msg).await,
@@ -84,7 +84,7 @@ where
             if let Some(durt) = conn_state.fetch_next_backoff() {
                 info!("Slack Websocket - Reconnecting, sleeping for: {durt:?}");
                 tokio::select! {
-                    _ = watcher.cancelled() => (),
+                    () = watcher.cancelled() => (),
                     () = time::sleep(durt) => (),
                 }
             } else {
@@ -102,11 +102,11 @@ async fn ws_connect<S: SlackSender>(
     watcher: &CancellationToken,
 ) -> AResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     let ws_url = tokio::select! {
-        _ = watcher.cancelled() => Err(anyhow!("Shutdown triggered")),
+        () = watcher.cancelled() => Err(anyhow!("Shutdown triggered")),
         s = slack.socket_connect(false) => s,
     }?;
     let (ws_stream, _) = tokio::select! {
-        _ = watcher.cancelled() => Err(anyhow!("Shutdown triggered")),
+        () = watcher.cancelled() => Err(anyhow!("Shutdown triggered")),
         s = timeout(Duration::from_secs(5), connect_async(ws_url)) => s?.map_err(|e| anyhow!("Error: {e:?}")),
     }?;
     info!("Slack Websocket - connection established");

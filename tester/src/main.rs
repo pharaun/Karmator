@@ -6,8 +6,8 @@ use std::sync::RwLock;
 
 use log::{debug, error, info, warn};
 
-use anyhow::anyhow;
 use anyhow::Result as AResult;
+use anyhow::anyhow;
 
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use tokio::net::TcpListener;
@@ -30,11 +30,11 @@ use serde_json::json;
 
 use http::response;
 
-use kcore::default_event_loop;
 use kcore::Command;
-use kcore::wait_for_signal;
 use kcore::SlackClient;
 use kcore::SlackSender;
+use kcore::default_event_loop;
+use kcore::wait_for_signal;
 
 use karmator::bot::user_event;
 
@@ -194,7 +194,9 @@ impl ServerState {
 
     fn exit_inner_loop(&self) -> bool {
         match self {
-            ServerState::Exit | ServerState::NetDisconnect(_) | ServerState::SlackDisconnect => true,
+            ServerState::Exit | ServerState::NetDisconnect(_) | ServerState::SlackDisconnect => {
+                true
+            }
             _ => false,
         }
     }
@@ -236,11 +238,13 @@ async fn websocket_server(
                         state = ServerState::Hello;
                     },
                 }
-            },
+            }
             _ => (),
         };
 
-        while !state.exit_accept_loop() && let Ok((stream, _)) = socket.accept().await {
+        while !state.exit_accept_loop()
+            && let Ok((stream, _)) = socket.accept().await
+        {
             debug!("Accept Current Server State: {:?}", state);
             let ws_stream = tokio_tungstenite::accept_async(stream).await.unwrap();
             let (mut ws_write, mut ws_read) = ws_stream.split();
@@ -550,7 +554,9 @@ async fn main() -> AResult<()> {
         let crash = crash.clone();
         tokio::spawn(async move {
             // If this exits, something went wrong
-            if let Err(e) = terminal_readline(rl, stdout, watcher, ws_tx, reconnect, crash, &pool).await {
+            if let Err(e) =
+                terminal_readline(rl, stdout, watcher, ws_tx, reconnect, crash, &pool).await
+            {
                 error!("Websocket Error: {:?}", e);
             }
         });

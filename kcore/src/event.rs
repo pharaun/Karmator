@@ -86,15 +86,12 @@ pub(crate) async fn send_slack_ping(
     }
 }
 
-pub(crate) async fn process_control_message(
+fn process_websocket_message(
     wtx: &mpsc::Sender<WebsocketReply>,
     connection_state: &ConnectionState,
     msg: tungstenite::Message,
-) -> AResult<Option<serde_json::Value>> {
-    // Parse incoming message
-    connection_state.message_received().await;
-
-    let raw_msg = match msg {
+) -> Option<tungstenite::Utf8Bytes> {
+    match msg {
         tungstenite::Message::Text(x) => Some(x),
 
         tungstenite::Message::Ping(x) => {
@@ -125,41 +122,56 @@ pub(crate) async fn process_control_message(
             error!("Slack Websocket - Unsupported websocket type: {msg:?}");
             None
         }
-    };
+    }
+}
 
-    if let Some(e) = raw_msg.as_deref().and_then(parse_event) {
-        match e {
-            Event::Hello { num_connections: _ } => {
-                // Hold on sending messages till this is received.
-                connection_state.connected();
-
-                Ok(None)
+fn process_slack_control_message(
+    wtx: &mpsc::Sender<WebsocketReply>,
+    connection_state: &ConnectionState,
+    msg: Event,
+) -> Option<serde_json::Value> {
+    match msg {
+        Event::Hello { num_connections: _ } => {
+            // Hold on sending messages till this is received.
+            connection_state.connected();
+            None
+        }
+        Event::Disconnect { reason: r } => {
+            // When this is received, reconnect
+            connection_state.reconnect();
+            info!("Slack Websocket - Disconnect reason: {r:?}");
+            None
+        }
+        Event::EventsApi {
+            envelope_id: ei,
+            accepts_response_payload: _,
+            payload: pay,
+        } => {
+            // TODO: We probs want to cache recently sent acknowledgement to handle reconnects
+            match wtx.try_send(WebsocketReply::Acknowledge(ei)) {
+                Ok(()) => (),
+                Err(TrySendError::Full(_)) => error!("Send queue full, in a bad state"),
+                Err(TrySendError::Closed(_)) => error!("Send channel closed"),
             }
-            Event::Disconnect { reason: r } => {
-                // When this is received, reconnect
-                connection_state.reconnect();
-
-                info!("Slack Websocket - Disconnect reason: {r:?}");
-
-                Ok(None)
-            }
-            Event::EventsApi {
-                envelope_id: ei,
-                accepts_response_payload: _,
-                payload: pay,
-            } => {
-                // TODO: We probs want to cache recently sent acknowledgement to handle reconnects
-                match wtx.try_send(WebsocketReply::Acknowledge(ei)) {
-                    Ok(()) => (),
-                    Err(TrySendError::Full(_)) => error!("Send queue full, in a bad state"),
-                    Err(TrySendError::Closed(_)) => error!("Send channel closed"),
-                };
-
-                match pay {
-                    Payload::EventCallback { event: e } => Ok(Some(e)),
-                }
+            match pay {
+                Payload::EventCallback { event: e } => Some(e),
             }
         }
+    }
+}
+
+pub(crate) async fn process_control_message(
+    wtx: &mpsc::Sender<WebsocketReply>,
+    connection_state: &ConnectionState,
+    msg: tungstenite::Message,
+) -> AResult<Option<serde_json::Value>> {
+    // Parse incoming message
+    connection_state.message_received().await;
+
+    let raw_msg = process_websocket_message(wtx, connection_state, msg);
+
+    if let Some(e) = raw_msg.as_deref().and_then(parse_event) {
+        Ok(process_slack_control_message(wtx, connection_state, e))
     } else {
         Ok(None)
     }

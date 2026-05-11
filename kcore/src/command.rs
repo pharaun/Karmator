@@ -13,7 +13,6 @@ use nom::{
 #[derive(Debug, PartialEq)]
 pub struct Command<'a>(pub &'a str, pub Vec<&'a str>);
 
-#[must_use]
 pub fn parse(input: &str) -> Result<Command<'_>, String> {
     let cmd = complete(command).parse(input);
 

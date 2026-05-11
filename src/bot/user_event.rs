@@ -19,6 +19,7 @@ use crate::query::partial::partial;
 use crate::query::ranking::ranking;
 use crate::query::reacji::add_reacji;
 use crate::query::top_n::top_n;
+use crate::query::top_n::HiLo;
 use crate::query::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
 
 use kcore::parse_command;
@@ -239,6 +240,7 @@ fn parse_user_event(s: serde_json::Value) -> Option<UserEvent> {
     res.ok()
 }
 
+#[expect(clippy::too_many_lines)]
 pub async fn process_user_message<S: SlackSender>(
     msg: serde_json::Value,
     slack: SlackClient<S>,
@@ -312,12 +314,9 @@ pub async fn process_user_message<S: SlackSender>(
                                 top_n(
                                     &event,
                                     &client,
-                                    KarmaCol::Received,
-                                    OrdQuery::Desc,
-                                    KarmaCol::Received,
-                                    OrdQuery::Asc,
+                                    HiLo::new("highest karma", KarmaCol::Received, OrdQuery::Desc),
+                                    HiLo::new("lowest karma", KarmaCol::Received, OrdQuery::Asc),
                                     KarmaTyp::Total,
-                                    ("highest karma", "lowest karma"),
                                     3u32,
                                 )
                                 .await;
@@ -326,12 +325,9 @@ pub async fn process_user_message<S: SlackSender>(
                                 top_n(
                                     &event,
                                     &client,
-                                    KarmaCol::Given,
-                                    OrdQuery::Desc,
-                                    KarmaCol::Given,
-                                    OrdQuery::Asc,
+                                    HiLo::new("most positive", KarmaCol::Given, OrdQuery::Desc),
+                                    HiLo::new("most negative", KarmaCol::Given, OrdQuery::Asc),
                                     KarmaTyp::Total,
-                                    ("most positive", "most negative"),
                                     3u32,
                                 )
                                 .await;
@@ -340,12 +336,17 @@ pub async fn process_user_message<S: SlackSender>(
                                 top_n(
                                     &event,
                                     &client,
-                                    KarmaCol::Received,
-                                    OrdQuery::Desc,
-                                    KarmaCol::Given,
-                                    OrdQuery::Desc,
+                                    HiLo::new(
+                                        "most sidevotes received",
+                                        KarmaCol::Received,
+                                        OrdQuery::Desc,
+                                    ),
+                                    HiLo::new(
+                                        "most sidevotes given",
+                                        KarmaCol::Given,
+                                        OrdQuery::Desc,
+                                    ),
                                     KarmaTyp::Side,
-                                    ("most sidevotes received", "most sidevotes given"),
                                     3u32,
                                 )
                                 .await;
@@ -376,12 +377,13 @@ pub async fn process_user_message<S: SlackSender>(
                                 top_n(
                                     &event,
                                     &client,
-                                    KarmaCol::Received,
-                                    OrdQuery::Desc,
-                                    KarmaCol::Received,
-                                    OrdQuery::Asc,
+                                    HiLo::new(
+                                        "\nhighest karma",
+                                        KarmaCol::Received,
+                                        OrdQuery::Desc,
+                                    ),
+                                    HiLo::new("\nlowest karma", KarmaCol::Received, OrdQuery::Asc),
                                     KarmaTyp::Total,
-                                    ("\nhighest karma", "\nlowest karma"),
                                     lim,
                                 )
                                 .await;
@@ -390,12 +392,9 @@ pub async fn process_user_message<S: SlackSender>(
                                 top_n(
                                     &event,
                                     &client,
-                                    KarmaCol::Given,
-                                    OrdQuery::Desc,
-                                    KarmaCol::Given,
-                                    OrdQuery::Asc,
+                                    HiLo::new("\nmost positive", KarmaCol::Given, OrdQuery::Desc),
+                                    HiLo::new("\nmost negative", KarmaCol::Given, OrdQuery::Asc),
                                     KarmaTyp::Total,
-                                    ("\nmost positive", "\nmost negative"),
                                     lim,
                                 )
                                 .await;
@@ -404,12 +403,17 @@ pub async fn process_user_message<S: SlackSender>(
                                 top_n(
                                     &event,
                                     &client,
-                                    KarmaCol::Received,
-                                    OrdQuery::Desc,
-                                    KarmaCol::Given,
-                                    OrdQuery::Desc,
+                                    HiLo::new(
+                                        "\nmost sidevotes received",
+                                        KarmaCol::Received,
+                                        OrdQuery::Desc,
+                                    ),
+                                    HiLo::new(
+                                        "\nmost sidevotes given",
+                                        KarmaCol::Given,
+                                        OrdQuery::Desc,
+                                    ),
                                     KarmaTyp::Side,
-                                    ("\nmost sidevotes received", "\nmost sidevotes given"),
                                     lim,
                                 )
                                 .await;

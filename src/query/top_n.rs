@@ -9,34 +9,46 @@ use crate::query::{KarmaCol, KarmaTyp, OrdQuery};
 
 use kcore::SlackSender;
 
+pub struct HiLo<'a> {
+    label: &'a str,
+    col: KarmaCol,
+    ord: OrdQuery,
+}
+
+impl<'a> HiLo<'a> {
+    #[expect(clippy::use_self)]
+    pub fn new(label: &'a str, col: KarmaCol, ord: OrdQuery) -> HiLo<'a> {
+        Self { label, col, ord }
+    }
+}
+
 pub async fn top_n<S: SlackSender, C: GenericClient>(
     event: &Event<S>,
     client: &C,
-    kcol1: KarmaCol,
-    kord1: OrdQuery,
-    kcol2: KarmaCol,
-    kord2: OrdQuery,
+    high: HiLo<'_>,
+    low: HiLo<'_>,
     ktyp: KarmaTyp,
-    label: (&str, &str),
     limit: u32,
 ) {
     let query = future::try_join(
-        top_n_denormalized(client, kcol1, ktyp, limit, kord1),
-        top_n_denormalized(client, kcol2, ktyp, limit, kord2),
+        top_n_denormalized(client, high.col, ktyp, limit, high.ord),
+        top_n_denormalized(client, low.col, ktyp, limit, low.ord),
     );
 
     match query.await {
-        Ok((high, low)) => {
+        Ok((high_rows, low_rows)) => {
             event
                 .send_reply(&format!(
                     "{}: {}. {}: {}.",
-                    label.0,
-                    high.iter()
+                    high.label,
+                    high_rows
+                        .iter()
                         .map(|(e, c)| format!("{e}, ({c})"))
                         .collect::<Vec<String>>()
                         .join("; "),
-                    label.1,
-                    low.iter()
+                    low.label,
+                    low_rows
+                        .iter()
                         .map(|(e, c)| format!("{e}, ({c})"))
                         .collect::<Vec<String>>()
                         .join("; "),
