@@ -171,7 +171,7 @@ async fn add_reacji_vote(
     let nick_id: i64 = add_nick(txn, user_id, username.clone(), real_name).await?;
 
     // Insert the reacji into the database
-    let ret = Ok(Some(
+    Ok(Some(
         txn.query_one(
             "INSERT INTO reacji_votes
             (voted_at, by_whom_name, action, reacji_message_id, amount, nick_id)
@@ -189,6 +189,5 @@ async fn add_reacji_vote(
         )
         .await?
         .try_get(0)?,
-    ));
-    ret
+    ))
 }

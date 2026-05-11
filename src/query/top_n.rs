@@ -66,12 +66,7 @@ async fn top_n_denormalized<C: GenericClient>(
         )
         .await?;
 
-    let mut ret: Vec<(String, i64)> = vec![];
-    for row in rows {
-        let name: String = row.try_get(0)?;
-        let count: i64 = row.try_get(1)?;
-
-        ret.push((name.clone(), count));
-    }
-    Ok(ret)
+    rows.into_iter()
+        .map(|row| Ok((row.try_get(0)?, row.try_get(1)?)))
+        .collect()
 }

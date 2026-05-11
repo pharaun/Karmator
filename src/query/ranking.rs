@@ -59,17 +59,20 @@ async fn ranking_denormalized<C: GenericClient>(
     karma_typ: KarmaTyp,
     user: KarmaName,
 ) -> AResult<Option<i64>> {
-    Ok(client.query_one(&format!(
-        "SELECT rank FROM (
-            SELECT name, RANK() OVER (ORDER BY ({karma_typ}) DESC) as rank FROM {karma_col}
-        ) WHERE md5(lower(name)) = md5(lower($1))"),
-        &[&user]).await?.try_get(0)?
-    )
+    Ok(client
+        .query_one(&format!(
+            "SELECT rank FROM (
+                SELECT name, RANK() OVER (ORDER BY ({karma_typ}) DESC) as rank FROM {karma_col}
+            ) WHERE md5(lower(name)) = md5(lower($1))"),
+            &[&user],
+        )
+        .await?
+        .try_get(0)?)
 }
 
 async fn count<C: GenericClient>(client: &C, karma_col: KarmaCol) -> AResult<i64> {
     Ok(client
-        .query_one(&format!("SELECT COUNT(name) FROM {karma_col}"), &[])
+        .query_one(&format!("SELECT COUNT(*) FROM {karma_col}"), &[])
         .await?
         .try_get(0)?)
 }
