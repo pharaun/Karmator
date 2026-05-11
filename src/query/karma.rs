@@ -6,6 +6,7 @@ use tokio_postgres::IsolationLevel;
 
 use futures_util::future;
 
+use anyhow::anyhow;
 use anyhow::Result as AResult;
 
 use crate::parser::karma;
@@ -14,6 +15,7 @@ use crate::parser::karma::KST;
 use crate::query::add_channel_opt;
 use crate::query::add_nick;
 use crate::query::normalize;
+use crate::query::Karma;
 use crate::query::KarmaName;
 
 use crate::bot::user_event::Event;
@@ -86,7 +88,9 @@ async fn add_karma_query(
     channel_id: Option<String>,
     karma: Vec<KST>,
 ) -> AResult<()> {
-    // TODO: Make robust
+    if karma.is_empty() {
+        return Err(anyhow!("The karma vector is empty"));
+    }
     let mut client = pool.get().await?;
     let txn = client
         .build_transaction()
@@ -100,27 +104,27 @@ async fn add_karma_query(
     )
     .await?;
 
-    // Shove the karma into the db now
-    for KST(karma_text, amount) in &karma {
-        let karma_text = normalize(karma_text);
+    // Prepare the arrays for bulk inserts into postgres
+    let (karma_texts, amounts): (Vec<String>, Vec<Karma>) = karma
+        .into_iter()
+        .map(|KST(text, amount)| (normalize(&text), amount))
+        .unzip();
 
-        // TODO: better handle failure of username, maybe we should make username mandatory before inserting?
-        txn.execute(
-            "INSERT INTO votes
-                (voted_at, by_whom_name, for_what_name, amount, nick_id, chan_id)
-            VALUES
-                ($1, $2, $3, $4, $5, $6)",
-            &[
-                &timestamp,
-                &username,
-                &karma_text,
-                &amount,
-                &nick_id,
-                &channel_id,
-            ],
-        )
-        .await?;
-    }
+    // Shove it into the database now, its a mixture of scalar and arrays
+    txn.execute(
+        "INSERT INTO votes
+            (voted_at, by_whom_name, for_what_name, amount, nick_id, chan_id)
+        SELECT $1, $2, unnest($3::text[]), unnest($4::smallint[]), $5, $6",
+        &[
+            &timestamp,
+            &username,
+            &karma_texts,
+            &amounts,
+            &nick_id,
+            &channel_id,
+        ],
+    )
+    .await?;
     txn.commit().await?;
     Ok(())
 }
