@@ -2,13 +2,9 @@ use deadpool_postgres::GenericClient;
 
 use log::error;
 use std::collections::HashSet;
-use std::fmt::Write as _;
 
 use anyhow::anyhow;
 use anyhow::Result as AResult;
-
-use futures_util::pin_mut;
-use futures_util::TryStreamExt as _;
 
 use crate::bot::user_event::Event;
 use crate::query::{KarmaCol, KarmaName};
@@ -59,41 +55,46 @@ async fn partial_query<C: GenericClient>(
         return Err(anyhow!("Users hash is 0 (no users)"));
     }
 
-    // Hack to insert enough parameterizers into the query
-    let p_user = {
-        let mut p_user: String = "md5(lower($1))".to_owned();
-        for i in 2..=users.len() {
-            let _ = write!(p_user, ", md5(lower(${i}))");
-        }
-        p_user
-    };
-    let query: String = format!(
-        "SELECT name, up, down, side FROM {karma_col} WHERE md5(lower(name)) in ({p_user}) ORDER BY name DESC"
-    );
+    // We can pass in an array to postgres and unnest it to have a variable number of entity
     let params: Vec<String> = users.iter().map(ToString::to_string).collect();
-
-    // Maxmium Pain here we go!
-    let it = client.query_raw(&query, params).await?;
+    let rows = client
+        .query(
+            &format!(
+                "SELECT name, up, down, side FROM {karma_col}
+                WHERE md5(lower(name)) = ANY(
+                    SELECT md5(lower(unnest)) FROM unnest($1::text[])
+                ) ORDER BY name DESC"
+            ),
+            &[&params],
+        )
+        .await?;
 
     // A bit more additional work than usual
-    let mut ret: Vec<(String, i64, i64, i64)> = vec![];
-    let mut has: HashSet<KarmaName> = HashSet::new();
+    let ret: AResult<Vec<(String, i64, i64, i64)>> = rows
+        .into_iter()
+        .map(|row| {
+            Ok((
+                row.try_get(0)?,
+                row.try_get(1)?,
+                row.try_get(2)?,
+                row.try_get(3)?,
+            ))
+        })
+        .collect();
 
-    pin_mut!(it);
-    while let Some(row) = it.try_next().await? {
-        let name: String = row.try_get(0)?;
-        let up: i64 = row.try_get(1)?;
-        let down: i64 = row.try_get(2)?;
-        let side: i64 = row.try_get(3)?;
+    match ret {
+        Ok(mut val) => {
+            let has: HashSet<KarmaName> = val.iter().map(|row| KarmaName::new(&row.0)).collect();
 
-        has.insert(KarmaName::new(&name));
-        ret.push((name, up, down, side));
+            // Evaulate if there's missing ones and add if so
+            // TODO: this should be case insensitive (Ie database can return B and we have b)
+            let mut diff = users
+                .difference(&has)
+                .map(|un| (un.to_string(), 0, 0, 0))
+                .collect();
+            val.append(&mut diff);
+            Ok(val)
+        }
+        Err(e) => Err(e),
     }
-
-    // Evaulate if there's missing ones and add if so
-    // TODO: this should be case insensitive (Ie database can return B and we have b)
-    for n in users.difference(&has) {
-        ret.push((n.to_string(), 0, 0, 0));
-    }
-    Ok(ret)
 }

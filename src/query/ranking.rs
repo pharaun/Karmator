@@ -60,10 +60,12 @@ async fn ranking_denormalized<C: GenericClient>(
     user: KarmaName,
 ) -> AResult<Option<i64>> {
     Ok(client
-        .query_one(&format!(
-            "SELECT rank FROM (
+        .query_one(
+            &format!(
+                "SELECT rank FROM (
                 SELECT name, RANK() OVER (ORDER BY ({karma_typ}) DESC) as rank FROM {karma_col}
-            ) WHERE md5(lower(name)) = md5(lower($1))"),
+            ) WHERE md5(lower(name)) = md5(lower($1))"
+            ),
             &[&user],
         )
         .await?
