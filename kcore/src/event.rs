@@ -12,7 +12,8 @@ use log::{debug, error, info, warn};
 
 use tokio::net::TcpStream;
 
-use crate::bot::send_websocket;
+use crate::bot::send_acknowledge;
+use crate::bot::send_pong;
 use crate::connection_state::ConnectionState;
 
 // Other unhandled types (interactive events):
@@ -34,6 +35,8 @@ enum Event {
     },
 
     // Regular events
+    // TODO: Have a way to extract an Envelope event for acknowledgement
+    // Then re-parse it into the actual Payload/others for downstream processing
     EventsApi {
         envelope_id: String,
         accepts_response_payload: bool,
@@ -50,16 +53,6 @@ enum Payload {
         // of this payload, but we do need to know the envelope id for acknowledging
         event: serde_json::Value,
     },
-}
-
-#[derive(Debug)]
-pub(crate) enum WebsocketReply {
-    // Acknowledge reception of event
-    Acknowledge(String),
-
-    // Control
-    Ping(tungstenite::Bytes),
-    Pong(tungstenite::Bytes),
 }
 
 fn parse_event(s: &str) -> Option<Event> {
@@ -82,11 +75,7 @@ async fn process_websocket_message(
         tungstenite::Message::Text(x) => Some(x),
 
         tungstenite::Message::Ping(x) => {
-            send_websocket(
-                connection_state,
-                ws_write,
-                WebsocketReply::Pong(x),
-            ).await;
+            send_pong(connection_state, ws_write, x).await;
             None
         }
 
@@ -134,11 +123,7 @@ async fn process_slack_control_message(
             payload: pay,
         } => {
             // TODO: We probs want to cache recently sent acknowledgement to handle reconnects
-            send_websocket(
-                connection_state,
-                ws_write,
-                WebsocketReply::Acknowledge(ei),
-            ).await;
+            send_acknowledge(connection_state, ws_write, ei).await;
             match pay {
                 Payload::EventCallback { event: e } => Some(e),
             }
