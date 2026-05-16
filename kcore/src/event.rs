@@ -3,6 +3,7 @@ use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
 
 use serde::Deserialize;
+use serde_json::json;
 
 use anyhow::Result as AResult;
 
@@ -16,13 +17,9 @@ use crate::bot::send_acknowledge;
 use crate::bot::send_pong;
 use crate::connection_state::ConnectionState;
 
-// Other unhandled types (interactive events):
-// Reply with data: slash_commands, view_submission, block_suggestion
-// Acknowlegement: block_actions, app_home_opened
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-#[expect(dead_code)]
 enum Event {
     // First message upon successful connection establishment
     Hello {
@@ -34,24 +31,15 @@ enum Event {
         reason: String,
     },
 
-    // Regular events
-    // TODO: Have a way to extract an Envelope event for acknowledgement
-    // Then re-parse it into the actual Payload/others for downstream processing
-    EventsApi {
+    #[serde(untagged)]
+    Envelope {
+        #[serde(rename = "type")]
+        envelope_type: String,
         envelope_id: String,
         accepts_response_payload: bool,
-        payload: Payload,
-    },
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-enum Payload {
-    EventCallback {
         // This is converted into a json value, since we don't care about the content
         // of this payload, but we do need to know the envelope id for acknowledging
-        event: serde_json::Value,
+        payload: serde_json::Value,
     },
 }
 
@@ -123,16 +111,18 @@ async fn process_slack_control_message(
             info!("Slack Websocket - Disconnect reason: {r:?}");
             None
         }
-        Event::EventsApi {
+        Event::Envelope {
+            envelope_type: et,
             envelope_id: ei,
             accepts_response_payload: _,
             payload: pay,
         } => {
             // TODO: We probs want to cache recently sent acknowledgement to handle reconnects
             send_acknowledge(connection_state, ws_write, ei).await;
-            match pay {
-                Payload::EventCallback { event: e } => Some(e),
-            }
+            Some(json!({
+                "type": et,
+                "payload": pay,
+            }))
         }
     }
 }
@@ -151,5 +141,118 @@ pub(crate) async fn process_control_message(
         Ok(process_slack_control_message(ws_write, connection_state, e).await)
     } else {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod test_event {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn test_hello() {
+        let data = r#"{
+            "type": "hello",
+            "connection_info": {
+                "app_id": "A1234"
+            },
+            "num_connections": 1,
+            "debug_info": {
+                "host": "applink-…."
+            }
+        }"#;
+        assert_eq!(parse_event(data), Some(Event::Hello { num_connections: 1 }));
+    }
+
+    #[test]
+    fn test_disconnect() {
+        let data = r#"{
+            "type" : "disconnect",
+            "reason": "refresh_requested",
+            "debug_info": {
+                "host": "wss-111.slack.com"
+            }
+        }"#;
+        assert_eq!(
+            parse_event(data),
+            Some(Event::Disconnect {
+                reason: "refresh_requested".to_owned()
+            })
+        );
+    }
+
+    #[test]
+    fn test_slash_command() {
+        let data = r#"{
+            "payload": {
+                "channel_id": "C123ABC456",
+                "user_id": "U123ABC456"
+            },
+            "envelope_id": "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545",
+            "type": "slash_commands",
+            "accepts_response_payload": true
+        }"#;
+        assert_eq!(
+            parse_event(data),
+            Some(Event::Envelope {
+                envelope_type: "slash_commands".to_owned(),
+                envelope_id: "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545".to_owned(),
+                accepts_response_payload: true,
+                payload: json!({
+                    "channel_id": "C123ABC456",
+                    "user_id": "U123ABC456",
+                }),
+            })
+        );
+    }
+
+    #[test]
+    fn test_interactive() {
+        let data = r#"{
+            "payload": {
+                "type": "block_actions",
+                "trigger_id": "12321423423.333649436676.d8c1bb837935619ccad0f624c448ffb3"
+            },
+            "envelope_id": "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545",
+            "type": "interactive",
+            "accepts_response_payload": true
+        }"#;
+        assert_eq!(
+            parse_event(data),
+            Some(Event::Envelope {
+                envelope_type: "interactive".to_owned(),
+                envelope_id: "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545".to_owned(),
+                accepts_response_payload: true,
+                payload: json!({
+                    "type": "block_actions",
+                    "trigger_id": "12321423423.333649436676.d8c1bb837935619ccad0f624c448ffb3",
+                }),
+            })
+        );
+    }
+
+    #[test]
+    fn test_events_api() {
+        let data = r#"{
+            "payload": {
+                "type": "app_home_opened",
+                "user": "U123ABC456"
+            },
+            "envelope_id": "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545",
+            "type": "events_api",
+            "accepts_response_payload": false
+        }"#;
+        assert_eq!(
+            parse_event(data),
+            Some(Event::Envelope {
+                envelope_type: "events_api".to_owned(),
+                envelope_id: "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545".to_owned(),
+                accepts_response_payload: false,
+                payload: json!({
+                    "type": "app_home_opened",
+                    "user": "U123ABC456"
+                }),
+            })
+        );
     }
 }

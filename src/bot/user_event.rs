@@ -177,6 +177,21 @@ impl<S: SlackSender> Event<S> {
     }
 }
 
+// TODO: clean this out, this double nesting is awkward
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+enum Payload {
+    EventsApi { payload: SubPayload },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+enum SubPayload {
+    EventCallback { event: UserEvent },
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
@@ -232,12 +247,15 @@ pub enum ReactionItem {
 }
 
 fn parse_user_event(s: serde_json::Value) -> Option<UserEvent> {
-    let res = serde_json::from_value::<UserEvent>(s).map_err(|e| format!("{e:?}"));
+    let res = serde_json::from_value::<Payload>(s).map_err(|e| format!("{e:?}"));
 
-    if res.is_err() {
-        warn!("parse_event - Error: {res:?}");
+    match res {
+        Err(e) => {
+            warn!("parse_user_event - Error: {e:?}");
+            None
+        }
+        Ok(Payload::EventsApi { payload: SubPayload::EventCallback { event } }) => Some(event),
     }
-    res.ok()
 }
 
 #[expect(clippy::too_many_lines)]

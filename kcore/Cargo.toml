@@ -9,6 +9,7 @@ workspace = true
 
 [dev-dependencies]
 http = "1.2"
+test-log = "0.2"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
