@@ -374,6 +374,7 @@ mod test_parser {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_convert_naive_time() {
         let tz_req = parse("5pm PST").unwrap();
         let conv_req = convert_naive_time(tz_req.1.time, tz_req.1.zone.unwrap().0).unwrap();
@@ -383,6 +384,7 @@ mod test_parser {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_convert_to_locales() {
         let tz_req = parse("5pm PST").unwrap();
         let conv_req = convert_naive_time(tz_req.1.time, tz_req.1.zone.unwrap().0).unwrap();

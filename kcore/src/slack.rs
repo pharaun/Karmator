@@ -380,6 +380,7 @@ mod test_slack_client {
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_socket_connect() {
         let client = client_response(
             200,
@@ -394,6 +395,7 @@ mod test_slack_client {
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_fail_socket_connect() {
         let client = client_response(
             200,
@@ -408,6 +410,7 @@ mod test_slack_client {
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_one_message() {
         let client = client_response(
             200,
@@ -433,6 +436,7 @@ mod test_slack_client {
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_two_message() {
         let client = client_response(
             200,
@@ -454,6 +458,7 @@ mod test_slack_client {
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_bot_message() {
         let client = client_response(
             200,
@@ -479,6 +484,7 @@ mod test_slack_client {
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_bad_message() {
         let client = client_response(
             200,
@@ -494,12 +500,14 @@ mod test_slack_client {
 
     #[tokio::test]
     #[should_panic]
+    #[cfg_attr(miri, ignore)]
     async fn test_get_user_verify_panic() {
         let client = panic_response();
         let _ = client.get_user("whoever").await;
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_get_user_in_cache() {
         let client = panic_response();
 
@@ -524,6 +532,7 @@ mod test_slack_client {
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_get_user_not_in_cache() {
         let client = client_response(
             200,
@@ -562,6 +571,7 @@ mod test_slack_client {
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_get_user_not_in_cache_error() {
         let client = client_response(
             200,
@@ -576,6 +586,7 @@ mod test_slack_client {
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_get_user_user_not_found_cached() {
         let client = client_response(
             200,
@@ -599,6 +610,7 @@ mod test_slack_client {
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_post_message() {
         let client = client_response(
             200,
@@ -619,6 +631,7 @@ mod test_slack_client {
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_post_message_error() {
         let client = client_response(
             200,
@@ -639,6 +652,7 @@ mod test_slack_client {
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_malformed_envelope() {
         let client = client_response(
             200,
@@ -661,6 +675,7 @@ mod test_slack_client {
     }
 
     #[tokio::test]
+    #[cfg_attr(miri, ignore)]
     async fn test_malformed_json_envelope() {
         let client = client_response(
             200,
