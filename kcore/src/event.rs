@@ -1,15 +1,18 @@
 use tokio_tungstenite::tungstenite;
+use tokio_tungstenite::MaybeTlsStream;
+use tokio_tungstenite::WebSocketStream;
 
 use serde::Deserialize;
 
 use anyhow::Result as AResult;
-use std::result::Result;
+
+use futures_util::stream::SplitSink;
 
 use log::{debug, error, info, warn};
 
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::TrySendError;
+use tokio::net::TcpStream;
 
+use crate::bot::send_websocket;
 use crate::connection_state::ConnectionState;
 
 // Other unhandled types (interactive events):
@@ -70,24 +73,8 @@ fn parse_event(s: &str) -> Option<Event> {
     res.ok()
 }
 
-pub(crate) async fn send_slack_ping(
-    wtx: &mpsc::Sender<WebsocketReply>,
-    connection_state: &ConnectionState,
-) -> Result<(), &'static str> {
-    match wtx.try_send(WebsocketReply::Ping(tungstenite::Bytes::new())) {
-        Ok(()) => {
-            connection_state.ping_sent().await;
-            Ok(())
-        }
-        // Drop it, if we reach this point the socket is in bad state and the eventual
-        // ping fail will trigger a reconnect
-        Err(TrySendError::Full(_)) => Ok(()),
-        Err(TrySendError::Closed(_)) => Err("Channel Closed"),
-    }
-}
-
-fn process_websocket_message(
-    wtx: &mpsc::Sender<WebsocketReply>,
+async fn process_websocket_message(
+    ws_write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
     connection_state: &ConnectionState,
     msg: tungstenite::Message,
 ) -> Option<tungstenite::Utf8Bytes> {
@@ -95,12 +82,11 @@ fn process_websocket_message(
         tungstenite::Message::Text(x) => Some(x),
 
         tungstenite::Message::Ping(x) => {
-            match wtx.try_send(WebsocketReply::Pong(x)) {
-                Ok(()) | Err(TrySendError::Full(_)) => (),
-                Err(TrySendError::Closed(_)) => {
-                    error!("Ping channel closed");
-                }
-            }
+            send_websocket(
+                connection_state,
+                ws_write,
+                WebsocketReply::Pong(x),
+            ).await;
             None
         }
 
@@ -125,8 +111,8 @@ fn process_websocket_message(
     }
 }
 
-fn process_slack_control_message(
-    wtx: &mpsc::Sender<WebsocketReply>,
+async fn process_slack_control_message(
+    ws_write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
     connection_state: &ConnectionState,
     msg: Event,
 ) -> Option<serde_json::Value> {
@@ -148,11 +134,11 @@ fn process_slack_control_message(
             payload: pay,
         } => {
             // TODO: We probs want to cache recently sent acknowledgement to handle reconnects
-            match wtx.try_send(WebsocketReply::Acknowledge(ei)) {
-                Ok(()) => (),
-                Err(TrySendError::Full(_)) => error!("Send queue full, in a bad state"),
-                Err(TrySendError::Closed(_)) => error!("Send channel closed"),
-            }
+            send_websocket(
+                connection_state,
+                ws_write,
+                WebsocketReply::Acknowledge(ei),
+            ).await;
             match pay {
                 Payload::EventCallback { event: e } => Some(e),
             }
@@ -161,17 +147,17 @@ fn process_slack_control_message(
 }
 
 pub(crate) async fn process_control_message(
-    wtx: &mpsc::Sender<WebsocketReply>,
+    ws_write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
     connection_state: &ConnectionState,
     msg: tungstenite::Message,
 ) -> AResult<Option<serde_json::Value>> {
     // Parse incoming message
     connection_state.message_received().await;
 
-    let raw_msg = process_websocket_message(wtx, connection_state, msg);
+    let raw_msg = process_websocket_message(ws_write, connection_state, msg).await;
 
     if let Some(e) = raw_msg.as_deref().and_then(parse_event) {
-        Ok(process_slack_control_message(wtx, connection_state, e))
+        Ok(process_slack_control_message(ws_write, connection_state, e).await)
     } else {
         Ok(None)
     }

@@ -8,7 +8,6 @@ use futures_util::SinkExt as _;
 use futures_util::StreamExt as _;
 
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
 use tokio::time;
 use tokio::time::timeout;
 use tokio::time::MissedTickBehavior;
@@ -42,9 +41,6 @@ where
     let mut heartbeat = time::interval(Duration::from_secs(1));
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-    // Websocket Tx/Rx from the message loop for managing the websocket
-    let (wtx, mut wrx) = mpsc::channel(32);
-
     // Main server loop, exit if the database dies
     while !watcher.is_cancelled() {
         match ws_connect(&slack, watcher).await {
@@ -60,15 +56,10 @@ where
                         () = watcher.cancelled() => info!("Shutdown signal received"),
 
                         // Process inbound messages
-                        ws_msg = ws_read.next() => process_message(&slack, &wtx, &conn_state, &user_event_listener, ws_msg).await,
-
-                        // Process outbound control messages
-                        // NOTE: If should_send is false this will be disabled till heartbeat ticks
-                        // (~1s delay) or any other arm of the select fires.
-                        Some(message) = wrx.recv(), if conn_state.should_send() => send_websocket(&conn_state, &mut ws_write, message).await,
+                        ws_msg = ws_read.next() => process_message(&slack, &mut ws_write, &conn_state, &user_event_listener, ws_msg).await,
 
                         // This is woken up peroidically to force a heartbeat check
-                        _ = heartbeat.tick() => heartbeat_tick(&wtx, &conn_state).await,
+                        _ = heartbeat.tick() => heartbeat_tick(&mut ws_write, &conn_state).await,
                     }
                 }
             }
@@ -115,7 +106,7 @@ async fn ws_connect<S: SlackSender>(
 
 async fn process_message<S: SlackSender, F1>(
     slack: &SlackClient<S>,
-    wtx: &mpsc::Sender<event::WebsocketReply>,
+    ws_write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
     connection_state: &connection_state::ConnectionState,
     user_event_listener: F1,
     ws_msg: Option<Result<tungstenite::Message, tungstenite::Error>>,
@@ -124,7 +115,7 @@ async fn process_message<S: SlackSender, F1>(
 {
     match ws_msg {
         Some(Ok(ws_msg)) => {
-            match event::process_control_message(wtx, connection_state, ws_msg).await {
+            match event::process_control_message(ws_write, connection_state, ws_msg).await {
                 // If there's an user event returned spawn off the user event processor
                 Ok(Some(event)) => user_event_listener(event, slack.clone()),
                 Err(e) => error!("process_control_message error: {e:?}"),
@@ -144,33 +135,37 @@ async fn process_message<S: SlackSender, F1>(
     }
 }
 
-async fn send_websocket(
+pub(crate) async fn send_websocket(
     connection_state: &connection_state::ConnectionState,
     ws_write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
     message: event::WebsocketReply,
 ) {
-    // Convert this to a string json message to feed into the stream
-    if let Err(e) = match message {
-        event::WebsocketReply::Pong(x) => ws_write.send(tungstenite::Message::Pong(x)).await,
-        event::WebsocketReply::Ping(x) => ws_write.send(tungstenite::Message::Ping(x)).await,
-        event::WebsocketReply::Acknowledge(envelope_id) => {
-            ws_write
-                .send(tungstenite::Message::from(
-                    json!({
-                        "envelope_id": envelope_id
-                    })
-                    .to_string(),
-                ))
-                .await
+    if connection_state.should_send() {
+        // Convert this to a string json message to feed into the stream
+        if let Err(e) = match message {
+            event::WebsocketReply::Pong(x) => ws_write.send(tungstenite::Message::Pong(x)).await,
+            event::WebsocketReply::Ping(x) => ws_write.send(tungstenite::Message::Ping(x)).await,
+            event::WebsocketReply::Acknowledge(envelope_id) => {
+                ws_write
+                    .send(tungstenite::Message::from(
+                        json!({
+                            "envelope_id": envelope_id
+                        })
+                        .to_string(),
+                    ))
+                    .await
+            }
+        } {
+            error!("Slack Websocket - Connection error: {e:?}");
+            connection_state.reconnect();
         }
-    } {
-        error!("Slack Websocket - Connection error: {e:?}");
-        connection_state.reconnect();
+    } else {
+        error!("Bad state! Can't send a control message yet recieved slack message");
     }
 }
 
 async fn heartbeat_tick(
-    wtx: &mpsc::Sender<event::WebsocketReply>,
+    ws_write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
     connection_state: &connection_state::ConnectionState,
 ) {
     // Check the delta, If either or both are None, that means
@@ -195,9 +190,12 @@ async fn heartbeat_tick(
                     lmd.as_secs(),
                     lpd.as_secs(),
                 );
-                if let Err(e) = event::send_slack_ping(wtx, connection_state).await {
-                    warn!("Slack Websocket Heartbeat - Error sending ping {e:?}");
-                }
+                send_websocket(
+                    connection_state,
+                    ws_write,
+                    event::WebsocketReply::Ping(tungstenite::Bytes::new())
+                ).await;
+                connection_state.ping_sent().await;
             }
         }
     }
