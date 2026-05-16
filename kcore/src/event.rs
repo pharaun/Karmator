@@ -80,7 +80,13 @@ async fn process_websocket_message(
         }
 
         // Reply from our heartbeat ping
-        tungstenite::Message::Pong(_) => None,
+        tungstenite::Message::Pong(_) => {
+            // We wait for a ping-pong cycle ~30s once a connection
+            // gets established before we reset the backoff timer,
+            // this ensures it only get reset on an "alive" connection
+            connection_state.reset_backoff_timer().await;
+            None
+        }
 
         tungstenite::Message::Close(reason) => {
             info!("Slack Websocket - Close reason: {reason:?}");
@@ -108,7 +114,7 @@ async fn process_slack_control_message(
     match msg {
         Event::Hello { num_connections: _ } => {
             // Hold on sending messages till this is received.
-            connection_state.connected();
+            connection_state.connected().await;
             None
         }
         Event::Disconnect { reason: r } => {

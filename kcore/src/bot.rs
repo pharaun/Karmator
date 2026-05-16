@@ -64,7 +64,7 @@ where
                 }
             }
             Err(e) => {
-                conn_state.special_reconnect();
+                conn_state.reconnect();
                 error!("Slack Websocket - Connection failed: {e:?}");
             }
         }
@@ -72,6 +72,8 @@ where
         if !watcher.is_cancelled() {
             // Backoff timer is implemented in conn_state, its reset on entering reconnect state
             // - When it returns None we have ran out of attempts and we should give up now
+            // - This is also exceeded in a crash loop cuz we will not have an alive-connection and
+            // max backoff timer expires
             if let Some(durt) = conn_state.fetch_next_backoff() {
                 info!("Slack Websocket - Reconnecting, sleeping for: {durt:?}");
                 tokio::select! {
@@ -79,7 +81,7 @@ where
                     () = time::sleep(durt) => (),
                 }
             } else {
-                error!("Slack Websocket - rate limit cap, shutting down");
+                error!("Slack Websocket - Exceeded with_max_elapsed_time, shutting down");
                 watcher.cancel();
                 break;
             }
@@ -161,6 +163,8 @@ async fn heartbeat_tick(
                     lmd.as_secs(),
                     lpd.as_secs(),
                 );
+                // TODO: Generate a new value each time so we can track the ping-pong for
+                // connection aliveness
                 send_ping(connection_state, ws_write, tungstenite::Bytes::new()).await;
             }
         }
