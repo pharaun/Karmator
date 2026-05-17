@@ -1,6 +1,6 @@
-use async_channel::Receiver;
 use deadpool_postgres::Pool;
 use tokio_util::sync::CancellationToken;
+use tokio::sync::mpsc::Receiver;
 
 use std::result::Result;
 use std::str::FromStr as _;
@@ -33,14 +33,17 @@ use kcore::SlackSender;
 use kcore::SlackTimezone;
 use kcore::SlackUser;
 
+// TODO: make this handle cancellation token and then drain the queue if any
+// also look at having a timeout to just abort since we don't want to just hang
+// forever
 pub async fn user_message_handler<S: SlackSender + 'static>(
     slack: SlackClient<S>,
     watcher: CancellationToken,
     pool: Pool,
-    user_event: Receiver<serde_json::Value>,
+    mut user_event: Receiver<serde_json::Value>,
 ) {
     // TODO: find a better flow for this but for now just tokio spawn here
-    while let Ok(event) = user_event.recv().await {
+    while let Some(event) = user_event.recv().await {
         let pool = pool.clone();
         let slack = slack.clone();
         tokio::spawn(async move {

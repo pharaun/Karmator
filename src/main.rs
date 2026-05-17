@@ -5,11 +5,11 @@ use log::{error, info};
 use anyhow::anyhow;
 use anyhow::Result as AResult;
 
-use async_channel::unbounded;
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig as RustlsClientConfig;
+use tokio::sync::mpsc::channel;
 use tokio::task::JoinSet;
 use tokio_postgres_rustls::MakeRustlsConnect;
 use tokio_util::sync::CancellationToken;
@@ -66,7 +66,7 @@ async fn main() -> AResult<()> {
 
     // Slack Websocket
     let slack = SlackClient::new("https://slack.com/api", &app_token, &bot_token, 50);
-    let (sue, rue) = unbounded();
+    let (sue, rue) = channel(32);
     set.spawn(slack_websocket_handler(slack.clone(), watcher.clone(), sue));
 
     // User Event processing

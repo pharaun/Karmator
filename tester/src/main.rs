@@ -9,7 +9,6 @@ use log::{debug, error, info, warn};
 use anyhow::Result as AResult;
 use anyhow::anyhow;
 
-use async_channel::unbounded;
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -591,7 +590,7 @@ async fn main() -> AResult<()> {
     let pool = pool.clone();
     let slack =
         SlackClient::with_sender(FakeSender, "http://localhost", "app-token", "bot-token", 10);
-    let (sue, rue) = unbounded();
+    let (sue, rue) = mpsc::channel(32);
     set.spawn(slack_websocket_handler(slack.clone(), watcher.clone(), sue));
     set.spawn(user_event::user_message_handler(
         slack.clone(),

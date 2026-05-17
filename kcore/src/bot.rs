@@ -7,8 +7,7 @@ use futures_util::stream::SplitSink;
 use futures_util::SinkExt as _;
 use futures_util::StreamExt as _;
 
-use async_channel::Sender;
-
+use tokio::sync::mpsc::Sender;
 use tokio::net::TcpStream;
 use tokio::time;
 use tokio::time::timeout;
@@ -82,7 +81,6 @@ pub async fn slack_websocket_handler<S: SlackSender>(
             } else {
                 error!("Slack Websocket - Exceeded with_max_elapsed_time, shutting down");
                 watcher.cancel();
-                user_event.close();
                 break;
             }
         }
@@ -115,7 +113,7 @@ async fn process_message(
     match ws_msg {
         Some(Ok(ws_msg)) => {
             match event::process_control_message(ws_write, connection_state, ws_msg).await {
-                // Send event into the user_event queue
+                // TODO: Handle full queue
                 Ok(Some(event)) => user_event.send(event).await.expect("Channel Full"),
                 Err(e) => error!("process_control_message error: {e:?}"),
                 _ => (),
