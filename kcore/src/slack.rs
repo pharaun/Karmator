@@ -4,13 +4,14 @@ use serde::Serialize;
 
 use std::clone::Clone;
 use std::future::Future;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
-use std::num::NonZeroU32;
 
+use governor::DefaultKeyedRateLimiter;
+use governor::DefaultDirectRateLimiter;
 use governor::Quota;
 use governor::RateLimiter;
-use governor::DefaultDirectRateLimiter;
 
 use reqwest::header;
 use reqwest::RequestBuilder;
@@ -64,6 +65,7 @@ pub trait HttpSender: Clone + Send + Sync + Sized {
 pub struct ReqwestSender;
 impl HttpSender for ReqwestSender {
     // TODO: Better support rate limiting - https://api.slack.com/apis/rate-limits
+    // TODO: Improve the retry strat instead of straight up failing.
     async fn send(&self, request: RequestBuilder) -> AResult<Response> {
         request.send().await.map_err(Into::into)
     }
@@ -76,6 +78,10 @@ pub struct Client<S: HttpSender = ReqwestSender> {
     user_cache: Arc<Cache<String, Option<User>>>,
     // Governor limits
     quota_socket_connect: Arc<DefaultDirectRateLimiter>,
+    quota_post_message: Arc<DefaultKeyedRateLimiter<String>>,
+    quota_post_message_global: Arc<DefaultDirectRateLimiter>,
+    quota_get_users: Arc<DefaultDirectRateLimiter>,
+    quota_get_message: Arc<DefaultDirectRateLimiter>,
     // Tokens
     app_token: String,
     bot_token: String,
@@ -201,9 +207,21 @@ impl<S: HttpSender> Client<S> {
         Self {
             url: url.to_owned(),
             user_cache: Arc::new(Cache::new(capacity)),
-            quota_socket_connect: Arc::new(RateLimiter::direct(
-                Quota::per_minute(NonZeroU32::new(5).expect("greater than zero")),
-            )),
+            quota_socket_connect: Arc::new(RateLimiter::direct(Quota::per_minute(
+                NonZeroU32::new(50).expect("greater than zero"),
+            ))),
+            quota_post_message: Arc::new(RateLimiter::keyed(Quota::per_second(
+                NonZeroU32::new(1).expect("greater than zero"),
+            ))),
+            quota_post_message_global: Arc::new(RateLimiter::direct(Quota::per_minute(
+                NonZeroU32::new(100).expect("greater than zero"),
+            ))),
+            quota_get_users: Arc::new(RateLimiter::direct(Quota::per_minute(
+                NonZeroU32::new(100).expect("greater than zero"),
+            ))),
+            quota_get_message: Arc::new(RateLimiter::direct(Quota::per_minute(
+                NonZeroU32::new(50).expect("greater than zero"),
+            ))),
             app_token: app_token.to_owned(),
             bot_token: bot_token.to_owned(),
             http: reqwest::Client::builder()
@@ -225,17 +243,17 @@ impl<S: HttpSender> Client<S> {
     }
 
     pub async fn socket_connect(&self) -> AResult<String> {
-        // Employ the governor module to cap reconnection attempts to at most 40/m
-        // to keep it safely below the 50/m tier plan for the endpoint
-        let _ = &self.quota_socket_connect.until_ready().await;
+        let () = &self.quota_socket_connect.until_ready().await;
         parse_response(
             "url",
             &self.post("apps.connections.open", &self.app_token).await?,
         )
     }
 
-    // TODO: maybe retry if the post_message fails
     pub async fn post_message(&self, message: Message) -> AResult<String> {
+        // There is 2 rate limit, a 1+/s per channel, and a global 100+/m
+        let () = &self.quota_post_message.until_key_ready(&message.channel).await;
+        let () = &self.quota_post_message_global.until_ready().await;
         parse_response(
             "ts",
             &self
@@ -251,7 +269,7 @@ impl<S: HttpSender> Client<S> {
     pub async fn get_user(&self, user_id: &str) -> AResult<Option<User>> {
         self.user_cache
             .get_or_insert_async(user_id, async {
-                // TODO: Improve the retry strat instead of straight up failing.
+                let () = &self.quota_get_users.until_ready().await;
                 match parse_response_envelope::<User>(
                     "user",
                     &self
@@ -285,6 +303,7 @@ impl<S: HttpSender> Client<S> {
             ("inclusive", "true"),
             ("limit", "1"),
         ];
+        let () = &self.quota_get_message.until_ready().await;
         let mess: Vec<ConversationHistoryMessage> = parse_response(
             "messages",
             &self
