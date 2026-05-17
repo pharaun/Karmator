@@ -46,14 +46,14 @@ impl ConnectionState {
     }
 
     pub(crate) async fn pending(&self) {
-        // Connection attempt, waiting ack
-        self.can_send.store(false, Ordering::Relaxed);
-        self.reconnect.store(false, Ordering::Relaxed);
-
         // Reset timer to avoid a race between reconnecting and first hello
         let now = Instant::now();
         *(self.last_message_received.write().await) = now;
         *(self.last_ping_sent.write().await) = now;
+
+        // Connection attempt, waiting ack
+        self.can_send.store(false, Ordering::Release);
+        self.reconnect.store(false, Ordering::Release);
     }
 
     pub(crate) async fn reset_backoff_timer(&self) {
@@ -77,26 +77,25 @@ impl ConnectionState {
     }
 
     pub(crate) fn reconnect(&self) {
-        // Need to reconnect,
-        self.reconnect.store(true, Ordering::Relaxed);
-        self.can_send.store(false, Ordering::Relaxed);
+        self.reconnect.store(true, Ordering::Release);
+        self.can_send.store(false, Ordering::Release);
     }
 
     pub(crate) fn should_reconnect(&self) -> bool {
-        self.reconnect.load(Ordering::Relaxed)
+        self.reconnect.load(Ordering::Acquire)
     }
 
     pub(crate) async fn connected(&self) {
-        // Acknowledgement of connection
-        self.can_send.store(true, Ordering::Relaxed);
-
         // So that we forces the reset of backoff to be at least
         // a certain amount of time
         *(self.last_connect.write().await) = Instant::now();
+
+        // Acknowledgement of connection
+        self.can_send.store(true, Ordering::Release);
     }
 
     pub(crate) fn should_send(&self) -> bool {
-        self.can_send.load(Ordering::Relaxed)
+        self.can_send.load(Ordering::Acquire)
     }
 
     pub(crate) fn fetch_next_backoff(&self) -> Option<Duration> {
