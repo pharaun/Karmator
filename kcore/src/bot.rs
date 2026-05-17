@@ -7,6 +7,8 @@ use futures_util::stream::SplitSink;
 use futures_util::SinkExt as _;
 use futures_util::StreamExt as _;
 
+use async_channel::Sender;
+
 use tokio::net::TcpStream;
 use tokio::time;
 use tokio::time::timeout;
@@ -27,14 +29,11 @@ use crate::event;
 use crate::SlackClient;
 use crate::SlackSender;
 
-pub async fn default_event_loop<S: SlackSender, F1>(
+pub async fn slack_websocket_handler<S: SlackSender>(
     slack: SlackClient<S>,
-    watcher: &CancellationToken,
-    user_event_listener: F1,
-) -> AResult<()>
-where
-    F1: Fn(serde_json::Value, SlackClient<S>),
-{
+    watcher: CancellationToken,
+    user_event: Sender<serde_json::Value>,
+) {
     let conn_state = connection_state::ConnectionState::init();
 
     // Interval timers for heartbeat
@@ -43,7 +42,7 @@ where
 
     // Main server loop, exit if the database dies
     while !watcher.is_cancelled() {
-        match ws_connect(&slack, watcher).await {
+        match ws_connect(&slack, &watcher).await {
             Ok(websocket) => {
                 let (mut ws_write, mut ws_read) = websocket.split();
 
@@ -56,7 +55,7 @@ where
                         () = watcher.cancelled() => info!("Shutdown signal received"),
 
                         // Process inbound messages
-                        ws_msg = ws_read.next() => process_message(&slack, &mut ws_write, &conn_state, &user_event_listener, ws_msg).await,
+                        ws_msg = ws_read.next() => process_message(&mut ws_write, &conn_state, &user_event, ws_msg).await,
 
                         // This is woken up peroidically to force a heartbeat check
                         _ = heartbeat.tick() => heartbeat_tick(&mut ws_write, &conn_state).await,
@@ -83,11 +82,12 @@ where
             } else {
                 error!("Slack Websocket - Exceeded with_max_elapsed_time, shutting down");
                 watcher.cancel();
+                user_event.close();
                 break;
             }
         }
     }
-    Ok(())
+    info!("Slack Websocket - Exiting");
 }
 
 async fn ws_connect<S: SlackSender>(
@@ -96,7 +96,7 @@ async fn ws_connect<S: SlackSender>(
 ) -> AResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     let ws_url = tokio::select! {
         () = watcher.cancelled() => Err(anyhow!("Shutdown triggered")),
-        s = slack.socket_connect(false) => s,
+        s = slack.socket_connect() => s,
     }?;
     let (ws_stream, _) = tokio::select! {
         () = watcher.cancelled() => Err(anyhow!("Shutdown triggered")),
@@ -106,20 +106,17 @@ async fn ws_connect<S: SlackSender>(
     Ok(ws_stream)
 }
 
-async fn process_message<S: SlackSender, F1>(
-    slack: &SlackClient<S>,
+async fn process_message(
     ws_write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
     connection_state: &connection_state::ConnectionState,
-    user_event_listener: F1,
+    user_event: &Sender<serde_json::Value>,
     ws_msg: Option<Result<tungstenite::Message, tungstenite::Error>>,
-) where
-    F1: Fn(serde_json::Value, SlackClient<S>),
-{
+) {
     match ws_msg {
         Some(Ok(ws_msg)) => {
             match event::process_control_message(ws_write, connection_state, ws_msg).await {
-                // If there's an user event returned spawn off the user event processor
-                Ok(Some(event)) => user_event_listener(event, slack.clone()),
+                // Send event into the user_event queue
+                Ok(Some(event)) => user_event.send(event).await.expect("Channel Full"),
                 Err(e) => error!("process_control_message error: {e:?}"),
                 _ => (),
             }

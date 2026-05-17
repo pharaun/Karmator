@@ -219,8 +219,8 @@ impl<S: HttpSender> Client<S> {
     }
 
     // apps.connections.open - 50/m (ie keep it around for at least a few second)
-    pub async fn socket_connect(&self, debug: bool) -> AResult<String> {
-        let conn: String = parse_response(
+    pub async fn socket_connect(&self) -> AResult<String> {
+        parse_response(
             "url",
             &self
                 .socket_url_cache
@@ -229,13 +229,7 @@ impl<S: HttpSender> Client<S> {
                     self.post("apps.connections.open", &self.app_token),
                 )
                 .await?,
-        )?;
-
-        Ok(if debug {
-            format!("{conn}&debug_reconnects=true")
-        } else {
-            conn
-        })
+        )
     }
 
     // TODO: maybe retry if the post_message fails
@@ -389,7 +383,7 @@ mod test_slack_client {
             "url": "http://localhost/websocket"
         }"#,
         );
-        let result = client.socket_connect(false).await;
+        let result = client.socket_connect().await;
 
         assert_eq!(result.unwrap(), "http://localhost/websocket");
     }
@@ -404,7 +398,7 @@ mod test_slack_client {
             "error": "gone_bye"
         }"#,
         );
-        let result = client.socket_connect(false).await;
+        let result = client.socket_connect().await;
 
         assert_eq!(format!("{}", result.unwrap_err()), "Slack error: gone_bye");
     }

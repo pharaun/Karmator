@@ -17,7 +17,7 @@ pub use slack::ReqwestSender;
 pub use slack::Timezone as SlackTimezone;
 pub use slack::User as SlackUser;
 
-pub use bot::default_event_loop;
+pub use bot::slack_websocket_handler;
 pub use signal::wait_for_signal;
 
 pub use command::parse as parse_command;

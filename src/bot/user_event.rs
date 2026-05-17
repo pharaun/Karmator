@@ -1,4 +1,6 @@
+use async_channel::Receiver;
 use deadpool_postgres::Pool;
+use tokio_util::sync::CancellationToken;
 
 use std::result::Result;
 use std::str::FromStr as _;
@@ -30,6 +32,25 @@ use kcore::SlackReply;
 use kcore::SlackSender;
 use kcore::SlackTimezone;
 use kcore::SlackUser;
+
+pub async fn user_message_handler<S: SlackSender + 'static>(
+    slack: SlackClient<S>,
+    watcher: CancellationToken,
+    pool: Pool,
+    user_event: Receiver<serde_json::Value>,
+) {
+    // TODO: find a better flow for this but for now just tokio spawn here
+    while let Ok(event) = user_event.recv().await {
+        let pool = pool.clone();
+        let slack = slack.clone();
+        tokio::spawn(async move {
+            if let Err(e) = process_user_message(event, slack, &pool).await {
+                error!("user_event::process_user_message error: {e:?}");
+            }
+        });
+    }
+    info!("User Handler - Exiting");
+}
 
 #[derive(Clone)]
 pub struct Event<S: SlackSender> {
@@ -254,7 +275,9 @@ fn parse_user_event(s: serde_json::Value) -> Option<UserEvent> {
             warn!("parse_user_event - Error: {e:?}");
             None
         }
-        Ok(Payload::EventsApi { payload: SubPayload::EventCallback { event } }) => Some(event),
+        Ok(Payload::EventsApi {
+            payload: SubPayload::EventCallback { event },
+        }) => Some(event),
     }
 }
 

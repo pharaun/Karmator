@@ -1,29 +1,25 @@
 use std::env;
 
-use log::error;
+use log::{error, info};
 
 use anyhow::anyhow;
 use anyhow::Result as AResult;
 
+use async_channel::unbounded;
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig as RustlsClientConfig;
+use tokio::task::JoinSet;
 use tokio_postgres_rustls::MakeRustlsConnect;
 use tokio_util::sync::CancellationToken;
 
-use karmator::bot::user_event::process_user_message;
+use karmator::bot::user_event::user_message_handler;
 
-use kcore::default_event_loop;
+use kcore::slack_websocket_handler;
 use kcore::wait_for_signal;
 use kcore::SlackClient;
 
-// TODO:
-// 5. Migrate from batch over to stored procedure for cleaning out votes run (ie repeated votes for
-//    same item by the same person - default is max of 20 in one run) - You select the whole votes
-//    table, iterate it row by row and compare current row with previous, and increment the run
-//    count if its repeated, otherwise reset and make a new run-record. then scan through the run
-//    record and prune anything more than say 20 items
 #[tokio::main]
 async fn main() -> AResult<()> {
     env_logger::init();
@@ -37,16 +33,8 @@ async fn main() -> AResult<()> {
     let bot_token =
         env::var("SLACK_BOT_TOKEN").map_err(|_| anyhow!("SLACK_BOT_TOKEN env var must be set"))?;
 
-    //*******************
-    // Shutdown signal
-    //*******************
-    let watcher = CancellationToken::new();
-    tokio::spawn(wait_for_signal(watcher.clone()));
-
-    //*******************
-    // Postgres bits
-    //*******************
-    let tls = {
+    // Postgres TLS + Pool
+    let pool = {
         // TODO: Improve this (find alternative for native-tls)
         let certs: Vec<_> = CertificateDer::pem_file_iter(postgres_pem)?
             .map(|x| x.expect("Cert unwrap failed"))
@@ -56,33 +44,51 @@ async fn main() -> AResult<()> {
         let tls_config = RustlsClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
-        MakeRustlsConnect::new(tls_config)
-    };
-    let pg_config = postgres_url.parse::<tokio_postgres::Config>()?;
+        let tls = MakeRustlsConnect::new(tls_config);
 
-    // Deadpool configuration
-    let mgr_config = ManagerConfig {
-        recycling_method: RecyclingMethod::Verified,
-    };
-    let mgr = Manager::from_config(pg_config, tls, mgr_config);
-    let pool = Pool::builder(mgr).max_size(8).build()?;
+        let pg_config = postgres_url.parse::<tokio_postgres::Config>()?;
 
-    //*******************
-    // Core bot eventloop
-    //*******************
-    default_event_loop(
-        SlackClient::new("https://slack.com/api", &app_token, &bot_token, 50),
-        &watcher,
-        |event, slack| {
-            let pool = pool.clone();
-            tokio::spawn(async move {
-                if let Err(e) = process_user_message(event, slack, &pool).await {
-                    error!("user_event::process_user_message error: {e:?}");
+        // Deadpool configuration
+        let mgr_config = ManagerConfig {
+            recycling_method: RecyclingMethod::Verified,
+        };
+        let mgr = Manager::from_config(pg_config, tls, mgr_config);
+
+        Pool::builder(mgr).max_size(8).build()?
+    };
+
+    // Tokio JoinSet
+    let mut set = JoinSet::new();
+
+    // Shutdown signal
+    let watcher = CancellationToken::new();
+    set.spawn(wait_for_signal(watcher.clone()));
+
+    // Slack Websocket
+    let slack = SlackClient::new("https://slack.com/api", &app_token, &bot_token, 50);
+    let (sue, rue) = unbounded();
+    set.spawn(slack_websocket_handler(slack.clone(), watcher.clone(), sue));
+
+    // User Event processing
+    set.spawn(user_message_handler(
+        slack.clone(),
+        watcher.clone(),
+        pool.clone(),
+        rue,
+    ));
+
+    // Monitor the "daemon" tasks, and if any exits trigger shutdown.
+    while let Some(res) = set.join_next().await {
+        watcher.cancel();
+        match res {
+            Ok(()) => info!("One of the task exited, notifying the rest"),
+            Err(e) => {
+                error!("{e:?}");
+                if e.is_panic() {
+                    std::panic::resume_unwind(e.into_panic());
                 }
-            });
-        },
-    )
-    .await?;
-
+            }
+        }
+    }
     Ok(())
 }
