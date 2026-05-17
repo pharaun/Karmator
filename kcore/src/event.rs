@@ -82,13 +82,13 @@ async fn process_websocket_message(
             None
         }
 
-        tungstenite::Message::Binary(_) => {
-            error!("Slack Websocket - Unsupported websocket type: {msg:?}");
+        tungstenite::Message::Binary(x) => {
+            error!("Slack Websocket - Unsupported websocket type: {x:?}");
             None
         }
 
-        tungstenite::Message::Frame(_) => {
-            error!("Slack Websocket - Unsupported websocket type: {msg:?}");
+        tungstenite::Message::Frame(x) => {
+            error!("Slack Websocket - Unsupported websocket type: {x:?}");
             None
         }
     }

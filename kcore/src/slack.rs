@@ -6,6 +6,11 @@ use std::clone::Clone;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
+use std::num::NonZeroU32;
+
+use governor::Quota;
+use governor::RateLimiter;
+use governor::DefaultDirectRateLimiter;
 
 use reqwest::header;
 use reqwest::RequestBuilder;
@@ -19,7 +24,6 @@ use log::warn;
 use quick_cache::sync::Cache;
 
 use crate::sanitizer;
-use crate::ttl_value::TtlValue;
 
 // Rate limit notes:
 // 1. rate limit is per method per workspace (over a minute long window)
@@ -70,7 +74,8 @@ pub struct Client<S: HttpSender = ReqwestSender> {
     url: String,
     // Endpoint Caches
     user_cache: Arc<Cache<String, Option<User>>>,
-    socket_url_cache: TtlValue<String>,
+    // Governor limits
+    quota_socket_connect: Arc<DefaultDirectRateLimiter>,
     // Tokens
     app_token: String,
     bot_token: String,
@@ -196,8 +201,9 @@ impl<S: HttpSender> Client<S> {
         Self {
             url: url.to_owned(),
             user_cache: Arc::new(Cache::new(capacity)),
-            // Set it to the past and expired already
-            socket_url_cache: TtlValue::new(String::new(), Duration::from_secs(0)),
+            quota_socket_connect: Arc::new(RateLimiter::direct(
+                Quota::per_minute(NonZeroU32::new(5).expect("greater than zero")),
+            )),
             app_token: app_token.to_owned(),
             bot_token: bot_token.to_owned(),
             http: reqwest::Client::builder()
@@ -218,17 +224,13 @@ impl<S: HttpSender> Client<S> {
         }
     }
 
-    // apps.connections.open - 50/m (ie keep it around for at least a few second)
     pub async fn socket_connect(&self) -> AResult<String> {
+        // Employ the governor module to cap reconnection attempts to at most 40/m
+        // to keep it safely below the 50/m tier plan for the endpoint
+        let _ = &self.quota_socket_connect.until_ready().await;
         parse_response(
             "url",
-            &self
-                .socket_url_cache
-                .get_or_insert(
-                    Duration::from_secs(15),
-                    self.post("apps.connections.open", &self.app_token),
-                )
-                .await?,
+            &self.post("apps.connections.open", &self.app_token).await?,
         )
     }
 

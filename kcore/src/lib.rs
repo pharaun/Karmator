@@ -5,7 +5,6 @@ mod event;
 mod sanitizer;
 mod signal;
 mod slack;
-mod ttl_value;
 
 // TODO: Improve the ergonomics of the Slack Api interface
 pub use slack::send_simple_message as send_text_message;
