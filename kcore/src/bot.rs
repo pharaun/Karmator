@@ -7,7 +7,7 @@ use futures_util::stream::SplitSink;
 use futures_util::SinkExt as _;
 use futures_util::StreamExt as _;
 
-use tokio::sync::mpsc::Sender;
+use tokio::sync::broadcast::Sender;
 use tokio::net::TcpStream;
 use tokio::time;
 use tokio::time::timeout;
@@ -113,8 +113,10 @@ async fn process_message(
     match ws_msg {
         Some(Ok(ws_msg)) => {
             match event::process_control_message(ws_write, connection_state, ws_msg).await {
-                // TODO: Handle full queue
-                Ok(Some(event)) => user_event.send(event).await.expect("Channel Full"),
+                Ok(Some(event)) => if let Err(e) = user_event.send(event) {
+                    // A send fail doesn't mean it won't be picked up again.
+                    error!("user_event.send error: {e:?}")
+                },
                 Err(e) => error!("process_control_message error: {e:?}"),
                 _ => (),
             }
@@ -223,6 +225,6 @@ async fn send_websocket(
             connection_state.reconnect();
         }
     } else {
-        error!("Bad state! Can't send a control message yet recieved slack message");
+        error!("Bad state! Can't send a control message yet received slack message");
     }
 }

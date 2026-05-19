@@ -9,7 +9,7 @@ use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig as RustlsClientConfig;
-use tokio::sync::mpsc::channel;
+use tokio::sync::broadcast::channel;
 use tokio::task::JoinSet;
 use tokio_postgres_rustls::MakeRustlsConnect;
 use tokio_util::sync::CancellationToken;

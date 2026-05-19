@@ -1,6 +1,6 @@
 use deadpool_postgres::Pool;
 use tokio_util::sync::CancellationToken;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::broadcast::Receiver;
 
 use std::result::Result;
 use std::str::FromStr as _;
@@ -43,14 +43,19 @@ pub async fn user_message_handler<S: SlackSender + 'static>(
     mut user_event: Receiver<serde_json::Value>,
 ) {
     // TODO: find a better flow for this but for now just tokio spawn here
-    while let Some(event) = user_event.recv().await {
-        let pool = pool.clone();
-        let slack = slack.clone();
-        tokio::spawn(async move {
-            if let Err(e) = process_user_message(event, slack, &pool).await {
-                error!("user_event::process_user_message error: {e:?}");
-            }
-        });
+    while !watcher.is_cancelled() {
+        match user_event.recv().await {
+            Err(e) => error!("Either closed or lagging behind: {e:?}"),
+            Ok(val) => {
+                let pool = pool.clone();
+                let slack = slack.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = process_user_message(val, slack, &pool).await {
+                        error!("user_event::process_user_message error: {e:?}");
+                    }
+                });
+            },
+        }
     }
     info!("User Handler - Exiting");
 }
