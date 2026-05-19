@@ -12,6 +12,7 @@ use anyhow::anyhow;
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
+use tokio::sync::broadcast;
 use tokio::sync::oneshot;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
@@ -590,7 +591,7 @@ async fn main() -> AResult<()> {
     let pool = pool.clone();
     let slack =
         SlackClient::with_sender(FakeSender, "http://localhost", "app-token", "bot-token", 10);
-    let (sue, rue) = mpsc::channel(32);
+    let (sue, rue) = broadcast::channel(32);
     set.spawn(slack_websocket_handler(slack.clone(), watcher.clone(), sue));
     set.spawn(user_event::user_message_handler(
         slack.clone(),

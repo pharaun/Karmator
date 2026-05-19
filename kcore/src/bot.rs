@@ -60,6 +60,13 @@ pub async fn slack_websocket_handler<S: SlackSender>(
                         _ = heartbeat.tick() => heartbeat_tick(&mut ws_write, &conn_state).await,
                     }
                 }
+
+                // We are exiting or reconnecting, close the tungstein stream
+                drop(ws_read);
+                tokio::select! {
+                    Err(e) = ws_write.close() => warn!("Failed to close the websocket {e:?}"),
+                    () = time::sleep(Duration::from_secs(5)) => (),
+                }
             }
             Err(e) => {
                 conn_state.reconnect().await;
