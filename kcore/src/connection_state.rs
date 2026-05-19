@@ -1,8 +1,7 @@
-use tokio::sync::RwLock;
+use parking_lot::Mutex;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::sync::Mutex;
 
 use std::time::Duration;
 use std::time::Instant;
@@ -20,9 +19,9 @@ pub(crate) struct ConnectionState {
     reconnect: AtomicBool,
     reconnect_backoff: Mutex<ExponentialBackoff>,
     // Monotonical clock for heartbeat/ping management
-    last_message_received: RwLock<Instant>,
-    last_ping_sent: RwLock<Instant>,
-    last_connect: RwLock<Option<Instant>>,
+    last_message_received: Mutex<Instant>,
+    last_ping_sent: Mutex<Instant>,
+    last_connect: Mutex<Option<Instant>>,
 }
 
 impl ConnectionState {
@@ -39,25 +38,25 @@ impl ConnectionState {
                     .with_max_elapsed_time(Some(Duration::from_mins(15)))
                     .build(),
             ),
-            last_message_received: RwLock::new(Instant::now()),
-            last_ping_sent: RwLock::new(Instant::now()),
-            last_connect: RwLock::new(None),
+            last_message_received: Mutex::new(Instant::now()),
+            last_ping_sent: Mutex::new(Instant::now()),
+            last_connect: Mutex::new(None),
         }
     }
 
-    pub(crate) async fn pending(&self) {
+    pub(crate) fn pending(&self) {
         // Reset timer to avoid a race between reconnecting and first hello
         let now = Instant::now();
-        *(self.last_message_received.write().await) = now;
-        *(self.last_ping_sent.write().await) = now;
+        *(self.last_message_received.lock()) = now;
+        *(self.last_ping_sent.lock()) = now;
 
         // Connection attempt, waiting ack
         self.can_send.store(false, Ordering::Release);
         self.reconnect.store(false, Ordering::Release);
     }
 
-    pub(crate) async fn reset_backoff_timer(&self) {
-        let last_connect = *self.last_connect.read().await;
+    pub(crate) fn reset_backoff_timer(&self) {
+        let last_connect = *self.last_connect.lock();
         match last_connect {
             None => warn!("Tried to reset_backoff_timer without an connection being alive!"),
             Some(last_connect) => {
@@ -69,10 +68,7 @@ impl ConnectionState {
                     Some(t) => {
                         // Ensure the durt is at least X before allowing reconnect backoff reset:
                         if t.as_secs() > 30 {
-                            self.reconnect_backoff
-                                .lock()
-                                .expect("Poisoned mutex")
-                                .reset();
+                            self.reconnect_backoff.lock().reset();
                         } else {
                             warn!(
                                 "reset_backoff_timer fired too soon, ignoring till 30s has passed"
@@ -84,8 +80,8 @@ impl ConnectionState {
         }
     }
 
-    pub(crate) async fn reconnect(&self) {
-        *(self.last_connect.write().await) = None;
+    pub(crate) fn reconnect(&self) {
+        *(self.last_connect.lock()) = None;
         self.reconnect.store(true, Ordering::Release);
         self.can_send.store(false, Ordering::Release);
     }
@@ -94,10 +90,10 @@ impl ConnectionState {
         self.reconnect.load(Ordering::Acquire)
     }
 
-    pub(crate) async fn connected(&self) {
+    pub(crate) fn connected(&self) {
         // So that we forces the reset of backoff to be at least
         // a certain amount of time
-        *(self.last_connect.write().await) = Some(Instant::now());
+        *(self.last_connect.lock()) = Some(Instant::now());
 
         // Acknowledgement of connection
         self.can_send.store(true, Ordering::Release);
@@ -108,25 +104,22 @@ impl ConnectionState {
     }
 
     pub(crate) fn fetch_next_backoff(&self) -> Option<Duration> {
-        self.reconnect_backoff
-            .lock()
-            .expect("Poisoned mutex")
-            .next_backoff()
+        self.reconnect_backoff.lock().next_backoff()
     }
 
-    pub(crate) async fn message_received(&self) {
-        *(self.last_message_received.write().await) = Instant::now();
+    pub(crate) fn message_received(&self) {
+        *(self.last_message_received.lock()) = Instant::now();
     }
 
-    pub(crate) async fn ping_sent(&self) {
-        *(self.last_ping_sent.write().await) = Instant::now();
+    pub(crate) fn ping_sent(&self) {
+        *(self.last_ping_sent.lock()) = Instant::now();
     }
 
-    pub(crate) async fn timer_delta(&self) -> (Option<Duration>, Option<Duration>) {
+    pub(crate) fn timer_delta(&self) -> (Option<Duration>, Option<Duration>) {
         let now = Instant::now();
         (
-            now.checked_duration_since(*self.last_message_received.read().await),
-            now.checked_duration_since(*self.last_ping_sent.read().await),
+            now.checked_duration_since(*self.last_message_received.lock()),
+            now.checked_duration_since(*self.last_ping_sent.lock()),
         )
     }
 }

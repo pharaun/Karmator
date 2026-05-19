@@ -42,11 +42,12 @@ pub async fn slack_websocket_handler<S: SlackSender>(
     // Main server loop, exit if the database dies
     while !watcher.is_cancelled() {
         match ws_connect(&slack, &watcher).await {
+            Err(e) => error!("Slack Websocket - Connection failed: {e:?}"),
             Ok(websocket) => {
                 let (mut ws_write, mut ws_read) = websocket.split();
 
                 // Reset the connection to waiting for ack from Slack
-                conn_state.pending().await;
+                conn_state.pending();
 
                 while !conn_state.should_reconnect() && !watcher.is_cancelled() {
                     tokio::select! {
@@ -66,10 +67,6 @@ pub async fn slack_websocket_handler<S: SlackSender>(
                 if let Err(e) = ws_write.close().timeout(Duration::from_secs(5)).await {
                     warn!("Failed to close the websocket {e:?}");
                 }
-            }
-            Err(e) => {
-                conn_state.reconnect().await;
-                error!("Slack Websocket - Connection failed: {e:?}");
             }
         }
 
@@ -130,13 +127,13 @@ async fn process_message(
         }
         Some(Err(e)) => {
             error!("Slack Websocket - Process - Connection error: {e:?}");
-            connection_state.reconnect().await;
+            connection_state.reconnect();
         }
 
         // Stream is done/closed
         None => {
             warn!("Slack Websocket - Process - Stream closed, reconnecting");
-            connection_state.reconnect().await;
+            connection_state.reconnect();
         }
     }
 }
@@ -147,7 +144,7 @@ async fn heartbeat_tick(
 ) {
     // Check the delta, If either or both are None, that means
     // their timer are *ahead* of the 'now' which is fine, stop checking.
-    if let (Some(lmd), Some(lpd)) = connection_state.timer_delta().await {
+    if let (Some(lmd), Some(lpd)) = connection_state.timer_delta() {
         // Check if more than 30s has past since the last slack message received
         if lmd.as_secs() > 30 {
             // Check if more than 2m has past since the last slack message received
@@ -157,7 +154,7 @@ async fn heartbeat_tick(
                     "Slack Websocket Heartbeat - Last message: {:?}s, reconnecting",
                     lmd.as_secs()
                 );
-                connection_state.reconnect().await;
+                connection_state.reconnect();
 
             // Check if more than 30s has past since the send of the last ping
             } else if lpd.as_secs() > 30 {
@@ -205,7 +202,7 @@ async fn send_ping(
         tungstenite::Message::Ping(content),
     )
     .await;
-    connection_state.ping_sent().await;
+    connection_state.ping_sent();
 }
 
 pub(crate) async fn send_pong(
@@ -229,7 +226,7 @@ async fn send_websocket(
     if connection_state.should_send() {
         if let Err(e) = ws_write.send(message).await {
             error!("Slack Websocket - Connection error: {e:?}");
-            connection_state.reconnect().await;
+            connection_state.reconnect();
         }
     } else {
         error!("Bad state! Can't send a control message yet received slack message");
