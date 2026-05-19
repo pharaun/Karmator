@@ -22,7 +22,7 @@ pub(crate) struct ConnectionState {
     // Monotonical clock for heartbeat/ping management
     last_message_received: RwLock<Instant>,
     last_ping_sent: RwLock<Instant>,
-    last_connect: RwLock<Instant>,
+    last_connect: RwLock<Option<Instant>>,
 }
 
 impl ConnectionState {
@@ -41,7 +41,7 @@ impl ConnectionState {
             ),
             last_message_received: RwLock::new(Instant::now()),
             last_ping_sent: RwLock::new(Instant::now()),
-            last_connect: RwLock::new(Instant::now()),
+            last_connect: RwLock::new(None),
         }
     }
 
@@ -57,26 +57,32 @@ impl ConnectionState {
     }
 
     pub(crate) async fn reset_backoff_timer(&self) {
-        let now = Instant::now();
-        let durt = now.checked_duration_since(*self.last_connect.read().await);
+        match *self.last_connect.read().await {
+            None => warn!("Tried to reset_backoff_timer without an connection being alive!"),
+            Some(last_connect) => {
+                let now = Instant::now();
+                let durt = now.checked_duration_since(last_connect);
 
-        match durt {
-            // Ensure the durt is at least X before allowing reconnect backoff reset:
-            Some(t) => {
-                if t.as_secs() > 30 {
-                    self.reconnect_backoff
-                        .lock()
-                        .expect("Poisoned mutex")
-                        .reset();
-                } else {
-                    warn!("reset_backoff_timer fired too soon, ignoring till 30s has passed");
+                match durt {
+                    None => warn!("reset_backoff_timer returned None, timing is wonky"),
+                    Some(t) => {
+                        // Ensure the durt is at least X before allowing reconnect backoff reset:
+                        if t.as_secs() > 30 {
+                            self.reconnect_backoff
+                                .lock()
+                                .expect("Poisoned mutex")
+                                .reset();
+                        } else {
+                            warn!("reset_backoff_timer fired too soon, ignoring till 30s has passed");
+                        }
+                    }
                 }
-            }
-            None => warn!("reset_backoff_timer returned None, timing is wonky"),
+            },
         }
     }
 
     pub(crate) fn reconnect(&self) {
+        *(self.last_connect.write().await) = None;
         self.reconnect.store(true, Ordering::Release);
         self.can_send.store(false, Ordering::Release);
     }
@@ -88,7 +94,7 @@ impl ConnectionState {
     pub(crate) async fn connected(&self) {
         // So that we forces the reset of backoff to be at least
         // a certain amount of time
-        *(self.last_connect.write().await) = Instant::now();
+        *(self.last_connect.write().await) = Some(Instant::now());
 
         // Acknowledgement of connection
         self.can_send.store(true, Ordering::Release);
