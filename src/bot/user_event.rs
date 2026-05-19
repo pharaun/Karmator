@@ -1,6 +1,6 @@
 use deadpool_postgres::Pool;
-use tokio_util::sync::CancellationToken;
 use tokio::sync::broadcast::Receiver;
+use tokio_util::sync::CancellationToken;
 
 use std::result::Result;
 use std::str::FromStr as _;
@@ -54,7 +54,7 @@ pub async fn user_message_handler<S: SlackSender + 'static>(
                         error!("user_event::process_user_message error: {e:?}");
                     }
                 });
-            },
+            }
         }
     }
     info!("User Handler - Exiting");

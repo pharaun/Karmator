@@ -57,7 +57,8 @@ impl ConnectionState {
     }
 
     pub(crate) async fn reset_backoff_timer(&self) {
-        match *self.last_connect.read().await {
+        let last_connect = *self.last_connect.read().await;
+        match last_connect {
             None => warn!("Tried to reset_backoff_timer without an connection being alive!"),
             Some(last_connect) => {
                 let now = Instant::now();
@@ -73,15 +74,17 @@ impl ConnectionState {
                                 .expect("Poisoned mutex")
                                 .reset();
                         } else {
-                            warn!("reset_backoff_timer fired too soon, ignoring till 30s has passed");
+                            warn!(
+                                "reset_backoff_timer fired too soon, ignoring till 30s has passed"
+                            );
                         }
                     }
                 }
-            },
+            }
         }
     }
 
-    pub(crate) fn reconnect(&self) {
+    pub(crate) async fn reconnect(&self) {
         *(self.last_connect.write().await) = None;
         self.reconnect.store(true, Ordering::Release);
         self.can_send.store(false, Ordering::Release);

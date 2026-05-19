@@ -8,8 +8,8 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
-use governor::DefaultKeyedRateLimiter;
 use governor::DefaultDirectRateLimiter;
+use governor::DefaultKeyedRateLimiter;
 use governor::Quota;
 use governor::RateLimiter;
 
@@ -252,7 +252,10 @@ impl<S: HttpSender> Client<S> {
 
     pub async fn post_message(&self, message: Message) -> AResult<String> {
         // There is 2 rate limit, a 1+/s per channel, and a global 100+/m
-        let () = &self.quota_post_message.until_key_ready(&message.channel).await;
+        let () = &self
+            .quota_post_message
+            .until_key_ready(&message.channel)
+            .await;
         let () = &self.quota_post_message_global.until_ready().await;
         parse_response(
             "ts",

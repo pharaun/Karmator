@@ -78,7 +78,7 @@ async fn process_websocket_message(
 
         tungstenite::Message::Close(reason) => {
             info!("Slack Websocket - Close reason: {reason:?}");
-            connection_state.reconnect();
+            connection_state.reconnect().await;
             None
         }
 
@@ -107,7 +107,7 @@ async fn process_slack_control_message(
         }
         Event::Disconnect { reason: r } => {
             // When this is received, reconnect
-            connection_state.reconnect();
+            connection_state.reconnect().await;
             info!("Slack Websocket - Disconnect reason: {r:?}");
             None
         }

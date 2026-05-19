@@ -7,8 +7,8 @@ use futures_util::stream::SplitSink;
 use futures_util::SinkExt as _;
 use futures_util::StreamExt as _;
 
-use tokio::sync::broadcast::Sender;
 use tokio::net::TcpStream;
+use tokio::sync::broadcast::Sender;
 use tokio::time;
 use tokio::time::timeout;
 use tokio::time::MissedTickBehavior;
@@ -62,7 +62,7 @@ pub async fn slack_websocket_handler<S: SlackSender>(
                 }
             }
             Err(e) => {
-                conn_state.reconnect();
+                conn_state.reconnect().await;
                 error!("Slack Websocket - Connection failed: {e:?}");
             }
         }
@@ -113,23 +113,25 @@ async fn process_message(
     match ws_msg {
         Some(Ok(ws_msg)) => {
             match event::process_control_message(ws_write, connection_state, ws_msg).await {
-                Ok(Some(event)) => if let Err(e) = user_event.send(event) {
-                    // A send fail doesn't mean it won't be picked up again.
-                    error!("user_event.send error: {e:?}")
-                },
+                Ok(Some(event)) => {
+                    if let Err(e) = user_event.send(event) {
+                        // A send fail doesn't mean it won't be picked up again.
+                        error!("user_event.send error: {e:?}");
+                    }
+                }
                 Err(e) => error!("process_control_message error: {e:?}"),
                 _ => (),
             }
         }
         Some(Err(e)) => {
             error!("Slack Websocket - Process - Connection error: {e:?}");
-            connection_state.reconnect();
+            connection_state.reconnect().await;
         }
 
         // Stream is done/closed
         None => {
             warn!("Slack Websocket - Process - Stream closed, reconnecting");
-            connection_state.reconnect();
+            connection_state.reconnect().await;
         }
     }
 }
@@ -150,7 +152,7 @@ async fn heartbeat_tick(
                     "Slack Websocket Heartbeat - Last message: {:?}s, reconnecting",
                     lmd.as_secs()
                 );
-                connection_state.reconnect();
+                connection_state.reconnect().await;
 
             // Check if more than 30s has past since the send of the last ping
             } else if lpd.as_secs() > 30 {
@@ -222,7 +224,7 @@ async fn send_websocket(
     if connection_state.should_send() {
         if let Err(e) = ws_write.send(message).await {
             error!("Slack Websocket - Connection error: {e:?}");
-            connection_state.reconnect();
+            connection_state.reconnect().await;
         }
     } else {
         error!("Bad state! Can't send a control message yet received slack message");
