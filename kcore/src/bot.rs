@@ -10,8 +10,8 @@ use futures_util::StreamExt as _;
 use tokio::net::TcpStream;
 use tokio::sync::broadcast::Sender;
 use tokio::time;
-use tokio::time::timeout;
 use tokio::time::MissedTickBehavior;
+use tokio_util::future::FutureExt as _;
 use tokio_util::sync::CancellationToken;
 
 use serde_json::json;
@@ -63,9 +63,8 @@ pub async fn slack_websocket_handler<S: SlackSender>(
 
                 // We are exiting or reconnecting, close the tungstein stream
                 drop(ws_read);
-                tokio::select! {
-                    Err(e) = ws_write.close() => warn!("Failed to close the websocket {e:?}"),
-                    () = time::sleep(Duration::from_secs(5)) => (),
+                if let Err(e) = ws_write.close().timeout(Duration::from_secs(5)).await {
+                    warn!("Failed to close the websocket {e:?}");
                 }
             }
             Err(e) => {
@@ -81,10 +80,7 @@ pub async fn slack_websocket_handler<S: SlackSender>(
             // max backoff timer expires
             if let Some(durt) = conn_state.fetch_next_backoff() {
                 info!("Slack Websocket - Reconnecting, sleeping for: {durt:?}");
-                tokio::select! {
-                    () = watcher.cancelled() => (),
-                    () = time::sleep(durt) => (),
-                }
+                time::sleep(durt).with_cancellation_token(&watcher).await;
             } else {
                 error!("Slack Websocket - Exceeded with_max_elapsed_time, shutting down");
                 watcher.cancel();
@@ -99,14 +95,16 @@ async fn ws_connect<S: SlackSender>(
     slack: &SlackClient<S>,
     watcher: &CancellationToken,
 ) -> AResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
-    let ws_url = tokio::select! {
-        () = watcher.cancelled() => Err(anyhow!("Shutdown triggered")),
-        s = slack.socket_connect() => s,
-    }?;
-    let (ws_stream, _) = tokio::select! {
-        () = watcher.cancelled() => Err(anyhow!("Shutdown triggered")),
-        s = timeout(Duration::from_secs(5), connect_async(ws_url)) => s?.map_err(|e| anyhow!("Error: {e:?}")),
-    }?;
+    let ws_url = slack
+        .socket_connect()
+        .with_cancellation_token(watcher)
+        .await
+        .ok_or(anyhow!("Shutdown triggered"))??;
+    let (ws_stream, _) = connect_async(ws_url)
+        .timeout(Duration::from_secs(5))
+        .with_cancellation_token(watcher)
+        .await
+        .ok_or(anyhow!("Shutdown triggered"))???;
     info!("Slack Websocket - connection established");
     Ok(ws_stream)
 }
