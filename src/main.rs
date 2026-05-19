@@ -70,6 +70,9 @@ async fn main() -> AResult<()> {
     set.spawn(slack_websocket_handler(slack.clone(), watcher.clone(), sue));
 
     // User Event processing
+    // TODO: Have the slack_websocket_handler forward the envelope_id,
+    //  - have a shared dash map/lru thing that if there's more than 1 worker they can check
+    //  - this will allow each workers to ingest from the broadcast, and drop already claimed messages
     set.spawn(user_message_handler(
         slack.clone(),
         watcher.clone(),
