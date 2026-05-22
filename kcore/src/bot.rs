@@ -1,9 +1,9 @@
-use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
-use tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite;
 use tungstenite::protocol::frame::CloseFrame;
+use tungstenite::protocol::frame::coding::CloseCode;
 
 use futures_util::SinkExt as _;
 use futures_util::StreamExt as _;
@@ -21,13 +21,13 @@ use log::{debug, error, info, warn};
 
 use std::time::Duration;
 
-use anyhow::anyhow;
 use anyhow::Result as AResult;
+use anyhow::anyhow;
 
-use crate::connection_state;
-use crate::event;
 use crate::SlackClient;
 use crate::SlackSender;
+use crate::connection_state;
+use crate::event;
 
 pub async fn slack_websocket_handler<S: SlackSender>(
     slack: SlackClient<S>,
@@ -117,6 +117,9 @@ async fn process_message(
     user_event: &Sender<event::Envelope>,
     ws_msg: Option<Result<tungstenite::Message, tungstenite::Error>>,
 ) {
+    if connection_state.should_reconnect() {
+        return;
+    }
     match ws_msg {
         Some(Ok(ws_msg)) => {
             match event::process_control_message(websocket, connection_state, ws_msg).await {
@@ -146,6 +149,9 @@ async fn heartbeat_tick(
     websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     connection_state: &connection_state::ConnectionState,
 ) {
+    if connection_state.should_reconnect() {
+        return;
+    }
     // Check the delta, If either or both are None, that means
     // their timer are *ahead* of the 'now' which is fine, stop checking.
     if let (Some(lmd), Some(lpd)) = connection_state.timer_delta() {

@@ -114,9 +114,16 @@ async fn process_slack_control_message(
             None
         }
         Event::Envelope(envelope) => {
-            // TODO: We probs want to cache recently sent acknowledgement to handle reconnects
-            send_acknowledge(connection_state, websocket, &envelope.id).await;
-            Some(envelope)
+            // We should never get an envelope before an Hello, but if we ever do,
+            // don't acknowledge and let slack resend it.
+            if connection_state.should_send() {
+                // TODO: We probs want to cache recently sent acknowledgement to handle reconnects
+                send_acknowledge(connection_state, websocket, &envelope.id).await;
+                Some(envelope)
+            } else {
+                warn!("Slack sent an envelope before hello, this shouldn't happen");
+                None
+            }
         }
     }
 }
