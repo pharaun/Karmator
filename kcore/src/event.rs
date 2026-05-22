@@ -7,8 +7,6 @@ use serde_json::json;
 
 use anyhow::Result as AResult;
 
-use futures_util::stream::SplitSink;
-
 use log::{debug, error, info, warn};
 
 use tokio::net::TcpStream;
@@ -55,7 +53,7 @@ fn parse_event(s: &str) -> Option<Event> {
 }
 
 async fn process_websocket_message(
-    ws_write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
+    websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     connection_state: &ConnectionState,
     msg: tungstenite::Message,
 ) -> Option<tungstenite::Utf8Bytes> {
@@ -63,7 +61,7 @@ async fn process_websocket_message(
         tungstenite::Message::Text(x) => Some(x),
 
         tungstenite::Message::Ping(x) => {
-            send_pong(connection_state, ws_write, x).await;
+            send_pong(connection_state, websocket, x).await;
             None
         }
 
@@ -95,7 +93,7 @@ async fn process_websocket_message(
 }
 
 async fn process_slack_control_message(
-    ws_write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
+    websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     connection_state: &ConnectionState,
     msg: Event,
 ) -> Option<serde_json::Value> {
@@ -118,7 +116,7 @@ async fn process_slack_control_message(
             payload: pay,
         } => {
             // TODO: We probs want to cache recently sent acknowledgement to handle reconnects
-            send_acknowledge(connection_state, ws_write, ei).await;
+            send_acknowledge(connection_state, websocket, ei).await;
             Some(json!({
                 "type": et,
                 "payload": pay,
@@ -128,17 +126,17 @@ async fn process_slack_control_message(
 }
 
 pub(crate) async fn process_control_message(
-    ws_write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
+    websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     connection_state: &ConnectionState,
     msg: tungstenite::Message,
 ) -> AResult<Option<serde_json::Value>> {
     // Parse incoming message
     connection_state.message_received();
 
-    let raw_msg = process_websocket_message(ws_write, connection_state, msg).await;
+    let raw_msg = process_websocket_message(websocket, connection_state, msg).await;
 
     if let Some(e) = raw_msg.as_deref().and_then(parse_event) {
-        Ok(process_slack_control_message(ws_write, connection_state, e).await)
+        Ok(process_slack_control_message(websocket, connection_state, e).await)
     } else {
         Ok(None)
     }
