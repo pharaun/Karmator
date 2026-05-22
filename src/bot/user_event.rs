@@ -27,6 +27,7 @@ use crate::query::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
 use kcore::parse_command;
 use kcore::send_text_message;
 use kcore::Command;
+use kcore::Envelope;
 use kcore::SlackClient;
 use kcore::SlackReply;
 use kcore::SlackSender;
@@ -40,7 +41,7 @@ pub async fn user_message_handler<S: SlackSender + 'static>(
     slack: SlackClient<S>,
     watcher: CancellationToken,
     pool: Pool,
-    mut user_event: Receiver<serde_json::Value>,
+    mut user_event: Receiver<Envelope>,
 ) {
     // TODO: find a better flow for this but for now just tokio spawn here
     while !watcher.is_cancelled() {
@@ -291,12 +292,12 @@ fn parse_user_event(s: serde_json::Value) -> Option<UserEvent> {
 
 #[expect(clippy::too_many_lines)]
 pub async fn process_user_message<S: SlackSender>(
-    msg: serde_json::Value,
+    msg: Envelope,
     slack: SlackClient<S>,
     pool: &Pool,
 ) -> AResult<()> {
     // Check if its a message/certain string, if so, reply
-    match parse_user_event(msg) {
+    match parse_user_event(msg.payload) {
         Some(UserEvent::Message {
             channel_id: Some(channel_id),
             subtype: None,

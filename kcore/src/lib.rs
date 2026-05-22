@@ -25,3 +25,5 @@ pub use command::Command;
 pub use sanitizer::parse as sanitize_input;
 pub use sanitizer::AtType;
 pub use sanitizer::Segment;
+
+pub use event::Envelope;

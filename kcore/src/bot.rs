@@ -32,7 +32,7 @@ use crate::SlackSender;
 pub async fn slack_websocket_handler<S: SlackSender>(
     slack: SlackClient<S>,
     watcher: CancellationToken,
-    user_event: Sender<serde_json::Value>,
+    user_event: Sender<event::Envelope>,
 ) {
     let conn_state = connection_state::ConnectionState::init();
 
@@ -114,7 +114,7 @@ async fn ws_connect<S: SlackSender>(
 async fn process_message(
     websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     connection_state: &connection_state::ConnectionState,
-    user_event: &Sender<serde_json::Value>,
+    user_event: &Sender<event::Envelope>,
     ws_msg: Option<Result<tungstenite::Message, tungstenite::Error>>,
 ) {
     match ws_msg {
@@ -180,7 +180,7 @@ async fn heartbeat_tick(
 pub(crate) async fn send_acknowledge(
     connection_state: &connection_state::ConnectionState,
     websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-    envelope_id: String,
+    envelope_id: &str,
 ) {
     send_websocket(
         connection_state,

@@ -3,7 +3,6 @@ use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
 
 use serde::Deserialize;
-use serde_json::json;
 
 use anyhow::Result as AResult;
 
@@ -30,15 +29,20 @@ enum Event {
     },
 
     #[serde(untagged)]
-    Envelope {
-        #[serde(rename = "type")]
-        envelope_type: String,
-        envelope_id: String,
-        accepts_response_payload: bool,
-        // This is converted into a json value, since we don't care about the content
-        // of this payload, but we do need to know the envelope id for acknowledging
-        payload: serde_json::Value,
-    },
+    Envelope(Envelope),
+}
+
+#[derive(Debug, Deserialize, PartialEq, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct Envelope {
+    #[serde(rename = "envelope_id")]
+    pub id: String,
+    #[serde(rename = "type")]
+    pub typ: String,
+    pub accepts_response_payload: bool,
+    // This is converted into a json value, since we don't care about the content
+    // of this payload, but we do need to know the envelope id for acknowledging
+    pub payload: serde_json::Value,
 }
 
 fn parse_event(s: &str) -> Option<Event> {
@@ -96,7 +100,7 @@ async fn process_slack_control_message(
     websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     connection_state: &ConnectionState,
     msg: Event,
-) -> Option<serde_json::Value> {
+) -> Option<Envelope> {
     match msg {
         Event::Hello { num_connections: _ } => {
             // Hold on sending messages till this is received.
@@ -109,18 +113,10 @@ async fn process_slack_control_message(
             info!("Slack Websocket - Disconnect reason: {r:?}");
             None
         }
-        Event::Envelope {
-            envelope_type: et,
-            envelope_id: ei,
-            accepts_response_payload: _,
-            payload: pay,
-        } => {
+        Event::Envelope(envelope) => {
             // TODO: We probs want to cache recently sent acknowledgement to handle reconnects
-            send_acknowledge(connection_state, websocket, ei).await;
-            Some(json!({
-                "type": et,
-                "payload": pay,
-            }))
+            send_acknowledge(connection_state, websocket, &envelope.id).await;
+            Some(envelope)
         }
     }
 }
@@ -129,7 +125,7 @@ pub(crate) async fn process_control_message(
     websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     connection_state: &ConnectionState,
     msg: tungstenite::Message,
-) -> AResult<Option<serde_json::Value>> {
+) -> AResult<Option<Envelope>> {
     // Parse incoming message
     connection_state.message_received();
 
@@ -145,6 +141,7 @@ pub(crate) async fn process_control_message(
 #[cfg(test)]
 mod test_event {
     use super::*;
+    use serde_json::json;
     use test_log::test;
 
     #[test]
@@ -192,15 +189,15 @@ mod test_event {
         }"#;
         assert_eq!(
             parse_event(data),
-            Some(Event::Envelope {
-                envelope_type: "slash_commands".to_owned(),
-                envelope_id: "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545".to_owned(),
+            Some(Event::Envelope(Envelope {
+                typ: "slash_commands".to_owned(),
+                id: "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545".to_owned(),
                 accepts_response_payload: true,
                 payload: json!({
                     "channel_id": "C123ABC456",
                     "user_id": "U123ABC456",
                 }),
-            })
+            }))
         );
     }
 
@@ -217,15 +214,15 @@ mod test_event {
         }"#;
         assert_eq!(
             parse_event(data),
-            Some(Event::Envelope {
-                envelope_type: "interactive".to_owned(),
-                envelope_id: "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545".to_owned(),
+            Some(Event::Envelope(Envelope {
+                typ: "interactive".to_owned(),
+                id: "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545".to_owned(),
                 accepts_response_payload: true,
                 payload: json!({
                     "type": "block_actions",
                     "trigger_id": "12321423423.333649436676.d8c1bb837935619ccad0f624c448ffb3",
                 }),
-            })
+            }))
         );
     }
 
@@ -242,15 +239,15 @@ mod test_event {
         }"#;
         assert_eq!(
             parse_event(data),
-            Some(Event::Envelope {
-                envelope_type: "events_api".to_owned(),
-                envelope_id: "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545".to_owned(),
+            Some(Event::Envelope(Envelope {
+                typ: "events_api".to_owned(),
+                id: "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545".to_owned(),
                 accepts_response_payload: false,
                 payload: json!({
                     "type": "app_home_opened",
                     "user": "U123ABC456"
                 }),
-            })
+            }))
         );
     }
 }
