@@ -14,7 +14,7 @@ use tokio::task::JoinSet;
 use tokio_postgres_rustls::MakeRustlsConnect;
 use tokio_util::sync::CancellationToken;
 
-use karmator::bot::user_event::user_message_handler;
+use karmator::user_message_handler;
 
 use kcore::SlackClient;
 use kcore::slack_websocket_handler;

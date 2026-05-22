@@ -38,8 +38,6 @@ use kcore::SlackSender;
 use kcore::slack_websocket_handler;
 use kcore::wait_for_signal;
 
-use karmator::bot::user_event;
-
 #[derive(Clone)]
 pub struct Reconnect {
     reconnect: (watch::Sender<bool>, watch::Receiver<bool>),
@@ -479,8 +477,21 @@ async fn terminal_readline(
                             let _ = writeln!(stdout, "Triggering a slack crashloop");
                             crash.crash_now();
                         },
+                        Ok(Command("spam", arg)) => {
+                            let count = u64::from_str(arg.first().unwrap_or(&"1")).unwrap();
+                            let text = json!({
+                                "type": "message",
+                                "channel": "testchan",
+                                "user": "testname",
+                                "text": arg[1..].join(" "),
+                                "ts": "N/A",
+                            });
+                            for _ in 0..count {
+                                let _ = websocket.send(text.clone()).await;
+                            }
+                        },
                         Ok(Command("help", _)) => {
-                            let _ = writeln!(stdout, "Commands available: help, send [arg], truncate, addReacji [arg], delReacji [arg], reconnect [secs], crash");
+                            let _ = writeln!(stdout, "Commands available: help, send [arg], truncate, addReacji [arg], delReacji [arg], reconnect [secs], crash, spam [count] [arg]");
                         },
                         _ => {
                             let _ = writeln!(stdout, "Command not found: \"{}\"", line);
@@ -593,7 +604,7 @@ async fn main() -> AResult<()> {
         SlackClient::with_sender(FakeSender, "http://localhost", "app-token", "bot-token", 10);
     let (sue, rue) = broadcast::channel(32);
     set.spawn(slack_websocket_handler(slack.clone(), watcher.clone(), sue));
-    set.spawn(user_event::user_message_handler(
+    set.spawn(karmator::user_message_handler(
         slack.clone(),
         watcher.clone(),
         pool.clone(),

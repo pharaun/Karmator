@@ -1,6 +1,4 @@
 use deadpool_postgres::Pool;
-use tokio::sync::broadcast::Receiver;
-use tokio_util::sync::CancellationToken;
 
 use std::result::Result;
 use std::str::FromStr as _;
@@ -33,33 +31,6 @@ use kcore::SlackTimezone;
 use kcore::SlackUser;
 use kcore::parse_command;
 use kcore::send_text_message;
-
-// TODO: make this handle cancellation token and then drain the queue if any
-// also look at having a timeout to just abort since we don't want to just hang
-// forever
-pub async fn user_message_handler<S: SlackSender + 'static>(
-    slack: SlackClient<S>,
-    watcher: CancellationToken,
-    pool: Pool,
-    mut user_event: Receiver<Envelope>,
-) {
-    // TODO: find a better flow for this but for now just tokio spawn here
-    while !watcher.is_cancelled() {
-        match user_event.recv().await {
-            Err(e) => error!("Either closed or lagging behind: {e:?}"),
-            Ok(val) => {
-                let pool = pool.clone();
-                let slack = slack.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = process_user_message(val, slack, &pool).await {
-                        error!("user_event::process_user_message error: {e:?}");
-                    }
-                });
-            }
-        }
-    }
-    info!("User Handler - Exiting");
-}
 
 #[derive(Clone)]
 pub struct Event<S: SlackSender> {
@@ -207,14 +178,6 @@ impl<S: SlackSender> Event<S> {
     }
 }
 
-// TODO: clean this out, this double nesting is awkward
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-enum Payload {
-    EventsApi { payload: SubPayload },
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
@@ -276,17 +239,23 @@ pub enum ReactionItem {
     },
 }
 
-fn parse_user_event(s: serde_json::Value) -> Option<UserEvent> {
-    let res = serde_json::from_value::<Payload>(s).map_err(|e| format!("{e:?}"));
+fn parse_user_event(s: Envelope) -> Option<UserEvent> {
+    if s.typ == "events_api" {
+        let res = serde_json::from_value::<SubPayload>(s.payload).map_err(|e| format!("{e:?}"));
 
-    match res {
-        Err(e) => {
-            warn!("parse_user_event - Error: {e:?}");
-            None
+        match res {
+            Err(e) => {
+                warn!("parse_user_event - Error: {e:?}");
+                None
+            }
+            Ok(SubPayload::EventCallback { event }) => Some(event),
         }
-        Ok(Payload::EventsApi {
-            payload: SubPayload::EventCallback { event },
-        }) => Some(event),
+    } else {
+        warn!(
+            "parse_user_event - unexpected event type: {:?}, pay: {:?}",
+            s.typ, s.payload
+        );
+        None
     }
 }
 
@@ -297,7 +266,7 @@ pub async fn process_user_message<S: SlackSender>(
     pool: &Pool,
 ) -> AResult<()> {
     // Check if its a message/certain string, if so, reply
-    match parse_user_event(msg.payload) {
+    match parse_user_event(msg) {
         Some(UserEvent::Message {
             channel_id: Some(channel_id),
             subtype: None,
