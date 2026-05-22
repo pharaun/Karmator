@@ -4,11 +4,11 @@ pub mod ranking;
 pub mod reacji;
 pub mod top_n;
 
-use tokio_postgres::types::to_sql_checked;
+use tokio_postgres::Transaction;
 use tokio_postgres::types::IsNull;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::types::Type;
-use tokio_postgres::Transaction;
+use tokio_postgres::types::to_sql_checked;
 
 use log::error;
 
@@ -20,16 +20,16 @@ use std::error::Error;
 use std::fmt;
 use unicase::UniCase;
 
-use unicode_normalization::is_nfc_quick;
 use unicode_normalization::IsNormalized;
 use unicode_normalization::UnicodeNormalization as _;
+use unicode_normalization::is_nfc_quick;
 
 use crate::parser::karma::Karma;
 
-use kcore::sanitize_input;
 use kcore::Segment;
 use kcore::SlackClient;
 use kcore::SlackSender;
+use kcore::sanitize_input;
 
 // Normalize any incoming string to be stored in the database
 pub fn normalize(input: &str) -> String {

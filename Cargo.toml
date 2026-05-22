@@ -2,7 +2,7 @@
 name = "karmator"
 version = "9.1.0"
 authors = ["Anja Berens <pharaun666@gmail.com>"]
-edition = "2021"
+edition = "2024"
 build = "build.rs"
 
 [lints]

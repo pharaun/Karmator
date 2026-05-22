@@ -1,6 +1,6 @@
-use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite;
 
 use serde::Deserialize;
 

@@ -5,8 +5,8 @@ use tokio_util::sync::CancellationToken;
 use std::result::Result;
 use std::str::FromStr as _;
 
-use anyhow::anyhow;
 use anyhow::Result as AResult;
+use anyhow::anyhow;
 
 use log::{error, info, warn};
 
@@ -20,12 +20,10 @@ use crate::query::karma::add_karma;
 use crate::query::partial::partial;
 use crate::query::ranking::ranking;
 use crate::query::reacji::add_reacji;
-use crate::query::top_n::top_n;
 use crate::query::top_n::HiLo;
+use crate::query::top_n::top_n;
 use crate::query::{KarmaCol, KarmaTyp, OrdQuery, ReacjiAction};
 
-use kcore::parse_command;
-use kcore::send_text_message;
 use kcore::Command;
 use kcore::Envelope;
 use kcore::SlackClient;
@@ -33,6 +31,8 @@ use kcore::SlackReply;
 use kcore::SlackSender;
 use kcore::SlackTimezone;
 use kcore::SlackUser;
+use kcore::parse_command;
+use kcore::send_text_message;
 
 // TODO: make this handle cancellation token and then drain the queue if any
 // also look at having a timeout to just abort since we don't want to just hang

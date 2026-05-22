@@ -3,8 +3,8 @@ use deadpool_postgres::GenericClient;
 use log::error;
 use std::collections::HashSet;
 
-use anyhow::anyhow;
 use anyhow::Result as AResult;
+use anyhow::anyhow;
 
 use crate::bot::user_event::Event;
 use crate::query::{KarmaCol, KarmaName};

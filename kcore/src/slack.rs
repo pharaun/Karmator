@@ -1,6 +1,6 @@
-use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use std::clone::Clone;
 use std::future::Future;
@@ -13,12 +13,12 @@ use governor::DefaultKeyedRateLimiter;
 use governor::Quota;
 use governor::RateLimiter;
 
-use reqwest::header;
 use reqwest::RequestBuilder;
 use reqwest::Response;
+use reqwest::header;
 
-use anyhow::anyhow;
 use anyhow::Result as AResult;
+use anyhow::anyhow;
 
 use log::warn;
 

@@ -1,15 +1,15 @@
 use nom::{
+    IResult, Parser as _,
     branch::alt,
     bytes::complete::{tag, take, take_while1},
     combinator::{map, peek},
     error::{Error, ErrorKind},
     multi::many0,
-    IResult, Parser as _,
 };
 use std::fmt;
 
-use crate::parser::karma_def::karma_tags;
 use crate::parser::karma_def::KARMA_LIST;
+use crate::parser::karma_def::karma_tags;
 
 // This starts karma tokenizer stream
 // TODO: make fancy but for now basic objective

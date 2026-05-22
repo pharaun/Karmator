@@ -5,8 +5,8 @@ use futures_util::future;
 use tokio_postgres::IsolationLevel;
 use tokio_postgres::Transaction;
 
-use anyhow::anyhow;
 use anyhow::Result as AResult;
+use anyhow::anyhow;
 
 use crate::parser::karma::Karma;
 use crate::parser::reacji_to_karma;

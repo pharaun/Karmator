@@ -1,11 +1,11 @@
 use nom::{
+    IResult, Parser as _,
     branch::alt,
     bytes::complete::{tag, take_while1},
     character::complete::{multispace0, multispace1},
     combinator::complete,
     multi::separated_list0,
     sequence::delimited,
-    IResult, Parser as _,
 };
 
 // TODO: add in specific support for parsing at-here and other special <!user_id> entities

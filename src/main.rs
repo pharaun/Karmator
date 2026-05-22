@@ -2,13 +2,13 @@ use std::env;
 
 use log::{error, info};
 
-use anyhow::anyhow;
 use anyhow::Result as AResult;
+use anyhow::anyhow;
 
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
-use rustls::pki_types::pem::PemObject as _;
-use rustls::pki_types::CertificateDer;
 use rustls::ClientConfig as RustlsClientConfig;
+use rustls::pki_types::CertificateDer;
+use rustls::pki_types::pem::PemObject as _;
 use tokio::sync::broadcast::channel;
 use tokio::task::JoinSet;
 use tokio_postgres_rustls::MakeRustlsConnect;
@@ -16,9 +16,9 @@ use tokio_util::sync::CancellationToken;
 
 use karmator::bot::user_event::user_message_handler;
 
+use kcore::SlackClient;
 use kcore::slack_websocket_handler;
 use kcore::wait_for_signal;
-use kcore::SlackClient;
 
 #[tokio::main]
 async fn main() -> AResult<()> {

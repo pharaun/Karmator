@@ -59,7 +59,7 @@ pub async fn top_n<S: SlackSender, C: GenericClient>(
             error!("Top-n something went wrong - {e:?}");
             event.send_reply("Something went wrong").await;
         }
-    };
+    }
 }
 
 async fn top_n_denormalized<C: GenericClient>(

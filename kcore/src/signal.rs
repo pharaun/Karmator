@@ -2,8 +2,8 @@ use tokio_util::sync::CancellationToken;
 
 #[cfg(unix)]
 pub async fn wait_for_signal(watcher: CancellationToken) {
-    use tokio::signal::unix::signal;
     use tokio::signal::unix::SignalKind;
+    use tokio::signal::unix::signal;
 
     let mut sig_int = signal(SignalKind::interrupt()).expect("Unix Signal");
     let mut sig_term = signal(SignalKind::terminate()).expect("Unix Signal");

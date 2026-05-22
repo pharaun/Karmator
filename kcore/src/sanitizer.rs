@@ -1,11 +1,11 @@
 use nom::{
+    IResult, Parser as _,
     branch::alt,
     bytes::complete::{tag, take_till},
     combinator::{complete, map, opt, peek},
     error::{Error, ErrorKind},
     multi::many1,
     sequence::{delimited, preceded, separated_pair},
-    IResult, Parser as _,
 };
 use std::fmt;
 

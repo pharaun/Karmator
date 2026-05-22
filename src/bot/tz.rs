@@ -1,7 +1,7 @@
-use chrono::prelude::{DateTime, NaiveTime, Utc};
 use chrono::NaiveDateTime;
 use chrono::TimeZone;
 use chrono::Timelike as _;
+use chrono::prelude::{DateTime, NaiveTime, Utc};
 use chrono_tz::OffsetComponents as _;
 use chrono_tz::Tz;
 
@@ -12,13 +12,13 @@ use crate::bot::user_event::Event;
 use kcore::SlackSender;
 
 use nom::{
+    IResult, Parser as _,
     branch::alt,
     bytes::complete::{tag, tag_no_case},
     character::complete::{digit1, multispace0},
     combinator::{eof, map, opt, recognize},
     error::{Error, ErrorKind},
     sequence::{delimited, preceded, separated_pair},
-    IResult, Parser as _,
 };
 
 const TIME_FORMAT: &str = "%-l:%M%P";

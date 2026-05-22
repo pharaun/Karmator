@@ -6,17 +6,17 @@ use tokio_postgres::IsolationLevel;
 
 use futures_util::future;
 
-use anyhow::anyhow;
 use anyhow::Result as AResult;
+use anyhow::anyhow;
 
 use crate::parser::karma;
 use crate::parser::karma::KST;
 
+use crate::query::Karma;
+use crate::query::KarmaName;
 use crate::query::add_channel_opt;
 use crate::query::add_nick;
 use crate::query::normalize;
-use crate::query::Karma;
-use crate::query::KarmaName;
 
 use crate::bot::user_event::Event;
 

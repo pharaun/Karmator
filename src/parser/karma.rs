@@ -1,17 +1,17 @@
 use nom::{
+    IResult, Parser as _,
     branch::alt,
     bytes::complete::{take, take_till1, take_while1},
     combinator::{complete, eof, map, peek},
     error::{Error, ErrorKind},
     multi::many0,
     sequence::{delimited, pair, terminated},
-    IResult, Parser as _,
 };
 use std::matches;
 
 use crate::parser::karma_def::str_to_karma;
-use crate::parser::karma_token::all_token;
 use crate::parser::karma_token::KarmaToken;
+use crate::parser::karma_token::all_token;
 use crate::parser::tokenizer::Tokens;
 
 // Now here begins the actual structural karma parser (Karma Structure Tree (KST))

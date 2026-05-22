@@ -8,9 +8,9 @@ use std::time::Instant;
 
 use log::warn;
 
+use backoff::ExponentialBackoff;
 use backoff::backoff::Backoff as _;
 use backoff::exponential::ExponentialBackoffBuilder;
-use backoff::ExponentialBackoff;
 
 pub(crate) struct ConnectionState {
     // Atomic boolean for ensuring send can't happen till the hello is received from slack
