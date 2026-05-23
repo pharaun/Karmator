@@ -117,7 +117,12 @@ async fn process_slack_control_message(
             // We should never get an envelope before an Hello, but if we ever do,
             // don't acknowledge and let slack resend it.
             if connection_state.should_send() {
-                // TODO: We probs want to cache recently sent acknowledgement to handle reconnects
+                // As per slack "Maintain a response success rate of at least 5% of events per 60
+                // minutes to prevent automatic disabling." So we automatically Acknowledge here
+                // and handle overload on our end.
+                //
+                // TODO: interactivity needs to have data sent back along with the ack,so this
+                // pattern won't work here but we aren't worried about those at the moment.
                 send_acknowledge(connection_state, websocket, &envelope.id).await;
                 Some(envelope)
             } else {

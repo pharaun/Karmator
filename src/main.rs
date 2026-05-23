@@ -1,4 +1,5 @@
 use std::env;
+use std::sync::Arc;
 
 use log::{error, info};
 
@@ -6,6 +7,7 @@ use anyhow::Result as AResult;
 use anyhow::anyhow;
 
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
+use quick_cache::sync::Cache;
 use rustls::ClientConfig as RustlsClientConfig;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject as _;
@@ -14,6 +16,7 @@ use tokio::task::JoinSet;
 use tokio_postgres_rustls::MakeRustlsConnect;
 use tokio_util::sync::CancellationToken;
 
+use karmator::cache_handler;
 use karmator::user_message_handler;
 
 use kcore::SlackClient;
@@ -70,15 +73,16 @@ async fn main() -> AResult<()> {
     set.spawn(slack_websocket_handler(slack.clone(), watcher.clone(), sue));
 
     // User Event processing
-    // TODO: Have the slack_websocket_handler forward the envelope_id,
-    //  - have a shared dash map/lru thing that if there's more than 1 worker they can check
-    //  - this will allow each workers to ingest from the broadcast, and drop already claimed messages
     set.spawn(user_message_handler(
         slack.clone(),
         watcher.clone(),
+        Arc::new(Cache::new(1000)),
         pool.clone(),
         rue,
     ));
+
+    // Postgres cache cleaner
+    set.spawn(cache_handler(watcher.clone(), pool.clone()));
 
     // Monitor the "daemon" tasks, and if any exits trigger shutdown.
     while let Some(res) = set.join_next().await {

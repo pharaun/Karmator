@@ -9,10 +9,14 @@ use log::{debug, error, info, warn};
 use anyhow::Result as AResult;
 use anyhow::anyhow;
 
+use random_string::generate;
+use random_string::charsets;
+
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
+use quick_cache::sync::Cache;
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
 use tokio::sync::broadcast;
+use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
@@ -321,6 +325,7 @@ async fn websocket_server(
                                                 "envelope_id": "asdf",
                                                 "payload": {
                                                     "type": "event_callback",
+                                                    "event_id": generate(12, charsets::ALPHANUMERIC),
                                                     "event": msg
                                                 },
                                                 "accepts_response_payload": false,
@@ -607,9 +612,13 @@ async fn main() -> AResult<()> {
     set.spawn(karmator::user_message_handler(
         slack.clone(),
         watcher.clone(),
+        Arc::new(Cache::new(1000)),
         pool.clone(),
         rue,
     ));
+
+    // Postgres cache cleaner
+    set.spawn(karmator::cache_handler(watcher.clone(), pool.clone()));
 
     // Monitor the "daemon" tasks, and if any exits trigger shutdown.
     while let Some(res) = set.join_next().await {

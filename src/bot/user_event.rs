@@ -2,6 +2,7 @@ use deadpool_postgres::Pool;
 
 use std::result::Result;
 use std::str::FromStr as _;
+use std::sync::Arc;
 
 use anyhow::Result as AResult;
 use anyhow::anyhow;
@@ -9,6 +10,14 @@ use anyhow::anyhow;
 use log::{error, info, warn};
 
 use serde::Deserialize;
+
+use quick_cache::sync::Cache;
+use tokio::time::Duration;
+use tokio::time::Instant;
+use tokio::time::MissedTickBehavior;
+use tokio::time::interval_at;
+use tokio_util::future::FutureExt as _;
+use tokio_util::sync::CancellationToken;
 
 use crate::query::sanitizer;
 
@@ -182,7 +191,7 @@ impl<S: SlackSender> Event<S> {
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 enum SubPayload {
-    EventCallback { event: UserEvent },
+    EventCallback { event_id: String, event: UserEvent },
 }
 
 #[derive(Debug, Deserialize)]
@@ -239,7 +248,7 @@ pub enum ReactionItem {
     },
 }
 
-fn parse_user_event(s: Envelope) -> Option<UserEvent> {
+fn parse_user_event(s: Envelope) -> Option<SubPayload> {
     if s.typ == "events_api" {
         let res = serde_json::from_value::<SubPayload>(s.payload).map_err(|e| format!("{e:?}"));
 
@@ -248,7 +257,7 @@ fn parse_user_event(s: Envelope) -> Option<UserEvent> {
                 warn!("parse_user_event - Error: {e:?}");
                 None
             }
-            Ok(SubPayload::EventCallback { event }) => Some(event),
+            Ok(pay) => Some(pay),
         }
     } else {
         warn!(
@@ -259,14 +268,87 @@ fn parse_user_event(s: Envelope) -> Option<UserEvent> {
     }
 }
 
+async fn check_if_processed(
+    event_seen_cache: Arc<Cache<String, bool>>,
+    pool: &Pool,
+    pay: Option<SubPayload>,
+) -> AResult<Option<UserEvent>> {
+    if let Some(SubPayload::EventCallback { event_id, event }) = pay {
+        // Check local cache for existence
+        match event_seen_cache.get_value_or_guard_async(&event_id).await {
+            Ok(_) => {
+                // We have seen it in our local cache, drop it
+                info!("Local Cache - Dropping: {event_id:?}");
+                Ok(None)
+            }
+            Err(guard) => {
+                // Check postgres if we have processed it?
+                let client = pool.get().await?;
+
+                // We intentionally use the signal of RETURNING on DO NOTHING
+                // conflict to confirm if the event was processed or not.
+                let row: Option<String> = client
+                    .query_opt_scalar(
+                        "INSERT INTO processed_events (event_id)
+                        VALUES ($1)
+                        ON CONFLICT (event_id) DO NOTHING
+                        RETURNING event_id",
+                        &[&event_id],
+                    )
+                    .await?;
+
+                // Regardless of if the db has seen it or not, we update local cache
+                let _ = guard.insert(true);
+
+                Ok(if row.is_some() {
+                    Some(event)
+                } else {
+                    info!("Postgres Cache - Dropping: {event_id:?}");
+                    None
+                })
+            }
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn cache_handler(watcher: CancellationToken, pool: Pool) {
+    info!("Cache Handler - Start");
+    let durt = Duration::from_mins(5);
+    let mut gc_timer = interval_at(Instant::now() + durt, durt);
+    gc_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+    while gc_timer
+        .tick()
+        .with_cancellation_token(&watcher)
+        .await
+        .is_some()
+    {
+        match pool.get().await {
+            Ok(client) => {
+                if let Err(e) = client.execute(
+                    "DELETE FROM processed_events WHERE processed_at < NOW() - INTERVAL '10 minutes'",
+                    &[],
+                ).await {
+                    warn!("Cache Handler query error - {e:?}");
+                }
+            }
+            Err(e) => warn!("Cache Handler pool error - {e:?}"),
+        }
+    }
+    info!("Cache Handler - Exiting");
+}
+
 #[expect(clippy::too_many_lines)]
 pub async fn process_user_message<S: SlackSender>(
     msg: Envelope,
     slack: SlackClient<S>,
+    event_seen_cache: Arc<Cache<String, bool>>,
     pool: &Pool,
 ) -> AResult<()> {
     // Check if its a message/certain string, if so, reply
-    match parse_user_event(msg) {
+    match check_if_processed(event_seen_cache, pool, parse_user_event(msg)).await? {
         Some(UserEvent::Message {
             channel_id: Some(channel_id),
             subtype: None,

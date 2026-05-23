@@ -19,7 +19,7 @@ use serde_json::json;
 
 use log::{debug, error, info, warn};
 
-use std::time::Duration;
+use tokio::time::Duration;
 
 use anyhow::Result as AResult;
 use anyhow::anyhow;

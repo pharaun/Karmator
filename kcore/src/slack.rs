@@ -6,7 +6,7 @@ use std::clone::Clone;
 use std::future::Future;
 use std::num::NonZeroU32;
 use std::sync::Arc;
-use std::time::Duration;
+use tokio::time::Duration;
 
 use governor::DefaultDirectRateLimiter;
 use governor::DefaultKeyedRateLimiter;

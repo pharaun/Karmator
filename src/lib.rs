@@ -1,9 +1,10 @@
 use std::sync::Arc;
-use std::time::Duration;
+use tokio::time::Duration;
 
 use log::{error, info};
 
 use deadpool_postgres::Pool;
+use quick_cache::sync::Cache;
 use tokio::sync::Semaphore;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
@@ -19,11 +20,13 @@ pub mod bot;
 pub mod parser;
 pub mod query;
 
+pub use crate::bot::user_event::cache_handler;
 use crate::bot::user_event::process_user_message;
 
 pub async fn user_message_handler<S: SlackSender + 'static>(
     slack: SlackClient<S>,
     watcher: CancellationToken,
+    event_seen_cache: Arc<Cache<String, bool>>,
     pool: Pool,
     mut user_event: Receiver<Envelope>,
 ) {
@@ -39,6 +42,7 @@ pub async fn user_message_handler<S: SlackSender + 'static>(
     // This call will block till the queue is empty + closed
     if inner_user_message_handler(
         &slack,
+        &event_seen_cache,
         &pool,
         &mut user_event,
         &semaphore,
@@ -52,6 +56,7 @@ pub async fn user_message_handler<S: SlackSender + 'static>(
         info!("Cancellation triggered, draining queue now");
         if inner_user_message_handler(
             &slack,
+            &event_seen_cache,
             &pool,
             &mut user_event,
             &semaphore,
@@ -83,6 +88,7 @@ pub async fn user_message_handler<S: SlackSender + 'static>(
 
 async fn inner_user_message_handler<S: SlackSender + 'static>(
     slack: &SlackClient<S>,
+    event_seen_cache: &Arc<Cache<String, bool>>,
     pool: &Pool,
     user_event: &mut Receiver<Envelope>,
     semaphore: &Arc<Semaphore>,
@@ -101,13 +107,16 @@ async fn inner_user_message_handler<S: SlackSender + 'static>(
             }
             Ok(val) => match Arc::clone(semaphore).acquire_owned().await {
                 Ok(permit) => {
+                    let event_seen_cache = Arc::clone(event_seen_cache);
                     let pool = pool.clone();
                     let slack = slack.clone();
                     let abort = hard_abort.clone();
                     tracker.spawn(
                         async move {
                             let permit = permit;
-                            if let Err(e) = process_user_message(val, slack, &pool).await {
+                            if let Err(e) =
+                                process_user_message(val, slack, event_seen_cache, &pool).await
+                            {
                                 error!("user_event::process_user_message error: {e:?}");
                             }
                             drop(permit);
