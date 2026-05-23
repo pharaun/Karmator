@@ -156,25 +156,25 @@ async fn heartbeat_tick(
     }
     // Check the delta, If either or both are None, that means
     // their timer are *ahead* of the 'now' which is fine, stop checking.
-    if let (Some(lmd), Some(lpd)) = connection_state.timer_delta() {
+    if let (Some(last_received), Some(last_ping)) = connection_state.timer_delta() {
         // Check if more than 30s has past since the last slack message received
-        if lmd.as_secs() > 30 {
+        if last_received.as_secs() > 30 {
             // Check if more than 2m has past since the last slack message received
-            if lmd.as_secs() > 120 {
+            if last_received.as_secs() > 120 {
                 // Reconnect
                 info!(
-                    "Slack Websocket Heartbeat - Last message: {:?}s, reconnecting",
-                    lmd.as_secs()
+                    "Slack Websocket Heartbeat - Last message received: {:?}s, reconnecting",
+                    last_received.as_secs()
                 );
                 connection_state.reconnect();
 
             // Check if more than 30s has past since the send of the last ping
-            } else if lpd.as_secs() > 30 {
+            } else if last_ping.as_secs() > 30 {
                 // Send Ping
                 debug!(
-                    "Slack Websocket Heartbeat - Last message: {:?}s, Last ping: {:?}s",
-                    lmd.as_secs(),
-                    lpd.as_secs(),
+                    "Slack Websocket Heartbeat - Last message received: {:?}s, Last ping sent: {:?}s",
+                    last_received.as_secs(),
+                    last_ping.as_secs(),
                 );
                 if connection_state.should_send() {
                     // TODO: Generate a new value each time so we can track the ping-pong for

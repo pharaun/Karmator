@@ -70,12 +70,8 @@ async fn process_websocket_message(
             Ok(None)
         }
 
-        // Reply from our heartbeat ping
         tungstenite::Message::Pong(_) => {
-            // We wait for a ping-pong cycle ~30s once a connection
-            // gets established before we reset the backoff timer,
-            // this ensures it only get reset on an "alive" connection
-            connection_state.reset_backoff_timer();
+            // Reply from our heartbeat ping
             Ok(None)
         }
 

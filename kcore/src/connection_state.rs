@@ -6,8 +6,6 @@ use std::sync::atomic::Ordering;
 use tokio::time::Duration;
 use tokio::time::Instant;
 
-use log::warn;
-
 use backoff::ExponentialBackoff;
 use backoff::backoff::Backoff as _;
 use backoff::exponential::ExponentialBackoffBuilder;
@@ -58,33 +56,26 @@ impl ConnectionState {
         self.reconnect.store(false, Ordering::Release);
     }
 
-    pub(crate) fn reset_backoff_timer(&self) {
+    fn reset_backoff_timer(&self) {
         let last_connect = *self.last_connect.lock();
-        match last_connect {
-            None => warn!("Tried to reset_backoff_timer without an connection being alive!"),
-            Some(last_connect) => {
-                let now = Instant::now();
-                let durt = now.checked_duration_since(last_connect);
+        if let Some(last_conn) = last_connect {
+            let now = Instant::now();
+            let durt = now.checked_duration_since(last_conn);
 
-                match durt {
-                    None => warn!("reset_backoff_timer returned None, timing is wonky"),
-                    Some(t) => {
-                        // Ensure the durt is at least X before allowing reconnect backoff reset:
-                        if t.as_secs() > 30 {
-                            self.reconnect_backoff.lock().reset();
-                        } else {
-                            warn!(
-                                "reset_backoff_timer fired too soon, ignoring till 30s has passed"
-                            );
-                        }
-                    }
+            if let Some(t) = durt {
+                // Ensure the durt is at least X before allowing reconnect backoff reset:
+                if t.as_secs() > 30 {
+                    self.reconnect_backoff.lock().reset();
                 }
             }
         }
     }
 
     pub(crate) fn reconnect(&self) {
+        // Reset back off just before we wipe the last_connect timing
+        self.reset_backoff_timer();
         *(self.last_connect.lock()) = None;
+
         self.reconnect.store(true, Ordering::Release);
         self.can_send.store(false, Ordering::Release);
     }
