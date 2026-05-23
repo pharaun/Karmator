@@ -62,6 +62,8 @@ pub async fn slack_websocket_handler<S: SlackSender>(
                 }
 
                 // We are exiting or reconnecting, close the tungstein stream
+                // TODO: skip sending close if the underlaying stream is in a bad state
+                //  - check the status/error from attempting to transmit
                 if let Err(e) = websocket
                     .close(Some(CloseFrame {
                         code: CloseCode::Normal,
@@ -177,7 +179,9 @@ async fn heartbeat_tick(
                 if connection_state.should_send() {
                     // TODO: Generate a new value each time so we can track the ping-pong for
                     // connection aliveness
-                    if let Err(e) = send_ping(connection_state, websocket, tungstenite::Bytes::new()).await {
+                    if let Err(e) =
+                        send_ping(connection_state, websocket, tungstenite::Bytes::new()).await
+                    {
                         error!("send_ping error: {e:?}");
                     }
                 }
@@ -215,12 +219,13 @@ async fn send_ping(
         websocket,
         tungstenite::Message::Ping(content),
     )
-    .await {
+    .await
+    {
         Ok(()) => {
             connection_state.ping_sent();
             Ok(())
         }
-        e => e
+        e => e,
     }
 }
 
@@ -250,6 +255,8 @@ async fn send_websocket(
             Ok(())
         }
     } else {
-        Err(anyhow!("Bad state! Can't send a control message yet received slack message"))
+        Err(anyhow!(
+            "Bad state! Can't send a control message yet received slack message"
+        ))
     }
 }

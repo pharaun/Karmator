@@ -64,8 +64,8 @@ pub trait HttpSender: Clone + Send + Sync + Sized {
 #[derive(Clone)]
 pub struct ReqwestSender;
 impl HttpSender for ReqwestSender {
-    // TODO: Better support rate limiting - https://api.slack.com/apis/rate-limits
     // TODO: Improve the retry strat instead of straight up failing.
+    // TODO: check the status code returned, and surface the correct error
     async fn send(&self, request: RequestBuilder) -> AResult<Response> {
         request.send().await.map_err(Into::into)
     }
@@ -111,14 +111,21 @@ fn parse_response<T: DeserializeOwned>(key: &str, res: &str) -> AResult<T> {
 }
 
 fn parse_response_envelope<T: DeserializeOwned>(key: &str, res: &str) -> Result<T, Option<String>> {
-    let env: Envelope = serde_json::from_str(res).map_err(|e| Some(e.to_string()))?;
+    let mut env: Envelope = serde_json::from_str(res).map_err(|e| Some(e.to_string()))?;
 
     if env.ok {
         // There may sometime be warning with a ok response, log it
         if let Some(warning) = env.warning {
             warn!("Slack api response warning: {warning}");
         }
-        Ok(serde_json::from_value(env.data[key].clone()).map_err(|e| Some(e.to_string()))?)
+
+        // Avoid cloning large serde objects, puck out the data
+        let data = env
+            .data
+            .get_mut(key)
+            .map(serde_json::Value::take)
+            .ok_or_else(|| Some(format!("missing field: {key}")))?;
+        Ok(serde_json::from_value(data).map_err(|e| Some(e.to_string()))?)
     } else {
         Err(env.error)
     }
@@ -257,6 +264,9 @@ impl<S: HttpSender> Client<S> {
             .until_key_ready(&message.channel)
             .await;
         let () = &self.quota_post_message_global.until_ready().await;
+        // Trim any governor that == starting value
+        let () = &self.quota_post_message.retain_recent();
+
         parse_response(
             "ts",
             &self

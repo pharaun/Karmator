@@ -17,6 +17,9 @@ pub async fn wait_for_signal(watcher: CancellationToken) {
 
     // In case that the reason we exited the select! was cuz of a signal,
     // go ahead and trigger the shutdown token
+    //
+    // Note: Once this handler exits it will unregister the sig_int/term handler
+    // which enables a double Ctrl+C to kill the bot (bypasses graceful termination)
     watcher.cancel();
 }
 

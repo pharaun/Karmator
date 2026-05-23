@@ -12,6 +12,9 @@ use backoff::ExponentialBackoff;
 use backoff::backoff::Backoff as _;
 use backoff::exponential::ExponentialBackoffBuilder;
 
+// Note: If we ever want to have independent watcher of these values
+// we may want figure out a better way to manage this there's various ways
+// that state can leak out in an inconsistent way here as it is.
 pub(crate) struct ConnectionState {
     // Atomic boolean for ensuring send can't happen till the hello is received from slack
     can_send: AtomicBool,

@@ -39,7 +39,8 @@ pub struct Envelope {
     pub id: String,
     #[serde(rename = "type")]
     pub typ: String,
-    pub accepts_response_payload: bool,
+    // TODO: add this for interactive events
+    // - accepts_response_payload: bool,
     // This is converted into a json value, since we don't care about the content
     // of this payload, but we do need to know the envelope id for acknowledging
     pub payload: serde_json::Value,
@@ -60,15 +61,13 @@ async fn process_websocket_message(
     websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     connection_state: &ConnectionState,
     msg: tungstenite::Message,
-) -> Option<tungstenite::Utf8Bytes> {
+) -> AResult<Option<tungstenite::Utf8Bytes>> {
     match msg {
-        tungstenite::Message::Text(x) => Some(x),
+        tungstenite::Message::Text(x) => Ok(Some(x)),
 
         tungstenite::Message::Ping(x) => {
-            if let Err(e) = send_pong(connection_state, websocket, x).await {
-                warn!("send_pong error: {e:?}");
-            }
-            None
+            send_pong(connection_state, websocket, x).await?;
+            Ok(None)
         }
 
         // Reply from our heartbeat ping
@@ -77,23 +76,23 @@ async fn process_websocket_message(
             // gets established before we reset the backoff timer,
             // this ensures it only get reset on an "alive" connection
             connection_state.reset_backoff_timer();
-            None
+            Ok(None)
         }
 
         tungstenite::Message::Close(reason) => {
             info!("Slack Websocket - Close reason: {reason:?}");
             connection_state.reconnect();
-            None
+            Ok(None)
         }
 
         tungstenite::Message::Binary(x) => {
             error!("Slack Websocket - Unsupported websocket type: {x:?}");
-            None
+            Ok(None)
         }
 
         tungstenite::Message::Frame(x) => {
             error!("Slack Websocket - Unsupported websocket type: {x:?}");
-            None
+            Ok(None)
         }
     }
 }
@@ -144,15 +143,18 @@ pub(crate) async fn process_control_message(
     connection_state: &ConnectionState,
     msg: tungstenite::Message,
 ) -> AResult<Option<Envelope>> {
-    // Parse incoming message
     connection_state.message_received();
 
+    // Parse incoming message
     let raw_msg = process_websocket_message(websocket, connection_state, msg).await;
 
-    if let Some(e) = raw_msg.as_deref().and_then(parse_event) {
-        Ok(process_slack_control_message(websocket, connection_state, e).await)
-    } else {
-        Ok(None)
+    match raw_msg.map(|m| m.as_deref().and_then(parse_event)) {
+        Ok(Some(msg)) => Ok(process_slack_control_message(websocket, connection_state, msg).await),
+        Ok(None) => Ok(None),
+        Err(e) => {
+            error!("process_websocket_message error - {e:?}");
+            Ok(None)
+        }
     }
 }
 
@@ -210,7 +212,6 @@ mod test_event {
             Some(Event::Envelope(Envelope {
                 typ: "slash_commands".to_owned(),
                 id: "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545".to_owned(),
-                accepts_response_payload: true,
                 payload: json!({
                     "channel_id": "C123ABC456",
                     "user_id": "U123ABC456",
@@ -235,7 +236,6 @@ mod test_event {
             Some(Event::Envelope(Envelope {
                 typ: "interactive".to_owned(),
                 id: "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545".to_owned(),
-                accepts_response_payload: true,
                 payload: json!({
                     "type": "block_actions",
                     "trigger_id": "12321423423.333649436676.d8c1bb837935619ccad0f624c448ffb3",
@@ -260,7 +260,6 @@ mod test_event {
             Some(Event::Envelope(Envelope {
                 typ: "events_api".to_owned(),
                 id: "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545".to_owned(),
-                accepts_response_payload: false,
                 payload: json!({
                     "type": "app_home_opened",
                     "user": "U123ABC456"
