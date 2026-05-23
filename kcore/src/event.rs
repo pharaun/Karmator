@@ -65,7 +65,9 @@ async fn process_websocket_message(
         tungstenite::Message::Text(x) => Some(x),
 
         tungstenite::Message::Ping(x) => {
-            send_pong(connection_state, websocket, x).await;
+            if let Err(e) = send_pong(connection_state, websocket, x).await {
+                warn!("send_pong error: {e:?}");
+            }
             None
         }
 
@@ -123,7 +125,11 @@ async fn process_slack_control_message(
                 //
                 // TODO: interactivity needs to have data sent back along with the ack,so this
                 // pattern won't work here but we aren't worried about those at the moment.
-                send_acknowledge(connection_state, websocket, &envelope.id).await;
+                if let Err(e) = send_acknowledge(connection_state, websocket, &envelope.id).await {
+                    warn!("send_acknowledge error: {e:?}");
+                }
+                // For now send the envelope to be queued always, consumer will need to
+                // dedup via event_id
                 Some(envelope)
             } else {
                 warn!("Slack sent an envelope before hello, this shouldn't happen");

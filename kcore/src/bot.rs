@@ -174,9 +174,13 @@ async fn heartbeat_tick(
                     lmd.as_secs(),
                     lpd.as_secs(),
                 );
-                // TODO: Generate a new value each time so we can track the ping-pong for
-                // connection aliveness
-                send_ping(connection_state, websocket, tungstenite::Bytes::new()).await;
+                if connection_state.should_send() {
+                    // TODO: Generate a new value each time so we can track the ping-pong for
+                    // connection aliveness
+                    if let Err(e) = send_ping(connection_state, websocket, tungstenite::Bytes::new()).await {
+                        error!("send_ping error: {e:?}");
+                    }
+                }
             }
         }
     }
@@ -187,7 +191,7 @@ pub(crate) async fn send_acknowledge(
     connection_state: &connection_state::ConnectionState,
     websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     envelope_id: &str,
-) {
+) -> AResult<()> {
     send_websocket(
         connection_state,
         websocket,
@@ -198,47 +202,54 @@ pub(crate) async fn send_acknowledge(
             .to_string(),
         ),
     )
-    .await;
+    .await
 }
 
 async fn send_ping(
     connection_state: &connection_state::ConnectionState,
     websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     content: tungstenite::Bytes,
-) {
-    send_websocket(
+) -> AResult<()> {
+    match send_websocket(
         connection_state,
         websocket,
         tungstenite::Message::Ping(content),
     )
-    .await;
-    connection_state.ping_sent();
+    .await {
+        Ok(()) => {
+            connection_state.ping_sent();
+            Ok(())
+        }
+        e => e
+    }
 }
 
 pub(crate) async fn send_pong(
     connection_state: &connection_state::ConnectionState,
     websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     content: tungstenite::Bytes,
-) {
+) -> AResult<()> {
     send_websocket(
         connection_state,
         websocket,
         tungstenite::Message::Pong(content),
     )
-    .await;
+    .await
 }
 
 async fn send_websocket(
     connection_state: &connection_state::ConnectionState,
     websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     message: tungstenite::Message,
-) {
+) -> AResult<()> {
     if connection_state.should_send() {
         if let Err(e) = websocket.send(message).await {
-            error!("Slack Websocket - Connection error: {e:?}");
             connection_state.reconnect();
+            Err(anyhow!("Slack Websocket - Connection error: {e:?}"))
+        } else {
+            Ok(())
         }
     } else {
-        error!("Bad state! Can't send a control message yet received slack message");
+        Err(anyhow!("Bad state! Can't send a control message yet received slack message"))
     }
 }
