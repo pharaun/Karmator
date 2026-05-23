@@ -319,18 +319,18 @@ async fn websocket_server(
                                     // TODO: generate a unique envelope_id and validate acknowledgements
                                     Some(msg) = websocket.recv() => {
                                         info!("Sending to bot: {:?}", msg);
-                                        let _ = ws_write.send(tungstenite::Message::from(
-                                            json!({
-                                                "type": "events_api",
-                                                "envelope_id": "asdf",
-                                                "payload": {
-                                                    "type": "event_callback",
-                                                    "event_id": generate(12, charsets::ALPHANUMERIC),
-                                                    "event": msg
-                                                },
-                                                "accepts_response_payload": false,
-                                            }).to_string()
-                                        )).await;
+                                        let ws_msg = json!({
+                                            "type": "events_api",
+                                            "envelope_id": "asdf",
+                                            "payload": {
+                                                "type": "event_callback",
+                                                "event_id": generate(12, charsets::ALPHANUMERIC),
+                                                "event": msg
+                                            },
+                                            "accepts_response_payload": false,
+                                        }).to_string();
+                                        let _ = ws_write.send(tungstenite::Message::from(ws_msg.clone())).await;
+                                        let _ = ws_write.send(tungstenite::Message::from(ws_msg)).await;
                                     },
 
                                     _ = reconnect.reconnect() => {
