@@ -6,9 +6,20 @@ use std::sync::atomic::Ordering;
 use tokio::time::Duration;
 use tokio::time::Instant;
 
-use backoff::ExponentialBackoff;
+use backoff::Clock;
 use backoff::backoff::Backoff as _;
+use backoff::exponential::ExponentialBackoff;
 use backoff::exponential::ExponentialBackoffBuilder;
+
+// Make everything use Tokio Timers
+#[derive(Default)]
+struct TokioClock;
+impl Clock for TokioClock {
+    fn now(&self) -> std::time::Instant {
+        #[expect(unused_qualifications)]
+        tokio::time::Instant::now().into_std()
+    }
+}
 
 // Note: If we ever want to have independent watcher of these values
 // we may want figure out a better way to manage this there's various ways
@@ -18,7 +29,7 @@ pub(crate) struct ConnectionState {
     can_send: AtomicBool,
     // Atomic boolean for exiting and re-establishing the connection
     reconnect: AtomicBool,
-    reconnect_backoff: Mutex<ExponentialBackoff>,
+    reconnect_backoff: Mutex<ExponentialBackoff<TokioClock>>,
     // Monotonical clock for heartbeat/ping management
     last_message_received: Mutex<Instant>,
     last_ping_sent: Mutex<Instant>,
@@ -31,7 +42,7 @@ impl ConnectionState {
             can_send: AtomicBool::new(false),
             reconnect: AtomicBool::new(false),
             reconnect_backoff: Mutex::new(
-                ExponentialBackoffBuilder::new()
+                ExponentialBackoffBuilder::<TokioClock>::new()
                     .with_initial_interval(Duration::from_secs(1))
                     .with_randomization_factor(0.5)
                     .with_multiplier(2.0)
@@ -115,5 +126,126 @@ impl ConnectionState {
             now.checked_duration_since(*self.last_message_received.lock()),
             now.checked_duration_since(*self.last_ping_sent.lock()),
         )
+    }
+}
+
+#[cfg(test)]
+mod test_connection_state_machine {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn test_init_pending_connected() {
+        let state = ConnectionState::init();
+
+        assert!(!state.should_reconnect());
+        assert!(!state.should_send());
+        assert_eq!(*state.last_connect.lock(), None);
+
+        state.pending();
+
+        assert!(!state.should_reconnect());
+        assert!(!state.should_send());
+        assert_eq!(*state.last_connect.lock(), None);
+
+        // We have successfully gotten Hello from slack
+        tokio::time::advance(Duration::from_secs(10)).await;
+        state.connected();
+
+        assert!(!state.should_reconnect());
+        assert!(state.should_send());
+        assert_eq!(*state.last_connect.lock(), Some(Instant::now()));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_init_pending_connected_reconnect_pending() {
+        let state = ConnectionState::init();
+        state.pending();
+        tokio::time::advance(Duration::from_secs(10)).await;
+        state.connected();
+
+        // We have got told by slack to reconnect
+        // Separate test can verify the backoff timer
+        state.reconnect();
+
+        assert!(state.should_reconnect());
+        assert!(!state.should_send());
+        assert_eq!(*state.last_connect.lock(), None);
+
+        // We have reconnected and are pending now
+        state.pending();
+
+        assert!(!state.should_reconnect());
+        assert!(!state.should_send());
+        assert_eq!(*state.last_connect.lock(), None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_reconnect_backoff_not_alive() {
+        let state = ConnectionState::init();
+        state.pending();
+        tokio::time::advance(Duration::from_secs(20)).await;
+
+        // We are in pending but the connection isn't alive
+        // try to reset it now.
+        let before = (*state.reconnect_backoff.lock()).get_elapsed_time();
+        state.reset_backoff_timer();
+        let after = (*state.reconnect_backoff.lock()).get_elapsed_time();
+
+        assert_ne!(before, Duration::from_secs(0));
+        assert_eq!(before, after);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_reconnect_backoff_less_30s() {
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+        tokio::time::advance(Duration::from_secs(20)).await;
+
+        // Connection is alive but less than 30s it should not
+        // allow the reset
+        let before = (*state.reconnect_backoff.lock()).get_elapsed_time();
+        state.reset_backoff_timer();
+        let after = (*state.reconnect_backoff.lock()).get_elapsed_time();
+
+        assert_ne!(before, Duration::from_secs(0));
+        assert_eq!(before, after);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_reconnect_backoff_greater_30s() {
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+        tokio::time::advance(Duration::from_secs(40)).await;
+
+        // Connection is alive and greater than 30s it should allow
+        // the reset
+        let before = (*state.reconnect_backoff.lock()).get_elapsed_time();
+        state.reset_backoff_timer();
+        let after = (*state.reconnect_backoff.lock()).get_elapsed_time();
+
+        assert_ne!(before, Duration::from_secs(0));
+        assert!(before > after);
+        assert_eq!(after, Duration::from_secs(0));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_backoff_expires_after_enough_time() {
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+
+        tokio::time::advance(Duration::from_mins(1)).await;
+        assert!(state.fetch_next_backoff().is_some());
+
+        // Fetch the max elapsed time, and verify its not None,
+        // Then advance time a minute past to verify that
+        // fetch_next_backoff is now None
+        let durt = (*state.reconnect_backoff.lock()).max_elapsed_time;
+        assert!(durt.is_some());
+
+        tokio::time::advance(durt.unwrap()).await;
+        assert!(state.fetch_next_backoff().is_none());
     }
 }
