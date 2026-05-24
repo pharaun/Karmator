@@ -20,6 +20,7 @@ use karmator::cache_handler;
 use karmator::user_message_handler;
 
 use kcore::SlackClient;
+use kcore::TungsteniteClient;
 use kcore::slack_websocket_handler;
 use kcore::wait_for_signal;
 
@@ -70,7 +71,12 @@ async fn main() -> AResult<()> {
     // Slack Websocket
     let slack = SlackClient::new("https://slack.com/api", &app_token, &bot_token, 50);
     let (sue, rue) = channel(32);
-    set.spawn(slack_websocket_handler(slack.clone(), watcher.clone(), sue));
+    set.spawn(slack_websocket_handler(
+        slack.clone(),
+        TungsteniteClient,
+        watcher.clone(),
+        sue,
+    ));
 
     // User Event processing
     set.spawn(user_message_handler(

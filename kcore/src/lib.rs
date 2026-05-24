@@ -16,6 +16,8 @@ pub use slack::Timezone as SlackTimezone;
 pub use slack::User as SlackUser;
 pub use slack::send_simple_message as send_text_message;
 
+pub use bot::TungsteniteClient;
+pub use bot::WsClient;
 pub use bot::slack_websocket_handler;
 pub use signal::wait_for_signal;
 

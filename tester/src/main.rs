@@ -37,6 +37,7 @@ use serde_json::json;
 use http::response;
 
 use kcore::Command;
+use kcore::TungsteniteClient;
 use kcore::SlackClient;
 use kcore::SlackSender;
 use kcore::slack_websocket_handler;
@@ -608,7 +609,7 @@ async fn main() -> AResult<()> {
     let slack =
         SlackClient::with_sender(FakeSender, "http://localhost", "app-token", "bot-token", 10);
     let (sue, rue) = broadcast::channel(32);
-    set.spawn(slack_websocket_handler(slack.clone(), watcher.clone(), sue));
+    set.spawn(slack_websocket_handler(slack.clone(), TungsteniteClient, watcher.clone(), sue));
     set.spawn(karmator::user_message_handler(
         slack.clone(),
         watcher.clone(),

@@ -4,12 +4,14 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Bytes;
 use tokio_tungstenite::tungstenite::Error as TError;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::handshake::client::Response;
 use tokio_tungstenite::tungstenite::protocol::frame::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 use futures_util::SinkExt as _;
 use futures_util::StreamExt as _;
 use futures_util::sink::Sink;
+use futures_util::stream::Stream;
 
 use tokio::sync::broadcast::Sender;
 use tokio::time;
@@ -36,10 +38,46 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::WebSocketStream;
 
-type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+pub trait WsClient {
+    type WsStream: Stream<Item = Result<Message, TError>>
+        + Sink<Message, Error: Debug>
+        + Unpin
+        + Send;
 
-pub async fn slack_websocket_handler<S: SlackSender>(
+    fn connect(
+        &self,
+        url: &str,
+    ) -> impl Future<Output = Result<(Self::WsStream, Response), TError>> + Send;
+    fn close(
+        &self,
+        stream: &mut Self::WsStream,
+        frame: Option<CloseFrame>,
+    ) -> impl Future<Output = Result<(), TError>> + Send;
+}
+
+pub struct TungsteniteClient;
+impl WsClient for TungsteniteClient {
+    type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+    fn connect(
+        &self,
+        url: &str,
+    ) -> impl Future<Output = Result<(Self::WsStream, Response), TError>> + Send {
+        connect_async(url)
+    }
+
+    fn close(
+        &self,
+        stream: &mut Self::WsStream,
+        frame: Option<CloseFrame>,
+    ) -> impl Future<Output = Result<(), TError>> + Send {
+        stream.close(frame)
+    }
+}
+
+pub async fn slack_websocket_handler<S: SlackSender, W: WsClient>(
     slack: SlackClient<S>,
+    client: W,
     watcher: CancellationToken,
     user_event: Sender<Envelope>,
 ) {
@@ -51,7 +89,7 @@ pub async fn slack_websocket_handler<S: SlackSender>(
 
     // Main server loop, exit if the database dies
     while !watcher.is_cancelled() {
-        match ws_connect(&slack, &watcher).await {
+        match ws_connect(&slack, &client, &watcher).await {
             Err(e) => error!("Slack Websocket - Connection failed: {e:?}"),
             Ok(mut websocket) => {
                 // Reset the connection to waiting for ack from Slack
@@ -63,21 +101,24 @@ pub async fn slack_websocket_handler<S: SlackSender>(
                         () = watcher.cancelled() => info!("Shutdown signal received"),
 
                         // Process inbound messages
-                        ws_msg = websocket.next() => process_message::<WebSocket>(&mut websocket, &conn_state, &user_event, ws_msg).await,
+                        ws_msg = websocket.next() => process_message(&mut websocket, &conn_state, &user_event, ws_msg).await,
 
                         // This is woken up peroidically to force a heartbeat check
-                        _ = heartbeat.tick() => heartbeat_tick::<WebSocket>(&mut websocket, &conn_state).await,
+                        _ = heartbeat.tick() => heartbeat_tick(&mut websocket, &conn_state).await,
                     }
                 }
 
                 // We are exiting or reconnecting, close the tungstein stream
                 // TODO: skip sending close if the underlaying stream is in a bad state
                 //  - check the status/error from attempting to transmit
-                if let Err(e) = websocket
-                    .close(Some(CloseFrame {
-                        code: CloseCode::Normal,
-                        reason: "Reconnecting".into(),
-                    }))
+                if let Err(e) = client
+                    .close(
+                        &mut websocket,
+                        Some(CloseFrame {
+                            code: CloseCode::Normal,
+                            reason: "Reconnecting".into(),
+                        }),
+                    )
                     .timeout(Duration::from_secs(5))
                     .await
                 {
@@ -104,16 +145,18 @@ pub async fn slack_websocket_handler<S: SlackSender>(
     info!("Slack Websocket - Exiting");
 }
 
-async fn ws_connect<S: SlackSender>(
+async fn ws_connect<S: SlackSender, W: WsClient>(
     slack: &SlackClient<S>,
+    client: &W,
     watcher: &CancellationToken,
-) -> AResult<WebSocket> {
+) -> AResult<W::WsStream> {
     let ws_url = slack
         .socket_connect()
         .with_cancellation_token(watcher)
         .await
         .ok_or(anyhow!("Shutdown triggered"))??;
-    let (ws_stream, _) = connect_async(ws_url)
+    let (ws_stream, _) = client
+        .connect(&ws_url)
         .timeout(Duration::from_secs(5))
         .with_cancellation_token(watcher)
         .await
