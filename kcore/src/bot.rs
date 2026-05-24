@@ -1,14 +1,16 @@
-use tokio_tungstenite::MaybeTlsStream;
-use tokio_tungstenite::WebSocketStream;
+use std::fmt::Debug;
+
 use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite;
-use tungstenite::protocol::frame::CloseFrame;
-use tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::tungstenite::Bytes;
+use tokio_tungstenite::tungstenite::Error as TError;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::protocol::frame::CloseFrame;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 use futures_util::SinkExt as _;
 use futures_util::StreamExt as _;
+use futures_util::sink::Sink;
 
-use tokio::net::TcpStream;
 use tokio::sync::broadcast::Sender;
 use tokio::time;
 use tokio::time::MissedTickBehavior;
@@ -26,15 +28,22 @@ use anyhow::anyhow;
 
 use crate::SlackClient;
 use crate::SlackSender;
-use crate::connection_state;
-use crate::event;
+use crate::connection_state::ConnectionState;
+use crate::event::Envelope;
+use crate::event::process_control_message;
+
+use tokio::net::TcpStream;
+use tokio_tungstenite::MaybeTlsStream;
+use tokio_tungstenite::WebSocketStream;
+
+type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 pub async fn slack_websocket_handler<S: SlackSender>(
     slack: SlackClient<S>,
     watcher: CancellationToken,
-    user_event: Sender<event::Envelope>,
+    user_event: Sender<Envelope>,
 ) {
-    let conn_state = connection_state::ConnectionState::init();
+    let conn_state = ConnectionState::init();
 
     // Interval timers for heartbeat
     let mut heartbeat = time::interval(Duration::from_secs(1));
@@ -54,10 +63,10 @@ pub async fn slack_websocket_handler<S: SlackSender>(
                         () = watcher.cancelled() => info!("Shutdown signal received"),
 
                         // Process inbound messages
-                        ws_msg = websocket.next() => process_message(&mut websocket, &conn_state, &user_event, ws_msg).await,
+                        ws_msg = websocket.next() => process_message::<WebSocket>(&mut websocket, &conn_state, &user_event, ws_msg).await,
 
                         // This is woken up peroidically to force a heartbeat check
-                        _ = heartbeat.tick() => heartbeat_tick(&mut websocket, &conn_state).await,
+                        _ = heartbeat.tick() => heartbeat_tick::<WebSocket>(&mut websocket, &conn_state).await,
                     }
                 }
 
@@ -98,7 +107,7 @@ pub async fn slack_websocket_handler<S: SlackSender>(
 async fn ws_connect<S: SlackSender>(
     slack: &SlackClient<S>,
     watcher: &CancellationToken,
-) -> AResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+) -> AResult<WebSocket> {
     let ws_url = slack
         .socket_connect()
         .with_cancellation_token(watcher)
@@ -113,18 +122,21 @@ async fn ws_connect<S: SlackSender>(
     Ok(ws_stream)
 }
 
-async fn process_message(
-    websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-    connection_state: &connection_state::ConnectionState,
-    user_event: &Sender<event::Envelope>,
-    ws_msg: Option<Result<tungstenite::Message, tungstenite::Error>>,
-) {
+async fn process_message<W>(
+    websocket: &mut W,
+    connection_state: &ConnectionState,
+    user_event: &Sender<Envelope>,
+    ws_msg: Option<Result<Message, TError>>,
+) where
+    W: Sink<Message> + Unpin,
+    <W as Sink<Message>>::Error: Debug,
+{
     if connection_state.should_reconnect() {
         return;
     }
     match ws_msg {
         Some(Ok(ws_msg)) => {
-            match event::process_control_message(websocket, connection_state, ws_msg).await {
+            match process_control_message::<W>(websocket, connection_state, ws_msg).await {
                 Ok(Some(event)) => {
                     if let Err(e) = user_event.send(event) {
                         // A send fail doesn't mean it won't be picked up again.
@@ -147,10 +159,11 @@ async fn process_message(
     }
 }
 
-async fn heartbeat_tick(
-    websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-    connection_state: &connection_state::ConnectionState,
-) {
+async fn heartbeat_tick<W>(websocket: &mut W, connection_state: &ConnectionState)
+where
+    W: Sink<Message> + Unpin,
+    <W as Sink<Message>>::Error: Debug,
+{
     if connection_state.should_reconnect() {
         return;
     }
@@ -179,8 +192,7 @@ async fn heartbeat_tick(
                 if connection_state.should_send() {
                     // TODO: Generate a new value each time so we can track the ping-pong for
                     // connection aliveness
-                    if let Err(e) =
-                        send_ping(connection_state, websocket, tungstenite::Bytes::new()).await
+                    if let Err(e) = send_ping::<W>(connection_state, websocket, Bytes::new()).await
                     {
                         error!("send_ping error: {e:?}");
                     }
@@ -190,16 +202,19 @@ async fn heartbeat_tick(
     }
 }
 
-// Acknowledge reception of event
-pub(crate) async fn send_acknowledge(
-    connection_state: &connection_state::ConnectionState,
-    websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+pub(crate) async fn send_acknowledge<W>(
+    connection_state: &ConnectionState,
+    websocket: &mut W,
     envelope_id: &str,
-) -> AResult<()> {
+) -> AResult<()>
+where
+    W: Sink<Message> + Unpin,
+    <W as Sink<Message>>::Error: Debug,
+{
     send_websocket(
         connection_state,
         websocket,
-        tungstenite::Message::from(
+        Message::from(
             json!({
                 "envelope_id": envelope_id
             })
@@ -209,18 +224,16 @@ pub(crate) async fn send_acknowledge(
     .await
 }
 
-async fn send_ping(
-    connection_state: &connection_state::ConnectionState,
-    websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-    content: tungstenite::Bytes,
-) -> AResult<()> {
-    match send_websocket(
-        connection_state,
-        websocket,
-        tungstenite::Message::Ping(content),
-    )
-    .await
-    {
+async fn send_ping<W>(
+    connection_state: &ConnectionState,
+    websocket: &mut W,
+    content: Bytes,
+) -> AResult<()>
+where
+    W: Sink<Message> + Unpin,
+    <W as Sink<Message>>::Error: Debug,
+{
+    match send_websocket(connection_state, websocket, Message::Ping(content)).await {
         Ok(()) => {
             connection_state.ping_sent();
             Ok(())
@@ -229,24 +242,27 @@ async fn send_ping(
     }
 }
 
-pub(crate) async fn send_pong(
-    connection_state: &connection_state::ConnectionState,
-    websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-    content: tungstenite::Bytes,
-) -> AResult<()> {
-    send_websocket(
-        connection_state,
-        websocket,
-        tungstenite::Message::Pong(content),
-    )
-    .await
+pub(crate) async fn send_pong<W>(
+    connection_state: &ConnectionState,
+    websocket: &mut W,
+    content: Bytes,
+) -> AResult<()>
+where
+    W: Sink<Message> + Unpin,
+    <W as Sink<Message>>::Error: Debug,
+{
+    send_websocket(connection_state, websocket, Message::Pong(content)).await
 }
 
-async fn send_websocket(
-    connection_state: &connection_state::ConnectionState,
-    websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-    message: tungstenite::Message,
-) -> AResult<()> {
+async fn send_websocket<W>(
+    connection_state: &ConnectionState,
+    websocket: &mut W,
+    message: Message,
+) -> AResult<()>
+where
+    W: Sink<Message> + Unpin,
+    <W as Sink<Message>>::Error: Debug,
+{
     if connection_state.should_send() {
         if let Err(e) = websocket.send(message).await {
             connection_state.reconnect();

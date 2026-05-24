@@ -1,14 +1,15 @@
-use tokio_tungstenite::MaybeTlsStream;
-use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite;
+use std::fmt::Debug;
+
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::Utf8Bytes;
+
+use futures_util::sink::Sink;
 
 use serde::Deserialize;
 
 use anyhow::Result as AResult;
 
 use log::{debug, error, info, warn};
-
-use tokio::net::TcpStream;
 
 use crate::bot::send_acknowledge;
 use crate::bot::send_pong;
@@ -57,47 +58,55 @@ fn parse_event(s: &str) -> Option<Event> {
     res.ok()
 }
 
-async fn process_websocket_message(
-    websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+async fn process_websocket_message<W>(
+    websocket: &mut W,
     connection_state: &ConnectionState,
-    msg: tungstenite::Message,
-) -> AResult<Option<tungstenite::Utf8Bytes>> {
+    msg: Message,
+) -> AResult<Option<Utf8Bytes>>
+where
+    W: Sink<Message> + Unpin,
+    <W as Sink<Message>>::Error: Debug,
+{
     match msg {
-        tungstenite::Message::Text(x) => Ok(Some(x)),
+        Message::Text(x) => Ok(Some(x)),
 
-        tungstenite::Message::Ping(x) => {
-            send_pong(connection_state, websocket, x).await?;
+        Message::Ping(x) => {
+            send_pong::<W>(connection_state, websocket, x).await?;
             Ok(None)
         }
 
-        tungstenite::Message::Pong(_) => {
+        Message::Pong(_) => {
             // Reply from our heartbeat ping
             Ok(None)
         }
 
-        tungstenite::Message::Close(reason) => {
+        Message::Close(reason) => {
             info!("Slack Websocket - Close reason: {reason:?}");
             connection_state.reconnect();
             Ok(None)
         }
 
-        tungstenite::Message::Binary(x) => {
+        Message::Binary(x) => {
             error!("Slack Websocket - Unsupported websocket type: {x:?}");
             Ok(None)
         }
 
-        tungstenite::Message::Frame(x) => {
+        Message::Frame(x) => {
             error!("Slack Websocket - Unsupported websocket type: {x:?}");
             Ok(None)
         }
     }
 }
 
-async fn process_slack_control_message(
-    websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+async fn process_slack_control_message<W>(
+    websocket: &mut W,
     connection_state: &ConnectionState,
     msg: Event,
-) -> Option<Envelope> {
+) -> Option<Envelope>
+where
+    W: Sink<Message> + Unpin,
+    <W as Sink<Message>>::Error: Debug,
+{
     match msg {
         Event::Hello { num_connections: _ } => {
             // Hold on sending messages till this is received.
@@ -120,7 +129,9 @@ async fn process_slack_control_message(
                 //
                 // TODO: interactivity needs to have data sent back along with the ack,so this
                 // pattern won't work here but we aren't worried about those at the moment.
-                if let Err(e) = send_acknowledge(connection_state, websocket, &envelope.id).await {
+                if let Err(e) =
+                    send_acknowledge::<W>(connection_state, websocket, &envelope.id).await
+                {
                     warn!("send_acknowledge error: {e:?}");
                 }
                 // For now send the envelope to be queued always, consumer will need to
@@ -134,18 +145,24 @@ async fn process_slack_control_message(
     }
 }
 
-pub(crate) async fn process_control_message(
-    websocket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+pub(crate) async fn process_control_message<W>(
+    websocket: &mut W,
     connection_state: &ConnectionState,
-    msg: tungstenite::Message,
-) -> AResult<Option<Envelope>> {
+    msg: Message,
+) -> AResult<Option<Envelope>>
+where
+    W: Sink<Message> + Unpin,
+    <W as Sink<Message>>::Error: Debug,
+{
     connection_state.message_received();
 
     // Parse incoming message
-    let raw_msg = process_websocket_message(websocket, connection_state, msg).await;
+    let raw_msg = process_websocket_message::<W>(websocket, connection_state, msg).await;
 
     match raw_msg.map(|m| m.as_deref().and_then(parse_event)) {
-        Ok(Some(msg)) => Ok(process_slack_control_message(websocket, connection_state, msg).await),
+        Ok(Some(msg)) => {
+            Ok(process_slack_control_message::<W>(websocket, connection_state, msg).await)
+        }
         Ok(None) => Ok(None),
         Err(e) => {
             error!("process_websocket_message error - {e:?}");
