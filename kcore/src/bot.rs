@@ -84,6 +84,9 @@ pub async fn slack_websocket_handler<S: SlackSender, W: WsClient>(
     let conn_state = ConnectionState::init();
 
     // Interval timers for heartbeat
+    // TODO: check if we can't slown it down to like 5s or 10s
+    //  - iirc it was to force the cancel handler to be polled
+    //  fast enough, re-check if still true
     let mut heartbeat = time::interval(Duration::from_secs(1));
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
@@ -183,6 +186,8 @@ async fn process_message<W>(
                 Ok(Some(event)) => {
                     if let Err(e) = user_event.send(event) {
                         // A send fail doesn't mean it won't be picked up again.
+                        // TODO: in practice this means the handler went away, need to instead
+                        // shutdown immedidately and stop ack'ing
                         error!("user_event.send error: {e:?}");
                     }
                 }

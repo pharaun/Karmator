@@ -58,6 +58,9 @@ fn parse_event(s: &str) -> Option<Event> {
     res.ok()
 }
 
+// TODO: we currently gate ping/pong on Hello (and thus can_send) dig into this more
+// since these are protocol level ping/pong. However everything downstream depends on
+// this gating.
 async fn process_websocket_message<W>(
     websocket: &mut W,
     connection_state: &ConnectionState,
