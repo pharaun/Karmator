@@ -319,3 +319,422 @@ where
         ))
     }
 }
+
+#[cfg(test)]
+mod test_heartbeat {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn test_heartbeat_reconnect_gate() {
+        let state = ConnectionState::init();
+        state.reconnect();
+
+        let mut ws_sink = vec![];
+        heartbeat_tick(
+            &mut ws_sink,
+            &state,
+        ).await;
+
+        // Assert that the connection state is same as before
+        assert!(state.should_reconnect());
+        assert!(!state.should_send());
+
+        // We should have not been able to send ping cuz we are reconnect
+        assert!(ws_sink.is_empty());
+
+        // Timing check
+        let (lmr, lps) = state.timer_delta();
+        assert_eq!(lmr, Some(Duration::from_secs(0)));
+        assert_eq!(lps, Some(Duration::from_secs(0)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_heartbeat_pending_send_ping() {
+        let state = ConnectionState::init();
+        state.pending();
+
+        // Message was received + ping sent
+        state.message_received();
+        state.ping_sent();
+
+        time::advance(Duration::from_mins(1)).await;
+
+        let mut ws_sink = vec![];
+        heartbeat_tick(
+            &mut ws_sink,
+            &state,
+        ).await;
+
+        // Assert that the connection state is same as before
+        assert!(!state.should_reconnect());
+        assert!(!state.should_send());
+
+        // It has been 1 minute since last message + ping it should have sent 1 ping, however we
+        // are still pending so it would have not be permitted to.
+        assert!(ws_sink.is_empty());
+
+        // Timing check
+        let (lmr, lps) = state.timer_delta();
+        assert_eq!(lmr, Some(Duration::from_mins(1)));
+        assert_eq!(lps, Some(Duration::from_mins(1)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_heartbeat_too_early_send_ping() {
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+
+        // Message was received + ping sent
+        state.message_received();
+        state.ping_sent();
+
+        time::advance(Duration::from_secs(15)).await;
+
+        let mut ws_sink = vec![];
+        heartbeat_tick(
+            &mut ws_sink,
+            &state,
+        ).await;
+
+        // Assert that the connection state is same as before
+        assert!(!state.should_reconnect());
+        assert!(state.should_send());
+
+        // It has been 15s, its not yet time to send a ping.
+        assert!(ws_sink.is_empty());
+
+        // Timing check
+        let (lmr, lps) = state.timer_delta();
+        assert_eq!(lmr, Some(Duration::from_secs(15)));
+        assert_eq!(lps, Some(Duration::from_secs(15)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_heartbeat_send_ping() {
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+
+        // Message was received + ping sent
+        state.message_received();
+        state.ping_sent();
+
+        time::advance(Duration::from_mins(1)).await;
+
+        let mut ws_sink = vec![];
+        heartbeat_tick(
+            &mut ws_sink,
+            &state,
+        ).await;
+
+        // Assert that the connection state is same as before
+        assert!(!state.should_reconnect());
+        assert!(state.should_send());
+
+        // It has been 1 minute since last message + ping it should have sent 1 ping.
+        assert_eq!(ws_sink, vec![Message::Ping(Bytes::new())]);
+
+        // Timing check
+        let (lmr, lps) = state.timer_delta();
+        assert_eq!(lmr, Some(Duration::from_mins(1)));
+        assert_eq!(lps, Some(Duration::from_secs(0)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_heartbeat_reconnect_send_ping() {
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+
+        // Message was received + ping sent
+        state.message_received();
+
+        time::advance(Duration::from_mins(2)).await;
+
+        state.ping_sent();
+
+        time::advance(Duration::from_mins(1)).await;
+
+        let mut ws_sink = vec![];
+        heartbeat_tick(
+            &mut ws_sink,
+            &state,
+        ).await;
+
+        // Assert we are now reconnecting
+        assert!(state.should_reconnect());
+        assert!(!state.should_send());
+
+        // It has been 3 minutes since last message, 1 minute since last ping (shouldn't matter).
+        // We should have not sent a ping to slack since we are now in reconnect mode.
+        assert!(ws_sink.is_empty());
+
+        // Timing check
+        let (lmr, lps) = state.timer_delta();
+        assert_eq!(lmr, Some(Duration::from_mins(3)));
+        assert_eq!(lps, Some(Duration::from_mins(1)));
+    }
+}
+
+#[cfg(test)]
+mod test_process_message {
+    use super::*;
+    use tokio::sync::broadcast::channel;
+
+    #[tokio::test(start_paused = true)]
+    async fn test_process_reconnect_gap() {
+        let data = r#"{
+            "type": "hello",
+            "num_connections": 1
+        }"#;
+
+        let state = ConnectionState::init();
+        state.reconnect();
+
+        let mut ws_sink = vec![];
+        let (sue, rue) = channel(32);
+
+        process_message(
+            &mut ws_sink,
+            &state,
+            &sue,
+            Some(Ok(Message::from(data))),
+        ).await;
+
+        // Assert that the connection state is same as before
+        assert!(state.should_reconnect());
+        assert!(!state.should_send());
+
+        // We should have not been able process anything
+        assert!(ws_sink.is_empty());
+        assert!(rue.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_process_hello() {
+        let data = r#"{
+            "type": "hello",
+            "num_connections": 1
+        }"#;
+
+        let state = ConnectionState::init();
+        state.pending();
+
+        let mut ws_sink = vec![];
+        let (sue, rue) = channel(32);
+
+        process_message(
+            &mut ws_sink,
+            &state,
+            &sue,
+            Some(Ok(Message::from(data))),
+        ).await;
+
+        // Assert that the connection is now send.
+        assert!(!state.should_reconnect());
+        assert!(state.should_send());
+
+        // We should have not gotten anything, its a control message
+        assert!(ws_sink.is_empty());
+        assert!(rue.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_process_actual_data() {
+        let data = json!({
+            "envelope_id": "id",
+            "type": "typ",
+            "payload": {
+                "test": "asdf"
+            }
+        })
+        .to_string();
+
+        let envelope = Envelope {
+            id: "id".to_owned(),
+            typ: "typ".to_owned(),
+            payload: json!({"test": "asdf"}),
+        };
+
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+
+        let mut ws_sink = vec![];
+        let (sue, mut rue) = channel(32);
+
+        process_message(
+            &mut ws_sink,
+            &state,
+            &sue,
+            Some(Ok(Message::from(data))),
+        ).await;
+
+        // Assert that the connection is same as before
+        assert!(!state.should_reconnect());
+        assert!(state.should_send());
+
+        // We should have gotten an ack + the event itself
+        assert_eq!(ws_sink, vec![Message::from(json!({"envelope_id": "id"}).to_string())]);
+        assert_eq!(rue.recv().await.unwrap(), envelope);
+        assert!(rue.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_process_closed() {
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+
+        let mut ws_sink = vec![];
+        let (sue, rue) = channel(32);
+
+        process_message(
+            &mut ws_sink,
+            &state,
+            &sue,
+            None,
+        ).await;
+
+        // Assert that we are reconnecting now
+        assert!(state.should_reconnect());
+        assert!(!state.should_send());
+
+        // We should have gotten nothing
+        assert!(ws_sink.is_empty());
+        assert!(rue.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod test_lifecycle_slack_handler {
+    use super::*;
+    use std::pin::Pin;
+    use std::task::Context;
+    use std::task::Poll;
+    use std::io::Error as IError;
+    use std::io::ErrorKind;
+    use std::collections::VecDeque;
+    use tokio::sync::mpsc;
+    use tokio::sync::broadcast;
+    use parking_lot::Mutex;
+
+    //***************************
+    // Fake WebSocket
+    //***************************
+    struct FakeWebSocket {
+        inbound: mpsc::UnboundedReceiver<Result<Message, TError>>,
+        outbound: mpsc::UnboundedSender<Message>,
+    }
+
+    impl Stream for FakeWebSocket {
+        type Item = Result<Message, TError>;
+
+        fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            self.inbound.poll_recv(ctx)
+        }
+    }
+
+    impl Sink<Message> for FakeWebSocket {
+        type Error = TError;
+
+        fn poll_ready(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn start_send(self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
+            self.outbound.send(item).map_err(|e| TError::Io(IError::new(ErrorKind::Other, e)))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    //***************************
+    // Fake WebSocket Client
+    //***************************
+    struct FakeWebSocketClient {
+        // This allows simulating several connection
+        session: Mutex<VecDeque<FakeWebSocket>>
+    }
+
+    impl FakeWebSocketClient {
+        fn new(session: Vec<(mpsc::UnboundedReceiver<Result<Message, TError>>, mpsc::UnboundedSender<Message>)>) -> Self {
+            Self {
+                session: Mutex::new(
+                    VecDeque::from(session
+                        .into_iter()
+                        .map(|(inbound, outbound)| FakeWebSocket { inbound, outbound })
+                        .collect::<Vec<_>>()
+                    ),
+                ),
+            }
+        }
+    }
+
+    impl WsClient for FakeWebSocketClient {
+        type WsStream = FakeWebSocket;
+
+        async fn connect(&self, _: &str) -> Result<(Self::WsStream, Response), TError> {
+            let websocket = self.session.lock().pop_front().expect("No more connection");
+            let resp = Response::default();
+            Ok((websocket, resp))
+        }
+
+        async fn close(&self, _: &mut Self::WsStream, _: Option<CloseFrame>) -> Result<(), TError> {
+            Ok(())
+        }
+    }
+
+    //***************************
+    // Fake Slack Client
+    //***************************
+    #[derive(Clone)]
+    struct FakeSender;
+
+    impl SlackSender for FakeSender {
+        async fn send(&self, _: reqwest::RequestBuilder) -> AResult<reqwest::Response> {
+            let body = r#"{"ok": true, "url": "wss://whatev"}"#;
+            Ok(http::response::Builder::new().status(200).body(body)?.into())
+        }
+    }
+
+    //***************************
+    // Actual tests below
+    //***************************
+    #[tokio::test(start_paused = true)]
+    async fn test_initial_hello_and_envelope() {
+        let watcher = CancellationToken::new();
+        let slack = SlackClient::with_sender(FakeSender, "http://localhost/api", "app", "bot", 10);
+
+        let (input, mut output, ws_client) = {
+            let (in_tx, in_rx) = mpsc::unbounded_channel();
+            let (out_tx, out_rx) = mpsc::unbounded_channel();
+            let ws_client = FakeWebSocketClient::new(vec![(in_rx, out_tx)]);
+
+            (in_tx, out_rx, ws_client)
+        };
+
+        let (event_tx, mut event_rx) = broadcast::channel::<Envelope>(32);
+
+        // TODO: spawn the slack_websocket_handler
+        //  - Connect, receive Hello, receive an Envelope, verify ack frame is sent and
+        //  event is broadcast.
+    }
+
+    //  - Connect, receive Hello, receive an Envelope, verify ack frame is sent and
+    //  event is broadcast.
+    //  - Connect, receive nothing for 31s (virtual), verify Ping is emitted.
+    //  - Connect, receive nothing for 121s (virtual), verify should_reconnect() is
+    //  set.
+    //  - Connect, peer sends Close(Normal), verify our inner loop exits and close()
+    //  is sent back.
+    //  - Connect, peer sends Disconnect{reason: "refresh_requested"}, verify
+    //  reconnect path runs.
+}

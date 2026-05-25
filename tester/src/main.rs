@@ -527,6 +527,13 @@ async fn terminal_readline(
 // TODO: Figure out how to flesh out the bits we need for running tests in a useful way and then
 // provide an adapter to wire those bits into the terminal + main program for actually running
 // things, but otherwise setting things up to be ran in tests.
+//
+// TODO: Clean up all of the modules here into a nicer unit of work, then incorporate them all
+// into a test suite for integration tests. Also optionally provide a small binary (this)
+// with the readline/terminal integration for manual testing things with the bot otherwise
+// move most of the other test such as disconnect/crash/etc into the integration test suite
+// this will also permit integration testing of commands for results/etc from the bot actual
+// query paths
 #[tokio::main]
 async fn main() -> AResult<()> {
     let postgres_url =
