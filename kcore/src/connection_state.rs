@@ -82,6 +82,9 @@ impl ConnectionState {
         }
     }
 
+    // TODO: provide "reason" field for reconnect so that we can filter
+    // reconnection reason (slack normal disconnect) vs socket broken disconnect
+    // and then decide to attempt to send a close frame or not
     pub(crate) fn reconnect(&self) {
         // Reset back off just before we wipe the last_connect timing
         self.reset_backoff_timer();

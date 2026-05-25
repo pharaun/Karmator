@@ -172,7 +172,272 @@ where
 }
 
 #[cfg(test)]
-mod test_event {
+mod test_process_websocket {
+    use super::*;
+    use serde_json::json;
+    use tokio_tungstenite::tungstenite::Bytes;
+    use tokio_tungstenite::tungstenite::protocol::frame::Frame;
+
+    #[tokio::test(start_paused = true)]
+    async fn test_websocket_message_text() {
+        let data = json!({
+            "envelope_id": "dbdd0ef3-1543-4f94-bfb4-133d0e6c1545",
+            "type": "events_api",
+            "payload": {
+                "test": "test"
+            }
+        })
+        .to_string();
+
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+
+        let mut ws_sink = vec![];
+        let res = process_websocket_message(&mut ws_sink, &state, Message::from(data.clone()))
+            .await
+            .unwrap();
+
+        // Assert that the connection state is same as before
+        assert!(!state.should_reconnect());
+        assert!(state.should_send());
+
+        assert!(ws_sink.is_empty());
+        assert_eq!(res, Some(data.into()));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_websocket_message_ping_connected() {
+        let data = Bytes::from_static(b"hello");
+
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+
+        let mut ws_sink = vec![];
+        let res = process_websocket_message(&mut ws_sink, &state, Message::Ping(data.clone()))
+            .await
+            .unwrap();
+
+        // Assert that the connection state is same as before
+        assert!(!state.should_reconnect());
+        assert!(state.should_send());
+
+        assert_eq!(ws_sink, vec![Message::Pong(data)]);
+        assert_eq!(res, None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_websocket_message_ping_pending() {
+        let data = Bytes::from_static(b"hello");
+
+        let state = ConnectionState::init();
+        state.pending();
+
+        let mut ws_sink = vec![];
+        let res =
+            process_websocket_message(&mut ws_sink, &state, Message::Ping(data.clone())).await;
+
+        // Assert that the connection state is same as before
+        assert!(!state.should_reconnect());
+        assert!(!state.should_send());
+
+        assert!(ws_sink.is_empty());
+        assert!(res.is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_websocket_message_closed() {
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+
+        let mut ws_sink = vec![];
+        let res = process_websocket_message(&mut ws_sink, &state, Message::Close(None))
+            .await
+            .unwrap();
+
+        // Assert that we are in reconnect state now
+        assert!(state.should_reconnect());
+        assert!(!state.should_send());
+
+        assert!(ws_sink.is_empty());
+        assert_eq!(res, None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_websocket_message_ignored() {
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+
+        let messages = vec![
+            Message::Pong(Bytes::new()),
+            Message::Binary(Bytes::new()),
+            Message::Frame(Frame::pong(Bytes::new())),
+        ];
+        let mut ws_sink = vec![];
+
+        for msg in messages {
+            let res = process_websocket_message(&mut ws_sink, &state, msg)
+                .await
+                .unwrap();
+            assert_eq!(res, None);
+        }
+
+        // Assert that the connection state is same as before
+        assert!(!state.should_reconnect());
+        assert!(state.should_send());
+
+        assert!(ws_sink.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod test_process_control_message {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test(start_paused = true)]
+    async fn test_event_hello() {
+        let state = ConnectionState::init();
+        state.pending();
+
+        let mut ws_sink = vec![];
+        let res = process_slack_control_message(
+            &mut ws_sink,
+            &state,
+            Event::Hello {
+                num_connections: 10,
+            },
+        )
+        .await;
+
+        // Assert that we are "connected now"
+        assert!(!state.should_reconnect());
+        assert!(state.should_send());
+
+        assert!(ws_sink.is_empty());
+        assert_eq!(res, None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_event_disconnect() {
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+
+        let mut ws_sink = vec![];
+        let res = process_slack_control_message(
+            &mut ws_sink,
+            &state,
+            Event::Disconnect {
+                reason: "asdf".to_owned(),
+            },
+        )
+        .await;
+
+        // Assert that we are "Disconnected now"
+        assert!(state.should_reconnect());
+        assert!(!state.should_send());
+
+        assert!(ws_sink.is_empty());
+        assert_eq!(res, None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_event_envelope() {
+        let envelope = Envelope {
+            id: "id".to_owned(),
+            typ: "typ".to_owned(),
+            payload: json!({"test": "asdf"}),
+        };
+
+        let state = ConnectionState::init();
+        state.pending();
+        state.connected();
+
+        let mut ws_sink = vec![];
+        let res =
+            process_slack_control_message(&mut ws_sink, &state, Event::Envelope(envelope.clone()))
+                .await;
+
+        // Assert that the connection state is same as before
+        assert!(!state.should_reconnect());
+        assert!(state.should_send());
+
+        assert_eq!(
+            ws_sink,
+            vec![Message::from(json!({"envelope_id": "id"}).to_string())]
+        );
+        assert_eq!(res, Some(envelope));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_event_envelope_send_gate() {
+        let envelope = Envelope {
+            id: "id".to_owned(),
+            typ: "typ".to_owned(),
+            payload: json!({"test": "asdf"}),
+        };
+
+        let state = ConnectionState::init();
+        state.pending();
+
+        let mut ws_sink = vec![];
+        let res =
+            process_slack_control_message(&mut ws_sink, &state, Event::Envelope(envelope.clone()))
+                .await;
+
+        // Assert that the connection state is same as before
+        assert!(!state.should_reconnect());
+        assert!(!state.should_send());
+
+        assert!(ws_sink.is_empty());
+        assert_eq!(res, None);
+    }
+}
+
+#[cfg(test)]
+mod test_smoke_top_level {
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test(start_paused = true)]
+    async fn test_smoke_test() {
+        let data = r#"{
+            "type": "hello",
+            "num_connections": 1
+        }"#;
+
+        let state = ConnectionState::init();
+        state.pending();
+
+        tokio::time::advance(Duration::from_mins(1)).await;
+
+        let mut ws_sink = vec![];
+        let res = process_control_message(&mut ws_sink, &state, Message::from(data))
+            .await
+            .unwrap();
+
+        // Assert that we are "connected now"
+        assert!(!state.should_reconnect());
+        assert!(state.should_send());
+
+        // Assert that we set the message_received
+        tokio::time::advance(Duration::from_mins(1)).await;
+        let (lmr, _) = state.timer_delta();
+
+        // If we did not, this would have shown as 2 mins due to prior advance
+        assert_eq!(lmr, Some(Duration::from_mins(1)));
+
+        assert!(ws_sink.is_empty());
+        assert_eq!(res, None);
+    }
+}
+
+#[cfg(test)]
+mod test_event_parsing {
     use super::*;
     use serde_json::json;
     use test_log::test;
