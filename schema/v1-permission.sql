@@ -11,6 +11,8 @@ GRANT SELECT, INSERT ON TABLE reacji_votes TO :user;
 GRANT SELECT, INSERT, UPDATE ON TABLE karma_given_count TO :user;
 GRANT SELECT, INSERT, UPDATE ON TABLE karma_received_count TO :user;
 
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE processed_events TO :user;
+
 /* Triggers */
 GRANT EXECUTE ON FUNCTION delete_karma_count() TO :user;
 GRANT EXECUTE ON FUNCTION delete_reacji_karma_count() TO :user;
