@@ -167,7 +167,7 @@ impl<S: SlackSender> Event<S> {
             &self.slack,
             self.channel_id.clone(),
             self.thread_ts.clone(),
-            format!("<@{}>: {}", &self.user_id, &text),
+            format!("<@{}>: {}", self.user_id, text),
         )
         .await
         {

@@ -100,7 +100,7 @@ pub(super) async fn timezone<S: SlackSender>(event: &Event<S>, input: Vec<&str>)
                         Some(city) => format!("This is deprecated, use `{city}` instead.\n"),
                     };
                     event
-                        .send_reply(&format!("{} - {}", note, &format_time(&given_datetime_tz)))
+                        .send_reply(&format!("{} - {}", note, format_time(&given_datetime_tz)))
                         .await;
                 }
             },
