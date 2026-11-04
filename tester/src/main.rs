@@ -1,4 +1,5 @@
-use std::env;
+mod db;
+
 use std::io::Write;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -9,8 +10,8 @@ use log::{debug, error, info, warn};
 use anyhow::Result as AResult;
 use anyhow::anyhow;
 
-use random_string::generate;
 use random_string::charsets;
+use random_string::generate;
 
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use quick_cache::sync::Cache;
@@ -37,9 +38,9 @@ use serde_json::json;
 use http::response;
 
 use kcore::Command;
-use kcore::TungsteniteClient;
 use kcore::SlackClient;
 use kcore::SlackSender;
+use kcore::TungsteniteClient;
 use kcore::slack_websocket_handler;
 use kcore::wait_for_signal;
 
@@ -392,6 +393,7 @@ async fn terminal_readline(
     mut reconnect: Reconnect,
     mut crash: Crash,
     pool: Pool,
+    scratch: Arc<db::ScratchDb>,
 ) {
     let client = pool.get().await.unwrap();
     while !watcher.is_cancelled() {
@@ -429,10 +431,21 @@ async fn terminal_readline(
                                     nick_metadata,
                                     chan_metadata,
                                     karma_received_count,
-                                    karma_given_count;",
+                                    karma_given_count,
+                                    processed_events;",
                                 &[]
                             ).await;
                             let _ = writeln!(stdout, "Result: {:?}", res);
+                        },
+                        // Drop + reload the whole schema in the scratch database
+                        Ok(Command("reset", _)) => {
+                            let _ = writeln!(stdout, "Resetting schema");
+                            let res = scratch.reset().await;
+                            let _ = writeln!(stdout, "Result: {:?}", res);
+                        },
+                        // Print the scratch database url for psql
+                        Ok(Command("db", _)) => {
+                            let _ = writeln!(stdout, "psql {}", scratch.url);
                         },
                         // Send an reacji event to the bot via websocket
                         // TODO: talk to the http mock so that it can have the correct
@@ -497,7 +510,7 @@ async fn terminal_readline(
                             }
                         },
                         Ok(Command("help", _)) => {
-                            let _ = writeln!(stdout, "Commands available: help, send [arg], truncate, addReacji [arg], delReacji [arg], reconnect [secs], crash, spam [count] [arg]");
+                            let _ = writeln!(stdout, "Commands available: help, send [arg], truncate, reset, db, addReacji [arg], delReacji [arg], reconnect [secs], crash, spam [count] [arg]");
                         },
                         _ => {
                             let _ = writeln!(stdout, "Command not found: \"{}\"", line);
@@ -536,9 +549,6 @@ async fn terminal_readline(
 // query paths
 #[tokio::main]
 async fn main() -> AResult<()> {
-    let postgres_url =
-        env::var("POSTGRES_URL").map_err(|_| anyhow!("POSTGRES_URL env var must be set"))?;
-
     // Initial terminal setup
     let (rl, stdout) = Readline::new("> ".to_string()).unwrap();
 
@@ -571,7 +581,8 @@ async fn main() -> AResult<()> {
     //*******************
     // Postgres bits
     //*******************
-    let pg_config = postgres_url.parse::<tokio_postgres::Config>()?;
+    let scratch = Arc::new(db::ScratchDb::new().await?);
+    let pg_config = scratch.config.clone();
 
     // Deadpool configuration
     let mgr_config = ManagerConfig {
@@ -592,6 +603,7 @@ async fn main() -> AResult<()> {
         reconnect.clone(),
         crash.clone(),
         pool.clone(),
+        Arc::clone(&scratch),
     ));
 
     //*******************
@@ -616,7 +628,12 @@ async fn main() -> AResult<()> {
     let slack =
         SlackClient::with_sender(FakeSender, "http://localhost", "app-token", "bot-token", 10);
     let (sue, rue) = broadcast::channel(32);
-    set.spawn(slack_websocket_handler(slack.clone(), TungsteniteClient, watcher.clone(), sue));
+    set.spawn(slack_websocket_handler(
+        slack.clone(),
+        TungsteniteClient,
+        watcher.clone(),
+        sue,
+    ));
     set.spawn(karmator::user_message_handler(
         slack.clone(),
         watcher.clone(),
@@ -640,6 +657,13 @@ async fn main() -> AResult<()> {
                 }
             }
         }
+    }
+
+    // Close the pool so the scratch database has no open connections, then clean it up
+    pool.close();
+    match Arc::try_unwrap(scratch) {
+        Ok(scratch) => scratch.cleanup().await,
+        Err(_) => warn!("Scratch database still in use, skipping cleanup"),
     }
     Ok(())
 }
