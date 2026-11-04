@@ -119,7 +119,7 @@ where
         Event::Disconnect { reason: r } => {
             // When this is received, reconnect
             connection_state.reconnect();
-            info!("Slack Websocket - Disconnect reason: {r:?}");
+            debug!("Slack Websocket - Disconnect reason: {r:?}");
             None
         }
         Event::Envelope(envelope) => {

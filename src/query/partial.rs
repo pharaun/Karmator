@@ -1,4 +1,5 @@
 use deadpool_postgres::GenericClient;
+use deadpool_postgres::Pool;
 
 use log::error;
 use std::collections::HashSet;
@@ -11,29 +12,31 @@ use crate::query::{KarmaCol, KarmaName};
 
 use kcore::SlackSender;
 
-pub async fn partial<S: SlackSender, C: GenericClient>(
+pub async fn partial<S: SlackSender>(
     event: &Event<S>,
-    client: &C,
+    pool: &Pool,
     kcol: KarmaCol,
     arg: Vec<&str>,
 ) {
-    let res = partial_query(client, kcol, arg.into_iter().map(KarmaName::new).collect())
-        .await
-        .map(|e| {
-            e.iter()
-                .map(|(entity, up, down, side)| {
-                    format!(
-                        "{}, {} ({}++/{}--/{}+-)",
-                        entity,
-                        (up - down),
-                        up,
-                        down,
-                        side
-                    )
-                })
-                .collect::<Vec<String>>()
-                .join("; ")
-        });
+    let query = async {
+        let client = pool.get().await?;
+        partial_query(&client, kcol, arg.into_iter().map(KarmaName::new).collect()).await
+    };
+    let res = query.await.map(|e| {
+        e.iter()
+            .map(|(entity, up, down, side)| {
+                format!(
+                    "{}, {} ({}++/{}--/{}+-)",
+                    entity,
+                    (up - down),
+                    up,
+                    down,
+                    side
+                )
+            })
+            .collect::<Vec<String>>()
+            .join("; ")
+    });
 
     match res {
         Ok(x) => event.send_reply(&x).await,

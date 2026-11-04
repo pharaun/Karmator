@@ -93,15 +93,18 @@ pub async fn slack_websocket_handler<S: SlackSender, W: WsClient>(
     // Main server loop, exit if the database dies
     while !watcher.is_cancelled() {
         match ws_connect(&slack, &client, &watcher).await {
+            Ok(None) => debug!("Slack Websocket - Connect aborted, shutting down"),
             Err(e) => error!("Slack Websocket - Connection failed: {e:?}"),
-            Ok(mut websocket) => {
+            Ok(Some(mut websocket)) => {
+                debug!("Slack Websocket - connection established");
+
                 // Reset the connection to waiting for ack from Slack
                 conn_state.pending();
 
                 while !conn_state.should_reconnect() && !watcher.is_cancelled() {
                     tokio::select! {
                         // Listens for shutdown signals from the system or the database
-                        () = watcher.cancelled() => info!("Shutdown signal received"),
+                        () = watcher.cancelled() => debug!("Shutdown signal received"),
 
                         // Process inbound messages
                         ws_msg = websocket.next() => process_message(&mut websocket, &conn_state, &user_event, ws_msg).await,
@@ -136,7 +139,7 @@ pub async fn slack_websocket_handler<S: SlackSender, W: WsClient>(
             // - This is also exceeded in a crash loop cuz we will not have an alive-connection and
             // max backoff timer expires
             if let Some(durt) = conn_state.fetch_next_backoff() {
-                info!("Slack Websocket - Reconnecting, sleeping for: {durt:?}");
+                debug!("Slack Websocket - Reconnecting, sleeping for: {durt:?}");
                 time::sleep(durt).with_cancellation_token(&watcher).await;
             } else {
                 error!("Slack Websocket - Exceeded with_max_elapsed_time, shutting down");
@@ -145,27 +148,31 @@ pub async fn slack_websocket_handler<S: SlackSender, W: WsClient>(
             }
         }
     }
-    info!("Slack Websocket - Exiting");
+    debug!("Slack Websocket - Exiting");
 }
 
 async fn ws_connect<S: SlackSender, W: WsClient>(
     slack: &SlackClient<S>,
     client: &W,
     watcher: &CancellationToken,
-) -> AResult<W::WsStream> {
-    let ws_url = slack
+) -> AResult<Option<W::WsStream>> {
+    let Some(ws_url) = slack
         .socket_connect()
         .with_cancellation_token(watcher)
         .await
-        .ok_or(anyhow!("Shutdown triggered"))??;
-    let (ws_stream, _) = client
-        .connect(&ws_url)
+    else {
+        return Ok(None);
+    };
+    let Some(ws) = client
+        .connect(&ws_url?)
         .timeout(Duration::from_secs(5))
         .with_cancellation_token(watcher)
         .await
-        .ok_or(anyhow!("Shutdown triggered"))???;
-    info!("Slack Websocket - connection established");
-    Ok(ws_stream)
+    else {
+        return Ok(None);
+    };
+    let (ws_stream, _) = ws??;
+    Ok(Some(ws_stream))
 }
 
 async fn process_message<W>(
@@ -196,7 +203,8 @@ async fn process_message<W>(
             }
         }
         Some(Err(e)) => {
-            error!("Slack Websocket - Process - Connection error: {e:?}");
+            // Slack will drop connection without a close handshake, just reconnect
+            warn!("Slack Websocket - Process - Connection error: {e:?}");
             connection_state.reconnect();
         }
         None => {

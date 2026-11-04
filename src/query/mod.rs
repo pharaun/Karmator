@@ -153,6 +153,11 @@ impl fmt::Display for KarmaTyp {
 }
 
 pub async fn sanitizer<S: SlackSender>(input: &str, slack: &SlackClient<S>) -> String {
+    // Messages with no text (image only reacji targets, etc), nothing to sanitize
+    if input.is_empty() {
+        return String::new();
+    }
+
     match sanitize_input(input).ok() {
         None => {
             error!("Failed to sanitize: {input:?}");

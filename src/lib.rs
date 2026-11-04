@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use tokio::time::Duration;
 
-use log::{error, info};
+use log::{debug, error, info};
 
 use deadpool_postgres::Pool;
 use quick_cache::sync::Cache;
@@ -71,7 +71,7 @@ pub async fn user_message_handler<S: SlackSender + 'static>(
         }
     }
 
-    info!("User Handler - Shutting down");
+    debug!("User Handler - Shutting down");
     tracker.close();
 
     // Wait for everything to finish, give them
@@ -83,7 +83,7 @@ pub async fn user_message_handler<S: SlackSender + 'static>(
             error!("User Handler shutdown abort timed out, giving up: {e:?}");
         }
     }
-    info!("User Handler - Exiting");
+    debug!("User Handler - Exiting");
 }
 
 async fn inner_user_message_handler<S: SlackSender + 'static>(
@@ -99,7 +99,7 @@ async fn inner_user_message_handler<S: SlackSender + 'static>(
         match user_event.recv().await {
             Err(RecvError::Closed) => {
                 // We are done here Bail out of the loop
-                info!("Producer closed queue, bailing");
+                debug!("Producer closed queue, bailing");
                 break;
             }
             Err(RecvError::Lagged(count)) => {

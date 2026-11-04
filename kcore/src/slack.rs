@@ -132,15 +132,38 @@ fn parse_response_envelope<T: DeserializeOwned>(key: &str, res: &str) -> Result<
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
-#[serde(rename_all = "snake_case")]
+#[serde(from = "RawUser")]
 pub struct User {
-    #[serde(rename = "name")]
     pub username: String,
     pub real_name: String,
     pub is_bot: bool,
+    pub timezone: Timezone,
+}
+
+// Slack omits `real_name` for some deactivated users, fallback to username
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct RawUser {
+    name: String,
+    real_name: Option<String>,
+    is_bot: bool,
 
     #[serde(flatten)]
-    pub timezone: Timezone,
+    timezone: Timezone,
+}
+
+impl From<RawUser> for User {
+    fn from(raw: RawUser) -> Self {
+        Self {
+            real_name: raw
+                .real_name
+                .filter(|rn| !rn.is_empty())
+                .unwrap_or_else(|| raw.name.clone()),
+            username: raw.name,
+            is_bot: raw.is_bot,
+            timezone: raw.timezone,
+        }
+    }
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -596,6 +619,52 @@ mod test_slack_client {
             Some(ud) => assert_eq!(ud.clone(), Some(user)),
             None => panic!("Should have been in the cache"),
         };
+    }
+
+    #[tokio::test]
+    #[cfg_attr(miri, ignore)]
+    async fn test_get_user_missing_real_name() {
+        // Deactivated users can be missing real_name
+        let client = client_response(
+            200,
+            r#"{
+            "ok": true,
+            "user": {
+                "name": "dn",
+                "deleted": true,
+                "is_bot": false,
+                "tz_label": "Den",
+                "tz": "MST",
+                "tz_offset": 1234
+            }
+        }"#,
+        );
+        let result = client.get_user("whoever").await.unwrap().unwrap();
+
+        assert_eq!(result.username, "dn");
+        assert_eq!(result.real_name, "dn");
+    }
+
+    #[tokio::test]
+    #[cfg_attr(miri, ignore)]
+    async fn test_get_user_empty_real_name() {
+        let client = client_response(
+            200,
+            r#"{
+            "ok": true,
+            "user": {
+                "name": "dn",
+                "real_name": "",
+                "is_bot": false,
+                "tz_label": "Den",
+                "tz": "MST",
+                "tz_offset": 1234
+            }
+        }"#,
+        );
+        let result = client.get_user("whoever").await.unwrap().unwrap();
+
+        assert_eq!(result.real_name, "dn");
     }
 
     #[tokio::test]

@@ -1,5 +1,6 @@
 use chrono::prelude::{DateTime, Utc};
 
+use deadpool_postgres::GenericClient;
 use deadpool_postgres::Pool;
 use futures_util::future;
 use tokio_postgres::IsolationLevel;
@@ -20,6 +21,17 @@ use crate::bot::user_event::Event;
 
 use kcore::SlackSender;
 
+enum ReacjiMessage {
+    // Row Id
+    Existing(i64),
+    New {
+        user_id: String,
+        username: String,
+        real_name: String,
+        text: String,
+    },
+}
+
 pub async fn add_reacji<S: SlackSender>(
     event: &mut Event<S>,
     pool: &Pool,
@@ -31,92 +43,113 @@ pub async fn add_reacji<S: SlackSender>(
         "The manually constructed message_ts was somehow None"
     ))?;
 
-    if let Some(karma) = reacji_to_karma(input) {
-        let mut client = pool.get().await?;
-        let txn = client
-            .build_transaction()
-            .isolation_level(IsolationLevel::ReadCommitted)
-            .start()
-            .await?;
+    let Some(karma) = reacji_to_karma(input) else {
+        return Ok(());
+    };
 
-        let message_id = match query_reacji_message(&txn, &channel_id, &message_ts).await {
-            Ok(Some(message_id)) => Ok(Some(message_id)),
-            Ok(None) => match event.get_message().await {
-                // We have the message content, insert it into the table and get its row id
-                Ok(Some(message_user_id)) => {
-                    match future::join3(
-                        event.sanitize(),
-                        event.get_other_username(&message_user_id),
-                        event.get_other_user_real_name(&message_user_id),
-                    )
-                    .await
-                    {
-                        (sanitized_text, Some(ud), Some(rn)) => add_reacji_message(
-                            &txn,
-                            message_user_id,
-                            KarmaName::new(&ud),
-                            KarmaName::new(&rn),
-                            &channel_id,
-                            &message_ts,
-                            &sanitized_text,
-                        )
-                        .await
-                        .map(Some)
-                        .map_err(|x| x.to_string()),
-                        (_, ud, rn) => {
-                            Err(format!("Querying for user/name failed: {:?}", (ud, rn)))
-                        }
+    // Phase 1: Check if we've seen it before
+    let existing = {
+        let client = pool.get().await?;
+        query_reacji_message(&client, &channel_id, &message_ts)
+            .await
+            .map_err(|e| anyhow!("Database error: {e:?}"))?
+    };
+
+    // Phase 2: If new, go ahead and fetch the information from slack
+    let message = if let Some(mid) = existing {
+        ReacjiMessage::Existing(mid)
+    } else {
+        match event.get_message().await {
+            Ok(Some(message_user_id)) => {
+                let (text, owner_username, owner_real_name) = future::join3(
+                    event.sanitize(),
+                    event.get_other_username(&message_user_id),
+                    event.get_other_user_real_name(&message_user_id),
+                )
+                .await;
+                match (owner_username, owner_real_name) {
+                    (Some(username), Some(real_name)) => ReacjiMessage::New {
+                        user_id: message_user_id,
+                        username,
+                        real_name,
+                        text,
+                    },
+                    e => {
+                        return Err(anyhow!(
+                            "Failed to get reacji message - Querying for user/name failed: {e:?}"
+                        ));
                     }
                 }
-                // This is a bot-owned message so abort out
-                Ok(None) => {
-                    txn.rollback().await?;
-                    return Ok(());
-                }
-                e => Err(format!(
-                    "ERROR: [Reacji] Querying for message failed: {e:?}"
-                )),
-            },
-            Err(e) => Err(format!("Database error: {e:?}")),
-        };
-
-        let vote_id = match message_id {
-            Err(e) => Err(anyhow!("Failed to get reacji message - Error: {e:?}")),
-            Ok(None) => Ok(None), // These are expected error, drop
-            Ok(Some(mid)) => match (event.get_username(), event.get_user_real_name()) {
-                (Some(ud), Some(rn)) => add_reacji_vote(
-                    &txn,
-                    Utc::now(),
-                    event.user_id.clone(),
-                    KarmaName::new(&ud),
-                    KarmaName::new(&rn),
-                    action,
-                    mid,
-                    karma,
-                )
-                .await
-                .map_err(|x| anyhow!("Querying for user/name failed: {x:?}")),
-                e => Err(anyhow!("Querying for user/name failed: {e:?}")),
-            },
-        };
-        if let Err(e) = vote_id {
-            txn.rollback().await?;
-            Err(e)
-        } else {
-            txn.commit().await?;
-            Ok(())
+            }
+            // This is a bot-owned message so abort out
+            Ok(None) => return Ok(()),
+            Err(e) => {
+                return Err(anyhow!(
+                    "Failed to get reacji message - Querying for message failed: {e:?}"
+                ));
+            }
         }
-    } else {
-        Ok(())
-    }
+    };
+
+    // This is already in the cache due to the fetch earlier
+    let (Some(ud), Some(rn)) = (event.get_username(), event.get_user_real_name()) else {
+        return Err(anyhow!("Querying for reacting user/name failed"));
+    };
+
+    // Phase 3: insert message (if new) and the vote
+    let mut client = pool.get().await?;
+    let txn = client
+        .build_transaction()
+        .isolation_level(IsolationLevel::ReadCommitted)
+        .start()
+        .await?;
+
+    let message_id = match message {
+        ReacjiMessage::Existing(mid) => mid,
+        // Upsert, if another reacji raced us on this message we get its existing row id
+        ReacjiMessage::New {
+            user_id,
+            username,
+            real_name,
+            text,
+        } => {
+            add_reacji_message(
+                &txn,
+                user_id,
+                KarmaName::new(&username),
+                KarmaName::new(&real_name),
+                &channel_id,
+                &message_ts,
+                &text,
+            )
+            .await?
+        }
+    };
+
+    add_reacji_vote(
+        &txn,
+        Utc::now(),
+        event.user_id.clone(),
+        KarmaName::new(&ud),
+        KarmaName::new(&rn),
+        action,
+        message_id,
+        karma,
+    )
+    .await
+    .map_err(|x| anyhow!("Failed to insert reacji vote: {x:?}"))?;
+
+    // Dropping txn without commit on any of the `?` above rolls back
+    txn.commit().await?;
+    Ok(())
 }
 
-async fn query_reacji_message(
-    txn: &Transaction<'_>,
+async fn query_reacji_message<C: GenericClient>(
+    client: &C,
     channel_id: &str,
     message_ts: &str,
 ) -> AResult<Option<i64>> {
-    if let Some(row) = txn
+    if let Some(row) = client
         .query_opt(
             "SELECT rm.id FROM reacji_message AS rm
             JOIN chan_metadata AS cm ON rm.chan_id = cm.id

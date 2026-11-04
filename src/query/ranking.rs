@@ -1,4 +1,5 @@
 use deadpool_postgres::GenericClient;
+use deadpool_postgres::Pool;
 use log::error;
 
 use futures_util::future;
@@ -10,19 +11,23 @@ use crate::query::{KarmaCol, KarmaName, KarmaTyp};
 
 use kcore::SlackSender;
 
-pub async fn ranking<S: SlackSender, C: GenericClient>(
+pub async fn ranking<S: SlackSender>(
     event: &Event<S>,
-    client: &C,
+    pool: &Pool,
     ktyp: KarmaTyp,
     target: &str,
     label: &str,
 ) {
-    let query = future::try_join4(
-        ranking_denormalized(client, KarmaCol::Received, ktyp, KarmaName::new(target)),
-        count(client, KarmaCol::Received),
-        ranking_denormalized(client, KarmaCol::Given, ktyp, KarmaName::new(target)),
-        count(client, KarmaCol::Given),
-    );
+    let query = async {
+        let client = pool.get().await?;
+        future::try_join4(
+            ranking_denormalized(&client, KarmaCol::Received, ktyp, KarmaName::new(target)),
+            count(&client, KarmaCol::Received),
+            ranking_denormalized(&client, KarmaCol::Given, ktyp, KarmaName::new(target)),
+            count(&client, KarmaCol::Given),
+        )
+        .await
+    };
 
     match query.await {
         Ok((target_received, total_received, target_given, total_given)) => {

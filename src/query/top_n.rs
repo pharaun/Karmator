@@ -1,4 +1,5 @@
 use deadpool_postgres::GenericClient;
+use deadpool_postgres::Pool;
 use futures_util::future;
 use log::error;
 
@@ -22,18 +23,22 @@ impl<'a> HiLo<'a> {
     }
 }
 
-pub async fn top_n<S: SlackSender, C: GenericClient>(
+pub async fn top_n<S: SlackSender>(
     event: &Event<S>,
-    client: &C,
+    pool: &Pool,
     high: HiLo<'_>,
     low: HiLo<'_>,
     ktyp: KarmaTyp,
     limit: u32,
 ) {
-    let query = future::try_join(
-        top_n_denormalized(client, high.col, ktyp, limit, high.ord),
-        top_n_denormalized(client, low.col, ktyp, limit, low.ord),
-    );
+    let query = async {
+        let client = pool.get().await?;
+        future::try_join(
+            top_n_denormalized(&client, high.col, ktyp, limit, high.ord),
+            top_n_denormalized(&client, low.col, ktyp, limit, low.ord),
+        )
+        .await
+    };
 
     match query.await {
         Ok((high_rows, low_rows)) => {

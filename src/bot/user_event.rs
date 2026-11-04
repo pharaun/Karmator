@@ -7,7 +7,7 @@ use std::sync::Arc;
 use anyhow::Result as AResult;
 use anyhow::anyhow;
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 
 use serde::Deserialize;
 
@@ -149,7 +149,7 @@ impl<S: SlackSender> Event<S> {
                     user_id: None,
                     bot_id: Some(_),
                 })) => {
-                    info!("This message was posted by a bot");
+                    debug!("This message was posted by a bot");
                     Ok(None)
                 }
                 Ok(Some(SlackReply::Message {
@@ -314,7 +314,7 @@ async fn check_if_processed(
 }
 
 pub async fn cache_handler(watcher: CancellationToken, pool: Pool) {
-    info!("Cache Handler - Start");
+    debug!("Cache Handler - Start");
     let durt = Duration::from_mins(5);
     let mut gc_timer = interval_at(Instant::now() + durt, durt);
     gc_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -337,7 +337,7 @@ pub async fn cache_handler(watcher: CancellationToken, pool: Pool) {
             Err(e) => warn!("Cache Handler pool error - {e:?}"),
         }
     }
-    info!("Cache Handler - Exiting");
+    debug!("Cache Handler - Exiting");
 }
 
 #[expect(clippy::too_many_lines)]
@@ -369,8 +369,6 @@ pub async fn process_user_message<S: SlackSender>(
             if event.text().is_empty() {
                 return Ok(());
             }
-
-            let client = pool.get().await?;
 
             // Parse string to see if its a command one
             match event.parse_command() {
@@ -414,7 +412,7 @@ pub async fn process_user_message<S: SlackSender>(
                             "karma" => {
                                 top_n(
                                     &event,
-                                    &client,
+                                    pool,
                                     HiLo::new("highest karma", KarmaCol::Received, OrdQuery::Desc),
                                     HiLo::new("lowest karma", KarmaCol::Received, OrdQuery::Asc),
                                     KarmaTyp::Total,
@@ -425,7 +423,7 @@ pub async fn process_user_message<S: SlackSender>(
                             "givers" => {
                                 top_n(
                                     &event,
-                                    &client,
+                                    pool,
                                     HiLo::new("most positive", KarmaCol::Given, OrdQuery::Desc),
                                     HiLo::new("most negative", KarmaCol::Given, OrdQuery::Asc),
                                     KarmaTyp::Total,
@@ -436,7 +434,7 @@ pub async fn process_user_message<S: SlackSender>(
                             "sidevotes" => {
                                 top_n(
                                     &event,
-                                    &client,
+                                    pool,
                                     HiLo::new(
                                         "most sidevotes received",
                                         KarmaCol::Received,
@@ -457,10 +455,10 @@ pub async fn process_user_message<S: SlackSender>(
                     } else {
                         match c {
                             "karma" => {
-                                partial(&event, &client, KarmaCol::Received, arg).await;
+                                partial(&event, pool, KarmaCol::Received, arg).await;
                             }
                             "givers" => {
-                                partial(&event, &client, KarmaCol::Given, arg).await;
+                                partial(&event, pool, KarmaCol::Given, arg).await;
                             }
                             "sidevotes" => event.send_reply("Not supported!").await,
                             _ => (),
@@ -477,7 +475,7 @@ pub async fn process_user_message<S: SlackSender>(
                             ("topkarma", Ok(lim @ 1..=25)) => {
                                 top_n(
                                     &event,
-                                    &client,
+                                    pool,
                                     HiLo::new(
                                         "\nhighest karma",
                                         KarmaCol::Received,
@@ -492,7 +490,7 @@ pub async fn process_user_message<S: SlackSender>(
                             ("topgivers", Ok(lim @ 1..=25)) => {
                                 top_n(
                                     &event,
-                                    &client,
+                                    pool,
                                     HiLo::new("\nmost positive", KarmaCol::Given, OrdQuery::Desc),
                                     HiLo::new("\nmost negative", KarmaCol::Given, OrdQuery::Asc),
                                     KarmaTyp::Total,
@@ -503,7 +501,7 @@ pub async fn process_user_message<S: SlackSender>(
                             ("topsidevotes", Ok(lim @ 1..=25)) => {
                                 top_n(
                                     &event,
-                                    &client,
+                                    pool,
                                     HiLo::new(
                                         "\nmost sidevotes received",
                                         KarmaCol::Received,
@@ -544,7 +542,7 @@ pub async fn process_user_message<S: SlackSender>(
                         // Rank with yourself
                         match event.get_username() {
                             Some(ud) => {
-                                ranking(&event, &client, t_typ, &ud, "Your").await;
+                                ranking(&event, pool, t_typ, &ud, "Your").await;
                             }
                             _ => {
                                 event
@@ -555,7 +553,7 @@ pub async fn process_user_message<S: SlackSender>(
                     } else if arg.len() == 1 {
                         // Rank up with one target
                         let target = arg.first().unwrap_or(&"INVALID");
-                        ranking(&event, &client, t_typ, target, target).await;
+                        ranking(&event, pool, t_typ, target, target).await;
                     } else {
                         event
                             .send_reply("Can only rank one karma entry at a time!")
@@ -563,7 +561,7 @@ pub async fn process_user_message<S: SlackSender>(
                     }
                 }
 
-                Ok(Command(x, _)) => info!("No handler: {x:?}"),
+                Ok(Command(x, _)) => debug!("No handler: {x:?}"),
 
                 Err(_) => add_karma(&event, pool).await,
             }
