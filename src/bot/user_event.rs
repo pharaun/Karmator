@@ -104,7 +104,7 @@ impl<S: SlackSender> Event<S> {
     }
 
     pub fn get_user_tz(&self) -> Option<SlackTimezone> {
-        self.user().map(|u| u.timezone.clone())
+        self.user().and_then(|u| u.timezone.clone())
     }
 
     pub async fn get_other_username(&self, user_id: &str) -> Option<String> {

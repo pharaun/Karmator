@@ -137,19 +137,21 @@ pub struct User {
     pub username: String,
     pub real_name: String,
     pub is_bot: bool,
-    pub timezone: Timezone,
+    pub timezone: Option<Timezone>,
 }
 
-// Slack omits `real_name` for some deactivated users, fallback to username
+// Slack omits fields for deactivated users
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 struct RawUser {
     name: String,
     real_name: Option<String>,
+    #[serde(default)]
     is_bot: bool,
 
+    // All tz fields have to be present
     #[serde(flatten)]
-    timezone: Timezone,
+    timezone: Option<Timezone>,
 }
 
 impl From<RawUser> for User {
@@ -567,11 +569,11 @@ mod test_slack_client {
             username: "dn".into(),
             real_name: "rn".into(),
             is_bot: false,
-            timezone: Timezone {
+            timezone: Some(Timezone {
                 label: "Den".into(),
                 tz: "MST".into(),
                 offset: 1234,
-            },
+            }),
         };
         client
             .user_cache
@@ -605,11 +607,11 @@ mod test_slack_client {
             username: "dn".into(),
             real_name: "rn".into(),
             is_bot: false,
-            timezone: Timezone {
+            timezone: Some(Timezone {
                 label: "Den".into(),
                 tz: "MST".into(),
                 offset: 1234,
-            },
+            }),
         };
 
         assert_eq!(result.unwrap(), Some(user.clone()));
@@ -623,19 +625,15 @@ mod test_slack_client {
 
     #[tokio::test]
     #[cfg_attr(miri, ignore)]
-    async fn test_get_user_missing_real_name() {
-        // Deactivated users can be missing real_name
+    async fn test_get_user_deactivated() {
+        // Deactivated users can be missing real_name, is_bot, and tz fields
         let client = client_response(
             200,
             r#"{
             "ok": true,
             "user": {
                 "name": "dn",
-                "deleted": true,
-                "is_bot": false,
-                "tz_label": "Den",
-                "tz": "MST",
-                "tz_offset": 1234
+                "deleted": true
             }
         }"#,
         );
@@ -643,6 +641,8 @@ mod test_slack_client {
 
         assert_eq!(result.username, "dn");
         assert_eq!(result.real_name, "dn");
+        assert!(!result.is_bot);
+        assert_eq!(result.timezone, None);
     }
 
     #[tokio::test]
