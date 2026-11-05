@@ -18,6 +18,7 @@ use log::{info, warn};
 use random_string::charsets;
 use random_string::generate;
 
+use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use tokio_postgres::{Client, Config, NoTls};
 
 use testcontainers_modules::postgres::Postgres;
@@ -43,6 +44,12 @@ const DROP_SCHEMA: &str = "
         insert_karma_count, delete_karma_count,
         insert_reacji_karma_count, delete_reacji_karma_count
     CASCADE;
+";
+
+const TRUNCATE: &str = "
+    TRUNCATE
+        votes, reacji_votes, reacji_message, nick_metadata, chan_metadata,
+        karma_received_count, karma_given_count, processed_events;
 ";
 
 enum Server {
@@ -136,6 +143,22 @@ impl ScratchDb {
         Ok(())
     }
 
+    pub fn pool(&self) -> AResult<Pool> {
+        let mgr = Manager::from_config(
+            self.config.clone(),
+            NoTls,
+            ManagerConfig {
+                recycling_method: RecyclingMethod::Verified,
+            },
+        );
+        Ok(Pool::builder(mgr).max_size(8).build()?)
+    }
+
+    pub async fn truncate(&self) -> AResult<()> {
+        connect(&self.config).await?.batch_execute(TRUNCATE).await?;
+        Ok(())
+    }
+
     pub async fn reset(&self) -> AResult<()> {
         connect(&self.config)
             .await?
@@ -144,13 +167,13 @@ impl ScratchDb {
         self.load_schema().await
     }
 
-    // For the testcontainer mode: dropping the database handle will auto-remove the container+db
     pub async fn cleanup(self) {
         if self.keep {
             info!(
                 "KARMATOR_KEEP_DB set, keeping scratch database: {}",
                 self.url
             );
+            // For the testcontainer mode: dropping the database handle will auto-remove the container+db
             if let Server::Container(container) = self.server {
                 std::mem::forget(container);
 
