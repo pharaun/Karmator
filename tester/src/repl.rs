@@ -7,7 +7,7 @@ use rustyline_async::{Readline, ReadlineEvent, SharedWriter};
 use karmator_tester::HarnessHandle;
 use karmator_tester::command::Command;
 
-pub async fn run(mut rl: Readline, mut stdout: SharedWriter, harness: HarnessHandle) {
+pub async fn run(rl: &mut Readline, mut stdout: SharedWriter, harness: HarnessHandle) {
     let watcher = harness.watcher.clone();
     while !watcher.is_cancelled() {
         let _ = rl.flush();

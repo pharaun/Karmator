@@ -80,24 +80,24 @@ impl Command {
         let mut out = String::new();
         match self {
             Self::Help => out.push_str(HELP),
-            Self::Send(text) => server.send_event(events::message(&text)).await?,
+            Self::Send(text) => server.send_event(events::message(&text))?,
             Self::Spam(count, text) => {
                 let event = events::message(&text);
                 for _ in 0..count {
-                    server.send_event(event.clone()).await?;
+                    server.send_event(event.clone())?;
                 }
             }
-            Self::AddReacji(name) => server.send_event(events::reaction_added(&name)).await?,
-            Self::DelReacji(name) => server.send_event(events::reaction_removed(&name)).await?,
+            Self::AddReacji(name) => server.send_event(events::reaction_added(&name))?,
+            Self::DelReacji(name) => server.send_event(events::reaction_removed(&name))?,
             Self::Reconnect(durt) => {
                 write!(out, "Triggering websocket reconnect - down for {durt:?}")?;
-                server.net_disconnect(durt).await?;
+                server.net_disconnect(durt)?;
             }
             Self::Crash => {
                 // During a normal failure the quota usually won't kick in. However
                 // this isto specifically test a slack crash-loop to force test the quota
                 out.push_str("Triggering a slack crashloop");
-                server.crash_loop().await?;
+                server.crash_loop()?;
             }
             Self::Truncate => {
                 harness.db.truncate().await?;

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result as AResult;
 
@@ -7,6 +8,7 @@ use log::{error, info, warn};
 use quick_cache::sync::Cache;
 use tokio::sync::broadcast;
 use tokio::task::JoinSet;
+use tokio_util::future::FutureExt as _;
 use tokio_util::sync::CancellationToken;
 
 use kcore::SlackClient;
@@ -16,6 +18,8 @@ use kcore::slack_websocket_handler;
 use crate::db::ScratchDb;
 use crate::slack_api::FakeSlackApi;
 use crate::ws_server::{FakeSlackServer, ServerConfig, ServerHandle};
+
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 pub struct HarnessHandle {
@@ -101,23 +105,45 @@ impl Harness {
             ..
         } = self;
 
-        while let Some(res) = tasks.join_next().await {
+        let mut panic = None;
+        loop {
+            // Once shutting down, don't let a stuck task hang us forever. The bot
+            // gives itself ~20s to drain so leave room for that.
+            let next = if watcher.is_cancelled() {
+                match tasks.join_next().timeout(SHUTDOWN_TIMEOUT).await {
+                    Ok(next) => next,
+                    Err(_) => {
+                        error!("Tasks didn't shut down in {SHUTDOWN_TIMEOUT:?}, aborting them");
+                        tasks.shutdown().await;
+                        break;
+                    }
+                }
+            } else {
+                tasks.join_next().await
+            };
+            let Some(res) = next else { break };
+
             watcher.cancel();
             match res {
                 Ok(()) => info!("One of the task exited, notifying the rest"),
-                Err(e) => {
-                    error!("{e:?}");
-                    if e.is_panic() {
-                        std::panic::resume_unwind(e.into_panic());
-                    }
+                Err(e) if e.is_panic() => {
+                    error!("Task panicked: {e:?}");
+                    panic.get_or_insert(e.into_panic());
                 }
+                Err(e) => error!("{e:?}"),
             }
         }
 
         pool.close();
         match Arc::try_unwrap(db) {
             Ok(db) => db.cleanup().await,
-            Err(_) => warn!("Scratch database still in use, skipping cleanup"),
+            Err(_) => {
+                warn!("Scratch database still in use (live HarnessHandle?), skipping cleanup")
+            }
+        }
+
+        if let Some(panic) = panic {
+            std::panic::resume_unwind(panic);
         }
     }
 }

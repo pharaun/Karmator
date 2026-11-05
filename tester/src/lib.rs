@@ -12,4 +12,5 @@ pub mod slack_api;
 pub mod ws_server;
 
 pub use harness::{Harness, HarnessHandle};
+pub use ws_server::FakeSlackServer;
 pub use ws_server::{ServerConfig, ServerHandle};

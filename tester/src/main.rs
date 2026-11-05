@@ -2,7 +2,10 @@ mod repl;
 
 use anyhow::Result as AResult;
 
+use std::time::Duration;
+
 use rustyline_async::Readline;
+use tokio::time;
 use tokio_util::sync::CancellationToken;
 
 use karmator_tester::{Harness, ServerConfig};
@@ -10,7 +13,7 @@ use kcore::wait_for_signal;
 
 #[tokio::main]
 async fn main() -> AResult<()> {
-    let (rl, stdout) = Readline::new("> ".to_owned())?;
+    let (mut rl, stdout) = Readline::new("> ".to_owned())?;
 
     simplelog::WriteLogger::init(
         log::LevelFilter::Debug,
@@ -21,7 +24,23 @@ async fn main() -> AResult<()> {
     let watcher = CancellationToken::new();
     let mut harness = Harness::start(watcher.clone(), ServerConfig::default()).await?;
     harness.spawn(wait_for_signal(watcher));
-    harness.spawn(repl::run(rl, stdout, harness.handle()));
-    harness.run().await;
+    let handle = harness.handle();
+
+    let run = harness.run();
+    tokio::pin!(run);
+    tokio::select! {
+        () = &mut run => (),
+        () = repl::run(&mut rl, stdout, handle) => {
+            // Repl is done, keep printing logs until everything has shut down
+            let mut tick = time::interval(Duration::from_millis(100));
+            loop {
+                tokio::select! {
+                    () = &mut run => break,
+                    _ = tick.tick() => { let _ = rl.flush(); }
+                }
+            }
+        }
+    }
+    let _ = rl.flush();
     Ok(())
 }

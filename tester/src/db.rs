@@ -9,6 +9,7 @@
 // To persist database on exit. Set `KARMATOR_KEEP_DB=1` also for testcontainers
 // also need `TESTCONTAINERS_RYUK_DISABLED=true`
 use std::env;
+use std::time::Duration;
 
 use anyhow::Result as AResult;
 use anyhow::{Context as _, anyhow};
@@ -34,23 +35,25 @@ const SCHEMA: &[(&str, &str)] = &[
     ("v1-event-cache.sql", include_str!("../../schema/v1-event-cache.sql")),
 ];
 
-// All of the tables + function created by SCHEMA.
+// Wipe everything SCHEMA created (tables, functions, triggers, indexes)
 const DROP_SCHEMA: &str = "
-    DROP TABLE IF EXISTS
-        votes, reacji_votes, reacji_message, nick_metadata, chan_metadata,
-        karma_received_count, karma_given_count, processed_events
-    CASCADE;
-    DROP FUNCTION IF EXISTS
-        insert_karma_count, delete_karma_count,
-        insert_reacji_karma_count, delete_reacji_karma_count
-    CASCADE;
+    DROP SCHEMA public CASCADE;
+    CREATE SCHEMA public;
 ";
 
 const TRUNCATE: &str = "
-    TRUNCATE
-        votes, reacji_votes, reacji_message, nick_metadata, chan_metadata,
-        karma_received_count, karma_given_count, processed_events;
+    DO $$
+    DECLARE tables text;
+    BEGIN
+        SELECT string_agg(format('%I.%I', schemaname, tablename), ', ')
+            INTO tables FROM pg_tables WHERE schemaname = 'public';
+        IF tables IS NOT NULL THEN
+            EXECUTE 'TRUNCATE ' || tables;
+        END IF;
+    END $$;
 ";
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 enum Server {
     External,
@@ -71,7 +74,7 @@ impl ScratchDb {
     pub async fn new() -> AResult<Self> {
         let keep = env::var("KARMATOR_KEEP_DB").is_ok_and(|v| !v.is_empty() && v != "0");
 
-        let (admin_config, server) = if let Ok(url) = env::var("POSTGRES_URL") {
+        let (mut admin_config, server) = if let Ok(url) = env::var("POSTGRES_URL") {
             info!("Using postgres server from POSTGRES_URL");
             (
                 url.parse::<Config>().context("Invalid POSTGRES_URL")?,
@@ -104,6 +107,10 @@ impl ScratchDb {
             (config, Server::Container(Box::new(container)))
         };
 
+        if admin_config.get_connect_timeout().is_none() {
+            admin_config.connect_timeout(CONNECT_TIMEOUT);
+        }
+
         // Create the scratch database
         let db_name = format!("karmator_test_{}", generate(8, charsets::ALPHA_LOWER));
         let admin = connect(&admin_config).await?;
@@ -127,7 +134,11 @@ impl ScratchDb {
             server,
         };
 
-        db.load_schema().await?;
+        // Don't leak the database if the schema is broken
+        if let Err(e) = db.load_schema().await {
+            db.cleanup().await;
+            return Err(e);
+        }
         info!("Scratch database ready: {}", db.url);
         Ok(db)
     }
@@ -168,43 +179,41 @@ impl ScratchDb {
     }
 
     pub async fn cleanup(self) {
-        if self.keep {
-            info!(
-                "KARMATOR_KEEP_DB set, keeping scratch database: {}",
-                self.url
-            );
-            // For the testcontainer mode: dropping the database handle will auto-remove the container+db
-            if let Server::Container(container) = self.server {
-                std::mem::forget(container);
+        match (self.keep, self.server) {
+            (true, server) => {
+                info!(
+                    "KARMATOR_KEEP_DB set, keeping scratch database: {}",
+                    self.url
+                );
+                if let Server::Container(container) = server {
+                    // Skip the Drop impl which would remove the container
+                    std::mem::forget(container);
 
-                if env::var("TESTCONTAINERS_RYUK_DISABLED").is_ok_and(|v| v == "true") {
-                    warn!("Container left running, remove it with docker when done");
-                } else {
-                    warn!(
-                        "Container will still be removed on exit, \
-                        also set TESTCONTAINERS_RYUK_DISABLED=true to keep it"
-                    );
+                    if env::var("TESTCONTAINERS_RYUK_DISABLED").is_ok_and(|v| v == "true") {
+                        warn!("Container left running, remove it with docker when done");
+                    } else {
+                        warn!(
+                            "Container will still be removed on exit, \
+                            also set TESTCONTAINERS_RYUK_DISABLED=true to keep it"
+                        );
+                    }
                 }
             }
-            return;
-        }
-
-        if let Server::External = self.server {
-            // WITH (FORCE) drops any stray connections still open
-            let res: AResult<()> = async {
-                connect(&self.admin_config)
-                    .await?
-                    .batch_execute(&format!(
-                        "DROP DATABASE IF EXISTS {} WITH (FORCE)",
-                        self.db_name
-                    ))
-                    .await?;
-                Ok(())
-            }
-            .await;
-            match res {
-                Ok(()) => info!("Dropped scratch database {}", self.db_name),
-                Err(e) => warn!("Failed to drop scratch database {}: {e:?}", self.db_name),
+            (false, Server::Container(container)) => match container.rm().await {
+                Ok(()) => info!("Removed postgres container"),
+                Err(e) => warn!("Failed to remove postgres container: {e:?}"),
+            },
+            (false, Server::External) => {
+                // WITH (FORCE) drops any stray connections still open
+                let drop_db = format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", self.db_name);
+                let res = match connect(&self.admin_config).await {
+                    Ok(admin) => admin.batch_execute(&drop_db).await.map_err(Into::into),
+                    Err(e) => Err(e),
+                };
+                match res {
+                    Ok(()) => info!("Dropped scratch database {}", self.db_name),
+                    Err(e) => warn!("Failed to drop scratch database {}: {e:?}", self.db_name),
+                }
             }
         }
     }
