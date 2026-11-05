@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::Result as AResult;
 
 use deadpool_postgres::Pool;
-use log::{error, info, warn};
+use log::{error, info};
 use quick_cache::sync::Cache;
 use tokio::sync::broadcast;
 use tokio::task::JoinSet;
@@ -16,15 +16,23 @@ use kcore::TungsteniteClient;
 use kcore::slack_websocket_handler;
 
 use crate::db::ScratchDb;
+use crate::monitor::Monitor;
 use crate::slack_api::FakeSlackApi;
 use crate::ws_server::{FakeSlackServer, ServerConfig, ServerHandle};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 
+#[derive(Clone, Default)]
+pub struct HarnessConfig {
+    pub server: ServerConfig,
+    pub monitor: Monitor,
+}
+
 #[derive(Clone)]
 pub struct HarnessHandle {
     pub db: Arc<ScratchDb>,
     pub server: ServerHandle,
+    pub monitor: Monitor,
     pub watcher: CancellationToken,
 }
 
@@ -32,22 +40,32 @@ pub struct Harness {
     db: Arc<ScratchDb>,
     pool: Pool,
     server: ServerHandle,
+    monitor: Monitor,
     watcher: CancellationToken,
     tasks: JoinSet<()>,
 }
 
 impl Harness {
-    pub async fn start(watcher: CancellationToken, config: ServerConfig) -> AResult<Self> {
+    pub async fn start(watcher: CancellationToken, config: HarnessConfig) -> AResult<Self> {
+        let HarnessConfig { server, monitor } = config;
         let mut tasks = JoinSet::new();
 
-        let (server, handle) = FakeSlackServer::bind("127.0.0.1:0", config).await?;
+        let (server, handle) =
+            FakeSlackServer::bind("127.0.0.1:0", server, monitor.clone()).await?;
         tasks.spawn(server.run(watcher.clone()));
 
-        let db = Arc::new(ScratchDb::new().await?);
+        let db = match ScratchDb::new().await {
+            Ok(db) => Arc::new(db),
+            Err(e) => {
+                watcher.cancel();
+                tasks.shutdown().await;
+                return Err(e);
+            }
+        };
         let pool = db.pool()?;
 
         let slack = SlackClient::with_sender(
-            FakeSlackApi::new(handle.url()),
+            FakeSlackApi::new(handle.url(), monitor.clone()),
             "http://localhost",
             "app-token",
             "bot-token",
@@ -73,6 +91,7 @@ impl Harness {
             db,
             pool,
             server: handle,
+            monitor,
             watcher,
             tasks,
         })
@@ -82,6 +101,7 @@ impl Harness {
         HarnessHandle {
             db: Arc::clone(&self.db),
             server: self.server.clone(),
+            monitor: self.monitor.clone(),
             watcher: self.watcher.clone(),
         }
     }
@@ -96,7 +116,6 @@ impl Harness {
     }
 
     pub async fn run(self) {
-        // Drop our copy so the db Arc is unique once all the tasks are done
         let Self {
             db,
             pool,
@@ -135,12 +154,7 @@ impl Harness {
         }
 
         pool.close();
-        match Arc::try_unwrap(db) {
-            Ok(db) => db.cleanup().await,
-            Err(_) => {
-                warn!("Scratch database still in use (live HarnessHandle?), skipping cleanup")
-            }
-        }
+        db.cleanup().await;
 
         if let Some(panic) = panic {
             std::panic::resume_unwind(panic);

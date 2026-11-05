@@ -9,6 +9,7 @@
 // To persist database on exit. Set `KARMATOR_KEEP_DB=1` also for testcontainers
 // also need `TESTCONTAINERS_RYUK_DISABLED=true`
 use std::env;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::Result as AResult;
@@ -18,6 +19,8 @@ use log::{info, warn};
 
 use random_string::charsets;
 use random_string::generate;
+
+use tokio::sync::Mutex;
 
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use tokio_postgres::{Client, Config, NoTls};
@@ -57,7 +60,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 enum Server {
     External,
-    Container(Box<ContainerAsync<Postgres>>),
+    Container(Mutex<Option<Box<ContainerAsync<Postgres>>>>),
 }
 
 #[rustfmt::skip]
@@ -68,6 +71,7 @@ pub struct ScratchDb {
     db_name: String,
     keep: bool,
     server: Server,
+    cleaned: AtomicBool,
 }
 
 impl ScratchDb {
@@ -104,7 +108,7 @@ impl ScratchDb {
                 .user("postgres")
                 .password("postgres")
                 .dbname("postgres");
-            (config, Server::Container(Box::new(container)))
+            (config, Server::Container(Mutex::new(Some(Box::new(container)))))
         };
 
         if admin_config.get_connect_timeout().is_none() {
@@ -132,6 +136,7 @@ impl ScratchDb {
             db_name,
             keep,
             server,
+            cleaned: AtomicBool::new(false),
         };
 
         // Don't leak the database if the schema is broken
@@ -178,43 +183,53 @@ impl ScratchDb {
         self.load_schema().await
     }
 
-    pub async fn cleanup(self) {
-        match (self.keep, self.server) {
-            (true, server) => {
-                info!(
-                    "KARMATOR_KEEP_DB set, keeping scratch database: {}",
-                    self.url
-                );
-                if let Server::Container(container) = server {
-                    // Skip the Drop impl which would remove the container
-                    std::mem::forget(container);
+    pub async fn cleanup(&self) {
+        if self.cleaned.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let container = match &self.server {
+            Server::Container(c) => c.lock().await.take(),
+            Server::External => None,
+        };
 
-                    if env::var("TESTCONTAINERS_RYUK_DISABLED").is_ok_and(|v| v == "true") {
-                        warn!("Container left running, remove it with docker when done");
-                    } else {
-                        warn!(
-                            "Container will still be removed on exit, \
-                            also set TESTCONTAINERS_RYUK_DISABLED=true to keep it"
-                        );
-                    }
+        if self.keep {
+            info!(
+                "KARMATOR_KEEP_DB set, keeping scratch database: {}",
+                self.url
+            );
+            if let Some(container) = container {
+                // Skip the Drop impl which would remove the container
+                std::mem::forget(container);
+
+                if env::var("TESTCONTAINERS_RYUK_DISABLED").is_ok_and(|v| v == "true") {
+                    warn!("Container left running, remove it with docker when done");
+                } else {
+                    warn!(
+                        "Container will still be removed on exit, \
+                        also set TESTCONTAINERS_RYUK_DISABLED=true to keep it"
+                    );
                 }
             }
-            (false, Server::Container(container)) => match container.rm().await {
+            return;
+        }
+
+        if let Some(container) = container {
+            match container.rm().await {
                 Ok(()) => info!("Removed postgres container"),
                 Err(e) => warn!("Failed to remove postgres container: {e:?}"),
-            },
-            (false, Server::External) => {
-                // WITH (FORCE) drops any stray connections still open
-                let drop_db = format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", self.db_name);
-                let res = match connect(&self.admin_config).await {
-                    Ok(admin) => admin.batch_execute(&drop_db).await.map_err(Into::into),
-                    Err(e) => Err(e),
-                };
-                match res {
-                    Ok(()) => info!("Dropped scratch database {}", self.db_name),
-                    Err(e) => warn!("Failed to drop scratch database {}: {e:?}", self.db_name),
-                }
             }
+            return;
+        }
+
+        // WITH (FORCE) drops any stray connections still open
+        let drop_db = format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", self.db_name);
+        let res = match connect(&self.admin_config).await {
+            Ok(admin) => admin.batch_execute(&drop_db).await.map_err(Into::into),
+            Err(e) => Err(e),
+        };
+        match res {
+            Ok(()) => info!("Dropped scratch database {}", self.db_name),
+            Err(e) => warn!("Failed to drop scratch database {}: {e:?}", self.db_name),
         }
     }
 }

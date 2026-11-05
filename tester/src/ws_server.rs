@@ -25,6 +25,8 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_util::future::FutureExt as _;
 use tokio_util::sync::CancellationToken;
 
+use crate::monitor::{Activity, Connection, Monitor};
+
 type WsWrite = SplitSink<WebSocketStream<TcpStream>, Message>;
 
 #[derive(Debug, Clone)]
@@ -94,6 +96,7 @@ pub struct FakeSlackServer {
 
 struct Session {
     control: mpsc::UnboundedReceiver<Control>,
+    monitor: Monitor,
     // Events waiting for a connected bot
     pending: VecDeque<Value>,
     refresh: Option<Interval>,
@@ -110,7 +113,11 @@ enum Outcome {
 impl FakeSlackServer {
     // Bind is done up front so the server is ready to accept as soon as this returns.
     // Use port 0 (ie `127.0.0.1:0`) to pick a free port, then check `ServerHandle::url`.
-    pub async fn bind(addr: &str, config: ServerConfig) -> AResult<(Self, ServerHandle)> {
+    pub async fn bind(
+        addr: &str,
+        config: ServerConfig,
+        monitor: Monitor,
+    ) -> AResult<(Self, ServerHandle)> {
         let listener = TcpListener::bind(addr)
             .await
             .with_context(|| format!("Failed to bind fake slack websocket server to {addr}"))?;
@@ -128,6 +135,7 @@ impl FakeSlackServer {
             addr,
             session: Session {
                 control: rx,
+                monitor,
                 pending: VecDeque::new(),
                 refresh,
                 duplicate_events: config.duplicate_events,
@@ -150,9 +158,17 @@ impl FakeSlackServer {
         info!("Slack Websocket - server listening on ws://{addr}");
 
         loop {
+            session
+                .monitor
+                .report(Activity::Connection(session.idle_state()));
             let outcome = match session.accept(&listener, &watcher).await {
                 Ok(ws) => {
                     info!("Slack Websocket - server established");
+                    if !session.crash_loop {
+                        session
+                            .monitor
+                            .report(Activity::Connection(Connection::Connected));
+                    }
                     session.serve(ws, &watcher).await
                 }
                 Err(outcome) => outcome,
@@ -165,6 +181,9 @@ impl FakeSlackServer {
                     info!("Slack Websocket - server disconnecting for: {durt:?}");
                     // Stop listening entirely so reconnect attempts get refused
                     drop(listener);
+                    session
+                        .monitor
+                        .report(Activity::Connection(Connection::NetDown));
                     if !session.idle(durt, &watcher).await {
                         break;
                     }
@@ -175,11 +194,22 @@ impl FakeSlackServer {
                 }
             }
         }
+        session
+            .monitor
+            .report(Activity::Connection(Connection::Stopped));
         info!("Slack Websocket - server exiting");
     }
 }
 
 impl Session {
+    const fn idle_state(&self) -> Connection {
+        if self.crash_loop {
+            Connection::CrashLoop
+        } else {
+            Connection::Waiting
+        }
+    }
+
     async fn accept(
         &mut self,
         listener: &TcpListener,
@@ -240,12 +270,17 @@ impl Session {
                     self.pending.len() + 1
                 );
                 self.pending.push_back(event);
+                self.monitor.report(Activity::Queued {
+                    pending: self.pending.len(),
+                });
                 None
             }
             Control::NetDisconnect(durt) => Some(Outcome::NetDown(durt)),
             Control::CrashLoop => {
                 info!("Forced Crash tester");
                 self.crash_loop = true;
+                self.monitor
+                    .report(Activity::Connection(Connection::CrashLoop));
                 None
             }
         }
@@ -265,7 +300,7 @@ impl Session {
         }
 
         if self.crash_loop {
-            return refresh(&mut write, watcher).await;
+            return self.refresh(&mut write, watcher).await;
         }
 
         if let Some(refresh) = &mut self.refresh {
@@ -286,7 +321,7 @@ impl Session {
                 ws_msg = read.next() => match ws_msg {
                     // TODO: validate acknowledgements ({"envelope_id": ...}) and resend
                     // events that weren't acked after a delay
-                    Some(Ok(Message::Text(msg))) => info!("Client message: {msg:?}"),
+                    Some(Ok(Message::Text(msg))) => self.client_message(&msg),
                     Some(Ok(Message::Ping(x))) => {
                         debug!("Client Ping: {x:?}");
                         if send(&mut write, Message::Pong(x)).await.is_err() {
@@ -320,27 +355,50 @@ impl Session {
                     Control::CrashLoop => {
                         info!("Forced Crash tester");
                         self.crash_loop = true;
-                        return refresh(&mut write, watcher).await;
+                        return self.refresh(&mut write, watcher).await;
                     }
                 },
 
                 () = tick(&mut self.refresh) => {
                     info!("Periodic Reconnect tester");
-                    return refresh(&mut write, watcher).await;
+                    return self.refresh(&mut write, watcher).await;
                 }
             }
         }
     }
 
     async fn deliver(&self, write: &mut WsWrite, event: Value) -> Result<(), Value> {
-        let envelope = envelope(&event);
-        info!("Sending to bot: {envelope}");
+        let envelope_id = generate(12, charsets::ALPHANUMERIC);
+        let envelope = envelope(&envelope_id, &event);
+        debug!("Sending to bot: {envelope}");
         send(write, &envelope).await.map_err(|()| event.clone())?;
         if self.duplicate_events {
             // The original was delivered, so don't requeue on a failed duplicate
             let _ = send(write, &envelope).await;
         }
+        self.monitor
+            .report(Activity::EventSent { envelope_id, event });
         Ok(())
+    }
+
+    fn client_message(&self, msg: &str) {
+        let ack = serde_json::from_str::<Value>(msg).ok().and_then(|v| {
+            v.get("envelope_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
+        match ack {
+            Some(envelope_id) => {
+                debug!("Client ack: {envelope_id}");
+                self.monitor.report(Activity::Acked { envelope_id });
+            }
+            None => warn!("Unexpected client message: {msg:?}"),
+        }
+    }
+
+    async fn refresh(&self, write: &mut WsWrite, watcher: &CancellationToken) -> Outcome {
+        self.monitor.report(Activity::RefreshRequested);
+        refresh(write, watcher).await
     }
 }
 
@@ -377,10 +435,10 @@ async fn refresh(write: &mut WsWrite, watcher: &CancellationToken) -> Outcome {
     }
 }
 
-fn envelope(event: &Value) -> Value {
+fn envelope(envelope_id: &str, event: &Value) -> Value {
     json!({
         "type": "events_api",
-        "envelope_id": generate(12, charsets::ALPHANUMERIC),
+        "envelope_id": envelope_id,
         "payload": {
             "type": "event_callback",
             "event_id": generate(12, charsets::ALPHANUMERIC),

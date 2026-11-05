@@ -6,7 +6,7 @@ use anyhow::bail;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 
-use karmator_tester::{Harness, ServerConfig, events};
+use karmator_tester::{Harness, HarnessConfig, ServerConfig, events};
 
 async fn votes(harness: &Harness) -> AResult<i64> {
     let client = harness.pool().get().await?;
@@ -55,9 +55,12 @@ async fn karma_survives_reconnect_and_truncate() -> AResult<()> {
 
 async fn start() -> AResult<(CancellationToken, Harness)> {
     let watcher = CancellationToken::new();
-    let config = ServerConfig {
-        refresh_interval: None,
-        ..ServerConfig::default()
+    let config = HarnessConfig {
+        server: ServerConfig {
+            refresh_interval: None,
+            ..ServerConfig::default()
+        },
+        ..HarnessConfig::default()
     };
     Ok((watcher.clone(), Harness::start(watcher, config).await?))
 }
