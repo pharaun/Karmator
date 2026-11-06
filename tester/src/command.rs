@@ -19,8 +19,7 @@ pub struct Spec {
 
 #[rustfmt::skip]
 pub const COMMANDS: &[Spec] = &[
-    Spec { name: "help", args: "", help: "this help" },
-    Spec { name: "send", args: "<text>", help: "send a message to the bot" },
+    Spec { name: "help", args: "[command]", help: "list commands, or show usage for one" },
     Spec { name: "spam", args: "<count> <text>", help: "send the message <count> times" },
     Spec { name: "addReacji", args: "<name>", help: "send a reaction_added event" },
     Spec { name: "delReacji", args: "<name>", help: "send a reaction_removed event" },
@@ -34,25 +33,70 @@ pub const COMMANDS: &[Spec] = &[
     Spec { name: "quit", args: "", help: "exit" },
 ];
 
-pub fn help() -> String {
-    COMMANDS
-        .iter()
-        .map(|c| format!("{:<28} - {}", format!("{} {}", c.name, c.args), c.help))
-        .collect::<Vec<_>>()
-        .join("\n")
+pub const SIGIL: char = '/';
+
+pub fn help(command: Option<&str>) -> AResult<String> {
+    let Some(name) = command else {
+        let names: Vec<_> = COMMANDS.iter().map(|c| format!("{SIGIL}{}", c.name)).collect();
+        return Ok(format!(
+            "{} · {SIGIL}help <command> for usage",
+            names.join(" ")
+        ));
+    };
+    let name = name.trim_start_matches(SIGIL);
+    let Some(c) = spec(name) else {
+        bail!("unknown command {SIGIL}{name}");
+    };
+    Ok(format!("{SIGIL}{} {} - {}", c.name, c.args, c.help).replace("  ", " "))
 }
 
-pub fn complete(prefix: &str) -> impl Iterator<Item = &'static str> + '_ {
+fn spec(name: &str) -> Option<&'static Spec> {
+    COMMANDS.iter().find(|c| c.name == name)
+}
+
+pub fn hint(line: &str) -> Option<String> {
+    let rest = line.strip_prefix(SIGIL)?;
+    let (name, args) = rest.split_once(' ').unwrap_or((rest, ""));
+    let spec = spec(name)?;
+
+    // A word still being typed counts as filled in
+    let filled = args.split_whitespace().count();
+    let remaining: Vec<_> = spec.args.split_whitespace().skip(filled).collect();
+    if remaining.is_empty() {
+        return None;
+    }
+    let sep = if line.ends_with(' ') { "" } else { " " };
+    Some(format!("{sep}{}", remaining.join(" ")))
+}
+
+pub fn complete(line: &str) -> Option<String> {
+    let prefix = line.strip_prefix(SIGIL)?;
+    if prefix.contains(' ') || prefix.starts_with(SIGIL) {
+        return None;
+    }
+    let mut matches = COMMANDS.iter().filter(|c| c.name.starts_with(prefix));
+    match (matches.next(), matches.next()) {
+        (Some(c), None) => Some(format!("{SIGIL}{} ", c.name)),
+        _ => None,
+    }
+}
+
+pub fn suggest(name: &str) -> Vec<&'static str> {
+    let name = name.to_lowercase();
     COMMANDS
         .iter()
         .map(|c| c.name)
-        .filter(move |n| n.starts_with(prefix))
+        .filter(|n| {
+            let n = n.to_lowercase();
+            !name.is_empty() && (n.starts_with(&name) || name.starts_with(&n))
+        })
+        .collect()
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
-    Help,
-    Send(String),
+    Message(String),
+    Help(Option<String>),
     Spam(u64, String),
     AddReacji(String),
     DelReacji(String),
@@ -69,16 +113,19 @@ pub enum Command {
 impl FromStr for Command {
     type Err = anyhow::Error;
 
-    // Text arguments are taken verbatim (rest of the line) so karma syntax like
-    // `send "foo bar"++` reaches the bot exactly as typed.
     fn from_str(line: &str) -> AResult<Self> {
+        let Some(line) = line.strip_prefix(SIGIL) else {
+            return Ok(Self::Message(line.to_owned()));
+        };
+        if line.starts_with(SIGIL) {
+            return Ok(Self::Message(line.to_owned()));
+        }
         let line = line.trim();
         let (cmd, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
         let rest = rest.trim_start();
 
         Ok(match cmd {
-            "help" | "?" => Self::Help,
-            "send" => Self::Send(rest.to_owned()),
+            "help" | "?" => Self::Help(rest.split_whitespace().next().map(str::to_owned)),
             "spam" => {
                 let (count, text) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
                 let count = count.parse().context("usage: spam <count> <text>")?;
@@ -109,7 +156,10 @@ impl FromStr for Command {
             "reset" => Self::Reset,
             "db" => Self::Db,
             "quit" | "exit" => Self::Quit,
-            other => bail!("Command not found: {other:?} (try help)"),
+            other => match suggest(other).as_slice() {
+                [] => bail!("unknown command {SIGIL}{other} (try {SIGIL}help)"),
+                m => bail!("unknown command {SIGIL}{other}, did you mean: {SIGIL}{}", m.join(", /")),
+            },
         })
     }
 }
@@ -125,8 +175,8 @@ impl Command {
         let server = &harness.server;
         let mut out = String::new();
         match self {
-            Self::Help => out.push_str(&help()),
-            Self::Send(text) => server.send_event(events::message(&text))?,
+            Self::Message(text) => server.send_event(events::message(&text))?,
+            Self::Help(command) => out.push_str(&help(command.as_deref())?),
             Self::Spam(count, text) => {
                 let event = events::message(&text);
                 for _ in 0..count {
@@ -140,8 +190,6 @@ impl Command {
                 server.net_disconnect(durt)?;
             }
             Self::Crash => {
-                // During a normal failure the quota usually won't kick in. However
-                // this isto specifically test a slack crash-loop to force test the quota
                 out.push_str("Triggering a slack crashloop");
                 server.crash_loop()?;
             }
@@ -176,61 +224,92 @@ impl Command {
 mod tests {
     use super::*;
 
+    fn parse(line: &str) -> Command {
+        line.parse().unwrap()
+    }
+
     #[test]
-    fn text_is_verbatim() {
+    fn plain_text_is_verbatim_message() {
         assert_eq!(
-            "send   \"foo bar\"++  baz".parse::<Command>().unwrap(),
-            Command::Send("\"foo bar\"++  baz".to_owned())
+            parse("  \"foo bar\"++  baz"),
+            Command::Message("  \"foo bar\"++  baz".to_owned())
         );
+        assert_eq!(parse("!karma foo"), Command::Message("!karma foo".to_owned()));
+        assert_eq!(parse("//tmp"), Command::Message("/tmp".to_owned()));
     }
 
     #[test]
     fn spam() {
-        assert_eq!(
-            "spam 3 a++".parse::<Command>().unwrap(),
-            Command::Spam(3, "a++".to_owned())
-        );
-        assert!("spam".parse::<Command>().is_err());
-        assert!("spam x a++".parse::<Command>().is_err());
+        assert_eq!(parse("/spam 3 a++"), Command::Spam(3, "a++".to_owned()));
+        assert!("/spam".parse::<Command>().is_err());
+        assert!("/spam x a++".parse::<Command>().is_err());
     }
 
     #[test]
     fn reconnect() {
-        assert_eq!(
-            "reconnect".parse::<Command>().unwrap(),
-            Command::Reconnect(Duration::from_secs(1))
-        );
-        assert_eq!(
-            "reconnect 5".parse::<Command>().unwrap(),
-            Command::Reconnect(Duration::from_secs(5))
-        );
-        assert!("reconnect abc".parse::<Command>().is_err());
+        assert_eq!(parse("/reconnect"), Command::Reconnect(Duration::from_secs(1)));
+        assert_eq!(parse("/reconnect 5"), Command::Reconnect(Duration::from_secs(5)));
+        assert!("/reconnect abc".parse::<Command>().is_err());
     }
 
     #[test]
     fn log() {
-        assert_eq!("log".parse::<Command>().unwrap(), Command::Log(None, None));
+        assert_eq!(parse("/log"), Command::Log(None, None));
         assert_eq!(
-            "log debug kcore".parse::<Command>().unwrap(),
+            parse("/log debug kcore"),
             Command::Log(Some(LevelFilter::Debug), Some("kcore".to_owned()))
         );
-        assert!("log loud".parse::<Command>().is_err());
+        assert!("/log loud".parse::<Command>().is_err());
     }
 
     #[test]
-    fn help_and_completion_cover_parser() {
+    fn every_spec_parses() {
         for spec in COMMANDS {
+            let res = format!("/{}", spec.name).parse::<Command>();
             assert!(
-                !matches!(spec.name.parse::<Command>(), Err(e) if e.to_string().contains("not found")),
+                !matches!(res, Err(e) if e.to_string().contains("unknown")),
                 "{} in COMMANDS but not parsed",
                 spec.name
             );
         }
-        assert_eq!(complete("re").collect::<Vec<_>>(), ["reconnect", "reset"]);
     }
 
     #[test]
-    fn unknown() {
-        assert!("nope".parse::<Command>().is_err());
+    fn help_usage() {
+        assert_eq!(parse("/help"), Command::Help(None));
+        assert_eq!(parse("/help spam"), Command::Help(Some("spam".to_owned())));
+        assert!(help(None).unwrap().contains("/spam /addReacji"));
+        assert_eq!(
+            help(Some("/spam")).unwrap(),
+            "/spam <count> <text> - send the message <count> times"
+        );
+        assert_eq!(help(Some("crash")).unwrap(), "/crash - put the websocket server into a slack crashloop");
+        assert!(help(Some("nope")).is_err());
+    }
+
+    #[test]
+    fn unknown_suggests() {
+        let err = "/sp".parse::<Command>().unwrap_err().to_string();
+        assert!(err.contains("did you mean: /spam"), "{err}");
+    }
+
+    #[test]
+    fn hints() {
+        assert_eq!(hint("/spam").as_deref(), Some(" <count> <text>"));
+        assert_eq!(hint("/spam ").as_deref(), Some("<count> <text>"));
+        assert_eq!(hint("/spam 1").as_deref(), Some(" <text>"));
+        assert_eq!(hint("/spam 1 ").as_deref(), Some("<text>"));
+        assert_eq!(hint("/spam 1 foo"), None);
+        assert_eq!(hint("/crash"), None);
+        assert_eq!(hint("/nope"), None);
+        assert_eq!(hint("spam"), None);
+    }
+
+    #[test]
+    fn completion() {
+        assert_eq!(complete("/sp").as_deref(), Some("/spam "));
+        assert_eq!(complete("/re"), None);
+        assert_eq!(complete("/spam 1"), None);
+        assert_eq!(complete("sp"), None);
     }
 }

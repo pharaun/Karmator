@@ -46,6 +46,16 @@ struct Filters {
 }
 
 impl Filters {
+    fn new(default: LevelFilter) -> Self {
+        Self {
+            default,
+            targets: NOISY
+                .iter()
+                .map(|t| ((*t).to_owned(), LevelFilter::Warn))
+                .collect(),
+        }
+    }
+
     fn level_for(&self, target: &str) -> LevelFilter {
         self.targets
             .iter()
@@ -73,6 +83,12 @@ pub struct LogControl {
 }
 
 impl LogControl {
+    pub fn new(default: LevelFilter) -> Self {
+        Self {
+            filters: Arc::new(RwLock::new(Filters::new(default))),
+        }
+    }
+
     pub fn set_default(&self, level: LevelFilter) {
         self.update(|f| f.default = level);
     }
@@ -91,6 +107,21 @@ impl LogControl {
         targets.sort();
         for (t, l) in targets {
             out.push_str(&format!(", {t}: {l}"));
+        }
+        out
+    }
+
+    pub fn summary(&self) -> String {
+        let f = self.filters.read().unwrap_or_else(PoisonError::into_inner);
+        let mut out = f.default.to_string().to_lowercase();
+        let mut targets: Vec<_> = f
+            .targets
+            .iter()
+            .filter(|(t, l)| !(NOISY.contains(&t.as_str()) && *l == LevelFilter::Warn))
+            .collect();
+        targets.sort();
+        for (t, l) in targets {
+            out.push_str(&format!(" · {t}={}", l.to_string().to_lowercase()));
         }
         out
     }
@@ -130,13 +161,7 @@ impl Log for ChannelLogger {
 static CONTROL: OnceLock<LogControl> = OnceLock::new();
 
 pub fn init(default: LevelFilter) -> AResult<(LogControl, mpsc::UnboundedReceiver<LogLine>)> {
-    let filters = Arc::new(RwLock::new(Filters {
-        default,
-        targets: NOISY
-            .iter()
-            .map(|t| ((*t).to_owned(), LevelFilter::Warn))
-            .collect(),
-    }));
+    let filters = Arc::new(RwLock::new(Filters::new(default)));
     let (tx, rx) = mpsc::unbounded_channel();
     log::set_boxed_logger(Box::new(ChannelLogger {
         filters: Arc::clone(&filters),
